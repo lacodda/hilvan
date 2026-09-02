@@ -1,0 +1,42 @@
+[package]
+name = "hilvan"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.94"
+description = "A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know"
+license = "MIT"
+repository = "https://github.com/lacodda/hilvan"
+homepage = "https://github.com/lacodda/hilvan"
+readme = "README.md"
+keywords = ["language-learning", "spaced-repetition", "grammar", "self-hosted", "tts"]
+categories = ["web-programming::http-server"]
+authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
+# Not published to crates.io: the product is a container image and a compose
+# file. Kept anyway so `cargo package` stays honest about what the crate is.
+publish = false
+exclude = ["docs/", "web/", ".github/", "cliff.toml", "rustfmt.toml"]
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+clap = { version = "4.6.6", features = ["derive"] }
+dotenvy = "0.15.7"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "migrate"] }
+tokio = { version = "1.53.1", features = ["full"] }
+tower-http = { version = "0.7.0", features = ["fs", "trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tempfile = "3.27.0"
+tower = { version = "0.5.3", features = ["util"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

@@ -1,0 +1,10 @@
+# One line ending in the repository, whatever the checkout platform: a script
+# or an editor touching a CRLF file otherwise rewrites it whole, turning a
+# two-line change into a whole-file diff.
+* text=auto eol=lf
+
+# Binary assets are left alone: a byte in an image is not a line ending.
+*.png binary
+*.jpg binary
+*.ico binary
+*.svg text eol=lf

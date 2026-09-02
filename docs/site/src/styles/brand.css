@@ -1,0 +1,20 @@
+/* replaced by the product colour from brand-line */
+:root {
+	--sl-color-accent: #888888;
+	--sl-color-accent-high: #cccccc;
+	--sl-color-accent-low: #2b2b2b;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent: #6e6e6e;
+	--sl-color-accent-high: #3a3a3a;
+	--sl-color-accent-low: #e8e8e8;
+}
+
+.hero h1 {
+	letter-spacing: -0.02em;
+}
+
+.hero .tagline {
+	max-width: 44ch;
+}

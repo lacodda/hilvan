@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+/*
+ * The theme is dowel's: the token vocabulary of the lacodda line, in dark and
+ * light, with everything worked out from one accent colour. What is left in
+ * this file is what belongs to a tutor app rather than to the line.
+ */
+@import 'dowel-ui/theme.css';
+
+/*
+ * The accent is stated here rather than imported from `dowel-ui/accents/`,
+ * because the line's registry does not carry hilvan yet. When it does, this
+ * block becomes one import. Neutral grey until then, replaced by the
+ * product colour from brand-line.
+ */
+:root {
+  --accent-base: #888888;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

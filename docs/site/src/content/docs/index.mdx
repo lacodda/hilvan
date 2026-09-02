@@ -1,0 +1,46 @@
+---
+title: A self-hosted language tutor
+description: A self-hosted language tutor - grammar formulas, spaced repetition and audio lessons compiled from what you already know, on a Raspberry Pi at home.
+template: splash
+# The hero carries the product name; repeating it as the page title renders as
+# "hilvan | hilvan" in the browser tab and in search results.
+head:
+  - tag: title
+    content: hilvan - a self-hosted language tutor
+hero:
+  tagline: A self-hosted language tutor - grammar formulas, spaced repetition and audio lessons compiled from what you already know.
+  actions:
+    - text: Get started
+      link: /hilvan/getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/lacodda/hilvan
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+
+<Aside type="caution" title="Foundation stage">
+This is the v0.0.0 foundation: the server, the app shell and the release rails stand, and the architecture is recorded. The learner model, formulas, repetition and lessons are what the next releases build.
+</Aside>
+
+## What hilvan is
+
+<CardGrid stagger>
+	<Card title="Formulas first" icon="document">
+		Grammar is drilled as formulas by substitution - the same pattern, different words - so production practice starts on structures you can already half-manage.
+	</Card>
+	<Card title="Repetition that measures" icon="star">
+		Spaced repetition (FSRS) decides what to review and when, and a reader measures how much of a real text you already know - coverage as the honest progress metric.
+	</Card>
+	<Card title="Material compiled for you" icon="rocket">
+		An LLM compiles sentences and audio lessons from your own learner model - known formulas and words - and a TTS provider voices them. A compiler, not a chatbot.
+	</Card>
+</CardGrid>
+
+## Where to go next
+
+- [Getting started](/hilvan/getting-started/) - run the server and the app locally.
+- [Running on a Raspberry Pi](/hilvan/guides/running-on-a-pi/) - the stand, with Docker Compose.
+- [How hilvan teaches](/hilvan/concepts/how-hilvan-teaches/) - the three mechanisms behind it.

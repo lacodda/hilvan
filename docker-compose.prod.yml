@@ -1,0 +1,26 @@
+# The stand: the server and nothing else listening.
+#
+# One process serves the API and the tutor app; the database is a file in
+# the `data` volume, and a backup is a copy of it.
+#
+# Settings come from a .env file next to this one, which is never committed:
+#
+#   HILVAN_PORT=8086   # the stand's address
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      RUST_LOG: ${RUST_LOG:-hilvan=info,tower_http=info}
+    ports:
+      # 8086 on the host: the other services on this machine hold the ports
+      # below it. The port is the stand's address, so it is not a default to
+      # change lightly.
+      - "${HILVAN_PORT:-8086}:8086"
+    volumes:
+      - data:/data
+
+volumes:
+  data:

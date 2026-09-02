@@ -1,0 +1,20 @@
+# Development: the server in a container.
+#
+# There is no database service - the database is a file (ADR 0001), and it
+# lives in the `data` volume. Most development runs `cargo run -- serve` on
+# the host instead and never touches this file; it exists so the image can be
+# tried the way the stand runs it, without a Pi.
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      RUST_LOG: ${RUST_LOG:-hilvan=debug,tower_http=info}
+    ports:
+      - "${HILVAN_PORT:-8086}:8086"
+    volumes:
+      - data:/data
+
+volumes:
+  data:
