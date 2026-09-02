@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/lacodda/hilvan/main/assets/banner.svg" alt="hilvan" width="720"></p>
+
 # hilvan
 
 [![CI](https://github.com/lacodda/hilvan/actions/workflows/ci.yml/badge.svg)](https://github.com/lacodda/hilvan/actions/workflows/ci.yml)

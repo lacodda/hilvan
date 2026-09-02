@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <!-- Placeholder mark until the line's identity for hilvan is registered:
-       a hex tile in the product's provisional accent, with its two-letter code. -->
-  <polygon points="32,3 58,17.5 58,46.5 32,61 6,46.5 6,17.5" fill="#888888"/>
-  <text x="32" y="41" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700" fill="#131316">hv</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 100 100"><polygon points="50,5 89,27.5 89,72.5 50,95 11,72.5 11,27.5" fill="#D64550" stroke="#D64550" stroke-width="9" stroke-linejoin="round"/><text x="50" y="66" text-anchor="middle" font-family='"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace' font-weight="800" font-size="46" fill="#F7F8F4">hv</text></svg>

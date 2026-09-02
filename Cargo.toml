@@ -14,7 +14,17 @@ authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
 # Not published to crates.io: the product is a container image and a compose
 # file. Kept anyway so `cargo package` stays honest about what the crate is.
 publish = false
-exclude = ["docs/", "web/", ".github/", "cliff.toml", "rustfmt.toml"]
+exclude = [
+    "docs/",
+    "web/",
+    ".github/",
+    "cliff.toml",
+    "rustfmt.toml",
+    "assets/social-preview.png",
+    "assets/logo-512.png",
+    "assets/apple-touch-icon.png",
+    "assets/favicon-32.png",
+]
 
 [dependencies]
 anyhow = "1.0.104"

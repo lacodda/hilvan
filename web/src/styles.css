@@ -9,12 +9,12 @@
 
 /*
  * The accent is stated here rather than imported from `dowel-ui/accents/`,
- * because the line's registry does not carry hilvan yet. When it does, this
- * block becomes one import. Neutral grey until then, replaced by the
- * product colour from brand-line.
+ * because dowel-ui does not carry a hilvan accent yet. When it does, this
+ * block becomes one import. Crimson is the product colour hilvan holds in
+ * the line's brand registry.
  */
 :root {
-  --accent-base: #888888;
+  --accent-base: #d64550;
 }
 
 body {
