@@ -2,7 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-03
+
+### Documentation
+- Describe forms, directions and pace, and bump to 0.2.0
+
+### Features
+- Schedule each formula in both directions and group its forms
+- Put the three forms on one card and drill both directions
+
 
 ## [0.1.2] - 2026-09-03
 
