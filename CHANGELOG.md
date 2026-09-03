@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-03
+
+### Bug Fixes
+- Keep the password as a hash and sessions in the database
+
+
 ## [0.1.0] - 2026-09-03
 
 ### Dependencies
