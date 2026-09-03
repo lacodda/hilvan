@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1] - 2026-09-03
+
+### Bug Fixes
+- Wear the product mark and set the screens at a readable size
+
+
 ## [0.2.0] - 2026-09-03
 
 ### Documentation
