@@ -41,6 +41,10 @@ WORKDIR /app
 
 COPY --from=server /src/target/release/hilvan /usr/local/bin/hilvan
 COPY --from=web /web/dist /app/web
+# The formula packs travel with the image: `hilvan load-pack` is run inside
+# the container, and material the tutor teaches from is part of the product,
+# not something to copy onto the stand by hand.
+COPY packs/ /app/packs
 
 # The one volume: the database, which is the only thing written. It has to
 # exist in the image and be owned by the runtime user - Docker copies

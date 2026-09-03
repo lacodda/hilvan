@@ -3,7 +3,7 @@ title: Getting started
 description: Run hilvan locally - the server over a SQLite file, the tutor app, and this documentation site.
 ---
 
-hilvan is one process: a Rust server over a SQLite file, serving a JSON API and a React app. At v0.0.0 there is no learner model yet - no formulas, no repetition, no lessons - so "getting started" means running the pieces on your own machine and seeing them answer. This is the honest state of the skeleton: it builds, lints and ships a container, and that is all it does so far.
+hilvan is one process: a Rust server over a SQLite file, serving a JSON API and a React app. As of v0.1.0 there is a learner model - formulas, spaced repetition, the daily drill - but no material of its own until you load a pack, and no lessons or audio yet.
 
 ## What you need
 
@@ -30,6 +30,16 @@ curl http://127.0.0.1:8086/api/health
 {"status":"ok","version":"0.0.0"}
 ```
 
+## Loading a pack
+
+The server has no material until you load one. `packs/en-from-ru/pack.toml` ships with the repository - 30 English formulas for a Russian speaker - and loading it is idempotent, so it is safe to run again:
+
+```sh
+cargo run -- load-pack packs/en-from-ru/pack.toml
+```
+
+See [Formula packs](/hilvan/reference/packs/) for the file format and what loading a changed pack does.
+
 ## The app
 
 ```sh
@@ -48,11 +58,13 @@ pnpm install
 pnpm dev
 ```
 
-## First login
+## Signing in
 
-There is no login yet: the skeleton has no accounts and no password. A single learner is assumed throughout, and whatever gate the product ends up needing arrives with the feature that needs it, not ahead of it.
+There are no accounts - hilvan serves one learner. Set `HILVAN_PASSWORD` and the study endpoints ask for it once, with a session that lasts 30 days; leave it unset and the stand is open, which is the default and what a developer's machine wants. See [Configuration](/hilvan/reference/configuration/#the-password).
 
 ## Next
 
+- [Your first week](/hilvan/guides/your-first-week/) - loading the pack, signing in, and what a sitting looks like.
 - [Running on a Raspberry Pi](/hilvan/guides/running-on-a-pi/) - the stand.
 - [Configuration](/hilvan/reference/configuration/) - every variable the server reads.
+- [HTTP API](/hilvan/reference/api/) - every endpoint under `/api`.
