@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 
-import { api, type Due, type Form, type Formula, type Rating, type Reviewed, type Stitch } from '@/api'
+import { api, type Due, type Formula, type Rating, type Reviewed, type Stitch } from '@/api'
 import { Shell } from '@/App'
-import { ask, instruction, ladder, nextPrompt, paceLine, ratings, seconds, whenBack, type Prompt } from '@/prompts'
+import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, ratings, seconds, tabs, whenBack, type Prompt } from '@/prompts'
 
 /** How many turns one formula gets before the learner grades it. */
 const TURNS = 4
@@ -12,13 +12,6 @@ type Phase =
   | { kind: 'laddering' }
   | { kind: 'grading' }
   | { kind: 'graded'; reviewed: Reviewed }
-
-/** The word shown on each tab of the switch. */
-const formLabels: Record<Form, string> = {
-  statement: 'I am',
-  negation: 'I am not',
-  question: 'Am I?',
-}
 
 /**
  * One formula, drilled.
@@ -44,9 +37,11 @@ export function Drill({
   onAnswered: () => void
   onLeave: () => void
 }) {
-  // The formula on screen can be a sister the learner switched to. The one in
-  // the queue is what gets graded, so the two are held apart: switching is
-  // for seeing the shape from another side, not for changing what is due.
+  // The formula being drilled. It starts as the one the queue offered and
+  // becomes whichever sister the learner switches to: what is on screen is
+  // what gets graded, always. A card that showed one form and graded another
+  // would need a sentence of explanation, and a drill that needs explaining
+  // on every turn is a drill with a design problem.
   const [shown, setShown] = useState<Formula>(due.formula)
   const [switching, setSwitching] = useState(false)
 
@@ -64,7 +59,6 @@ export function Drill({
   startedAt.current ??= Date.now()
 
   const rungs = ladder(shown)
-  const isDrilled = shown.id === due.formula.id
 
   const ask_ = (turn: number) =>
     setPhase({ kind: 'asking', turn, prompt: nextPrompt(shown, turn, Math.random), revealed: false })
@@ -77,6 +71,9 @@ export function Drill({
       .then((formula) => {
         setShown(formula)
         setPhase({ kind: 'asking', turn: 0, prompt: nextPrompt(formula, 0, Math.random), revealed: false })
+        // The clock starts over: how long this form took must not include the
+        // time spent on the one before it.
+        startedAt.current = Date.now()
       })
       // A switch that fails leaves the drill where it was, which is a working
       // drill: the learner loses a look at another form, not their sitting.
@@ -89,13 +86,15 @@ export function Drill({
       setPhase({ kind: 'grading' })
       const took = startedAt.current === null ? null : Date.now() - startedAt.current
       void api
-        .review(due.formula.id, rating, due.direction, took)
+        // `shown`, not the queue's formula: the learner grades what they were
+        // just asked, which is the form on screen.
+        .review(shown.id, rating, due.direction, took)
         .then((reviewed) => setPhase({ kind: 'graded', reviewed }))
         // A failed save is not worth stranding the learner mid-sitting: the
         // queue is re-read from the server on the way out anyway.
         .catch(() => onAnswered())
     },
-    [due.formula.id, due.direction, onAnswered],
+    [shown.id, due.direction, onAnswered],
   )
 
   const question = phase.kind === 'asking' ? ask(phase.prompt, due.direction) : null
@@ -112,16 +111,10 @@ export function Drill({
         </span>
       </header>
 
-      <Forms formula={shown} due={due.formula} busy={switching} onSwitch={switchTo} />
+      <Forms formula={shown} busy={switching} onSwitch={switchTo} />
 
       {due.direction === 'recognise' && (
         <p className="text-[0.6875rem] tracking-caption text-faint uppercase">Understanding - what does it mean?</p>
-      )}
-
-      {!isDrilled && (
-        <p className="text-[0.8125rem] text-faint">
-          Looking at another form. {due.formula.name} is the one being graded.
-        </p>
       )}
 
       {explaining && (
@@ -282,27 +275,20 @@ export function Drill({
  */
 function Forms({
   formula,
-  due,
   busy,
   onSwitch,
 }: {
   formula: Formula
-  due: Formula
   busy: boolean
   onSwitch: (id: string) => void
 }) {
-  // The tabs are the formula on screen plus its sisters, drawn in the pack's
-  // own order rather than the enum's.
-  const tabs = [...(due.sisters ?? []), { id: due.id, form: due.form, name: due.name, pattern: due.pattern, stitch: null }]
-    .filter((tab): tab is { id: string; form: Form; name: string; pattern: string; stitch: Stitch | null } => tab.form !== null)
-    .sort((a, b) => order(a.form) - order(b.form))
-
-  if (tabs.length < 2) return null
+  const switches = tabs(formula)
+  if (switches.length === 0) return null
 
   return (
     <nav className="flex gap-1" aria-label="Forms of this shape">
-      {tabs.map((tab) => {
-        const current = tab.id === formula.id
+      {switches.map((tab) => {
+        const current = tab.current
         return (
           <button
             key={tab.id}
@@ -321,11 +307,6 @@ function Forms({
       })}
     </nav>
   )
-}
-
-/** Statement, negation, question: the order they are learnt in. */
-function order(form: Form): number {
-  return { statement: 0, negation: 1, question: 2 }[form]
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Formula } from '@/api'
-import { ask, instruction, ladder, nextPrompt, paceLine, seconds, substitute, whenBack } from '@/prompts'
+import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, seconds, substitute, tabs, whenBack } from '@/prompts'
 
 const formula: Formula = {
   id: 'be-present',
@@ -182,5 +182,56 @@ describe('pace', () => {
     expect(paceLine({ typical_ms: 4000, last_ms: 4200, answers: 5 })).toBe('4.2s, about your usual')
     expect(paceLine({ typical_ms: 4000, last_ms: 9000, answers: 5 })).toContain('slower')
     expect(paceLine({ typical_ms: 4000, last_ms: 1500, answers: 5 })).toContain('quicker')
+  })
+})
+
+describe('tabs', () => {
+  it('marks the formula on screen as the current one', () => {
+    // The property the switch rests on: the tab marked current is the card
+    // that will be graded. When these two came apart, the card had to
+    // apologise for it in a sentence of its own.
+    const current = tabs(formula).filter((tab) => tab.current)
+    expect(current.map((tab) => tab.id)).toEqual([formula.id])
+  })
+
+  it('follows the formula it is given, not the one the queue offered', () => {
+    // Switching to the question makes the question current - that is what
+    // makes "what is on screen is what is graded" true.
+    const question = {
+      ...formula,
+      id: 'be-present-question',
+      form: 'question' as const,
+      sisters: [
+        { id: 'be-present', form: 'statement' as const, name: 'is', pattern: 'x', stitch: 'sewn' as const },
+        { id: 'be-present-negation', form: 'negation' as const, name: 'not', pattern: 'y', stitch: 'basted' as const },
+      ],
+    }
+    const current = tabs(question).find((tab) => tab.current)
+    expect(current?.id).toBe('be-present-question')
+    expect(current?.form).toBe('question')
+  })
+
+  it('orders the forms the way they are learnt', () => {
+    expect(tabs(formula).map((tab) => tab.form)).toEqual(['statement', 'negation', 'question'])
+  })
+
+  it('shows where each other form stands, and nothing for the current one', () => {
+    const byForm = Object.fromEntries(tabs(formula).map((tab) => [tab.form, tab.stitch]))
+    expect(byForm.statement).toBeNull()
+    expect(byForm.negation).toBe('basted')
+    expect(byForm.question).toBe('new')
+  })
+
+  it('offers no switch for a formula that stands alone', () => {
+    expect(tabs({ ...formula, family: null, form: null, sisters: [] })).toEqual([])
+  })
+
+  it('names the form rather than giving an example of it', () => {
+    // "I am / I am not / Am I?" reads well on be-present and is wrong on
+    // past-simple; a tab that lies about where it leads is worse than a
+    // plain one.
+    for (const label of Object.values(formLabels)) {
+      expect(label).not.toMatch(/\bam\b|\bis\b|\bare\b/i)
+    }
   })
 })

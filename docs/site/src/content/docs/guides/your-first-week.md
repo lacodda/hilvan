@@ -36,7 +36,9 @@ There is no wrong answer to grade yourself on beyond your own honesty - the four
 
 ### The three forms
 
-Above the prompt sits a switch: **I am**, **I am not**, **Am I?** - the statement, the negation and the question of the same shape. The one being graded is the one that was due; the others are one tap away for when you want to see the shape from another side. The small bar under each tab says where that form stands, so an untouched question is visible next to a statement you have sewn.
+Above the prompt sits a switch: **Say it**, **Deny it**, **Ask it** - the statement, the negation and the question of the same shape. Tap one and you drill that form: what is on screen is what gets graded, always. The small bar under each tab says where that form stands, so an untouched question is visible next to a statement you have sewn.
+
+The card the queue offered stays unanswered when you switch away from it, and comes round again - nothing is lost by wandering into the question for a minute.
 
 They are three separate formulas with three separate schedules, because they are learnt separately: the negation with `don't` really is its own thing to remember. The switch is what stops them feeling like three unrelated cards.
 

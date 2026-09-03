@@ -6,7 +6,7 @@
  * point: you learn a formula by assembling it, not by recognising it.
  */
 
-import type { Direction, Formula, Pace, Sample, Slot } from '@/api'
+import type { Direction, Form, Formula, Pace, Sample, Slot, Stitch } from '@/api'
 
 /** One question: a prompt in the learner's language and the answer expected. */
 export interface Prompt {
@@ -142,6 +142,47 @@ export function ladder(formula: Formula): Rung[] {
     }
     return { native: value.native, target }
   })
+}
+
+/** One tab of the switch between the forms of a shape. */
+export interface Tab {
+  id: string
+  form: Form
+  /** Where that form stands. `null` for the form on screen: it is the card
+      being answered, and where it stands is about to change. */
+  stitch: Stitch | null
+  /** Whether this is the form currently being drilled. */
+  current: boolean
+}
+
+/** Statement, negation, question: the order they are learnt in. */
+const FORM_ORDER: Record<Form, number> = { statement: 0, negation: 1, question: 2 }
+
+/**
+ * The tabs of the form switch, for the formula on screen.
+ *
+ * Built from the formula being drilled plus its sisters, so the tab marked
+ * current is always the one whose answer will be graded. Empty when the
+ * formula stands alone - there is nothing to switch between.
+ */
+export function tabs(formula: Formula): Tab[] {
+  const all: { id: string; form: Form | null; stitch: Stitch | null }[] = [
+    ...formula.sisters,
+    { id: formula.id, form: formula.form, stitch: null },
+  ]
+  const found = all
+    .filter((tab): tab is { id: string; form: Form; stitch: Stitch | null } => tab.form !== null)
+    .sort((a, b) => FORM_ORDER[a.form] - FORM_ORDER[b.form])
+    .map((tab) => ({ ...tab, current: tab.id === formula.id }))
+
+  return found.length < 2 ? [] : found
+}
+
+/** The word on each tab: the name of the form, not an example of it. */
+export const formLabels: Record<Form, string> = {
+  statement: 'Say it',
+  negation: 'Deny it',
+  question: 'Ask it',
 }
 
 /** The four answers, in the order they are shown. */
