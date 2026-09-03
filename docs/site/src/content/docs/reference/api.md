@@ -107,15 +107,26 @@ Today's queue: everything due for review, then at most one new formula if the da
             "name": "pronoun",
             "values": [{ "native": "<word in the learner's own language>", "target": "I" }]
           }
+        ],
+        "family": "be-present",
+        "form": "statement",
+        "sisters": [
+          { "id": "be-present-negation", "form": "negation", "name": "...", "pattern": "...", "stitch": "basted" }
         ]
       },
+      "direction": "produce",
       "stitch": "basted",
       "is_new": false,
-      "due": "2026-09-03T09:00:00Z"
+      "due": "2026-09-03T09:00:00Z",
+      "pace": { "typical_ms": 3800, "last_ms": 9100, "answers": 6 }
     }
   ],
   "reviewed_today": 1,
-  "counts": { "new": 24, "basted": 3, "sewn": 2 }
+  "counts": { "new": 24, "basted": 3, "sewn": 2 },
+  "progress": {
+    "produce": { "new": 24, "basted": 3, "sewn": 2 },
+    "recognise": { "new": 27, "basted": 2, "sewn": 0 }
+  }
 }
 ```
 
@@ -123,11 +134,32 @@ Today's queue: everything due for review, then at most one new formula if the da
 | --- | --- | --- |
 | `queue` | array | Due items, then at most one new one. Empty once nothing is due and no new formula is left in the pack. |
 | `queue[].formula` | object | The full formula - see `GET /api/formulas/{id}` below. |
-| `queue[].stitch` | `"new"` \| `"basted"` \| `"sewn"` | Where this formula stands right now. |
-| `queue[].is_new` | boolean | Whether this is the formula of the day - never answered before. |
+| `queue[].direction` | `"produce"` \| `"recognise"` | Which way round this item asks the formula. |
+| `queue[].stitch` | `"new"` \| `"basted"` \| `"sewn"` | Where this formula stands **in this direction** right now. |
+| `queue[].is_new` | boolean | Whether this formula has never been answered in this direction. |
 | `queue[].due` | string (RFC 3339) | When this item became due; for a new item, the time of the request. |
-| `reviewed_today` | integer | Reviews recorded since midnight UTC. |
-| `counts.new` \| `counts.basted` \| `counts.sewn` | integer | How many formulas stand in each state across the whole pack. |
+| `queue[].pace` | object \| null | How fast this card usually comes; `null` until three timed answers. |
+| `reviewed_today` | integer | Reviews recorded since midnight UTC, both directions. |
+| `counts.new` \| `counts.basted` \| `counts.sewn` | integer | How many formulas stand in each state, producing side. |
+| `progress.produce` \| `progress.recognise` | object | The same counts, one per direction. |
+
+#### Directions
+
+Producing a sentence and understanding one are different skills learnt at different speeds - recognition always runs ahead - so each formula is scheduled twice, once per direction, and the two never share a state. See [ADR 0005](https://github.com/lacodda/hilvan/blob/main/docs/adr/0005-forms-directions-and-pace.md).
+
+A formula's recognising side opens only once the formula has been produced at least once: being asked to understand a shape nobody has taught you to build is a guess, not a review. It never counts against the day's budget of one new formula.
+
+#### Pace
+
+`pace` is the second dimension of knowing something: stability says whether the formula is still there, pace says whether it still costs thought.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `typical_ms` | integer | Median of the last eight timed answers. |
+| `last_ms` | integer | The most recent timed answer. |
+| `answers` | integer | How many timed answers the median rests on - at least three. |
+
+It is **reported and never scheduled on**: the same answer given in 0.9s and in 45s produces the same next due date.
 
 ### `GET /api/formulas/{id}`
 
@@ -157,11 +189,28 @@ One formula with its samples and slots.
       "name": "rest",
       "values": [{ "native": "<word in the learner's own language>", "target": "at home" }]
     }
+  ],
+  "family": "be-present",
+  "form": "statement",
+  "sisters": [
+    { "id": "be-present-negation", "form": "negation", "name": "...", "pattern": "...", "stitch": "basted" },
+    { "id": "be-present-question", "form": "question", "name": "...", "pattern": "...", "stitch": "new" }
   ]
 }
 ```
 
 `explanation` is in the learner's native language - the pack carries it, the server does not translate. `pattern` holds `<slot-name>` placeholders matching each entry in `slots`.
+
+#### Forms of a shape
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `family` | string \| null | The shape this formula is one form of, when it is one of several. |
+| `form` | `"statement"` \| `"negation"` \| `"question"` \| null | Which form of that shape this is. |
+| `sisters` | array | The other forms of the same shape, in the pack's own order. Empty when the formula stands alone. |
+| `sisters[].stitch` | `"new"` \| `"basted"` \| `"sewn"` | Where that form stands, producing side - so the switch can show an untouched question beside a sewn statement. |
+
+The three forms stay three formulas with three schedules, because they are learnt apart: the negation with `don't` really is a separate thing to remember. `family` is what lets the card put them behind one switch. A formula with no sisters - `let-s-verb`, `how-much-many` - carries `null` in both fields.
 
 **Response** `404` when `{id}` names no formula:
 
@@ -176,25 +225,34 @@ Records an answer and reschedules the formula through FSRS.
 **Request:**
 
 ```json
-{ "rating": "good", "duration_ms": 4200 }
+{ "rating": "good", "direction": "produce", "duration_ms": 4200 }
 ```
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `rating` | `"again"` \| `"hard"` \| `"good"` \| `"easy"` | yes | How well the formula came. |
-| `duration_ms` | integer | no | How long the answer took, when the client measured it. Stored, not yet used to schedule. |
+| `direction` | `"produce"` \| `"recognise"` | no | Which direction was answered. Defaults to `"produce"`. |
+| `duration_ms` | integer | no | How long the answer took, when the client measured it. Kept, and reported back as `pace`; never used to schedule. |
+
+Only the card in the direction named is graded: answering `"recognise"` leaves the producing schedule of the same formula exactly as it was.
 
 **Response** `200`:
 
 ```json
-{ "stitch": "basted", "due": "2026-09-04T09:00:00Z", "interval_days": 1 }
+{
+  "stitch": "basted",
+  "due": "2026-09-04T09:00:00Z",
+  "interval_days": 1,
+  "pace": { "typical_ms": 3800, "last_ms": 4200, "answers": 6 }
+}
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `stitch` | `"new"` \| `"basted"` \| `"sewn"` | The formula's state after this answer. Never `"new"` - answering is what leaves the new pile. |
-| `due` | string (RFC 3339) | When the formula comes back. |
+| `stitch` | `"new"` \| `"basted"` \| `"sewn"` | The formula's state in this direction after this answer. Never `"new"` - answering is what leaves the new pile. |
+| `due` | string (RFC 3339) | When the formula comes back in this direction. |
 | `interval_days` | integer | Days between now and `due`. |
+| `pace` | object \| null | How this answer compared with the usual; `null` until three timed answers. |
 
 **Response** `404` when `{id}` names no formula:
 

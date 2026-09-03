@@ -34,6 +34,26 @@ For each formula, you see the pattern, an explanation in your own language, and 
 
 There is no wrong answer to grade yourself on beyond your own honesty - the four buttons only affect when the formula comes back, not whether you "pass".
 
+### The three forms
+
+Above the prompt sits a switch: **I am**, **I am not**, **Am I?** - the statement, the negation and the question of the same shape. The one being graded is the one that was due; the others are one tap away for when you want to see the shape from another side. The small bar under each tab says where that form stands, so an untouched question is visible next to a statement you have sewn.
+
+They are three separate formulas with three separate schedules, because they are learnt separately: the negation with `don't` really is its own thing to remember. The switch is what stops them feeling like three unrelated cards.
+
+### The ladder
+
+Once you have revealed an answer, **Run the ladder** puts the same formula through every person at once - I, you, he, she, we, they - with everything else held still. Say them straight through without stopping. It takes about a minute, and it is how the choice between *am*, *is* and *are* stops being a decision you make each time.
+
+### Both directions
+
+From the second day on, some cards come the other way round: the English is the prompt, and what you produce is the meaning. Understanding and saying are different skills - you will understand far more than you can say, which is normal - so each formula is scheduled twice, and the two never share a state. The Today screen shows the two columns side by side, **say** and **know**, and the gap between them is the honest picture.
+
+A formula is only ever asked backwards after you have been shown it forwards, and the reverse card never uses up the day's one new formula.
+
+### How long it took
+
+Under the turn counter, a card that has been drilled a few times says how fast it usually comes - "usually 3.8s" - and after you grade it, whether this answer was quicker or slower than that. It is there to be noticed, nothing more: the schedule is not affected by how long you took. A formula that arrives after eight seconds of assembly is still on its way to being yours, and the number is how you watch that happen.
+
 ## New, basted, sewn
 
 Every formula is in one of three states - the basting-stitch metaphor the product is named for:
@@ -48,4 +68,6 @@ A formula moves from new to basted the first time you answer it, and from basted
 
 Day one is one formula: the first shape in the pack, with no reviews yet because nothing has been introduced before it. Day two adds the second formula, plus a review of the first - now due back. By day four or five, most sittings are mostly review, with the day's one new formula near the end. This is normal: reviews accumulate faster than they clear in the first week, because everything you have learned is still loose.
 
-By the end of the week you will have somewhere around seven formulas started, most still basted, a few possibly sewn if you answered them well and their intervals happened to fall due again already. Do not expect "sewn" to dominate this early - stability builds over weeks, not days. What to watch instead is whether a sitting stays short: five to ten formulas a day is the target shape, not fifty.
+By the end of the week you will have somewhere around seven formulas started, most still basted, a few possibly sewn if you answered them well and their intervals happened to fall due again already. Do not expect "sewn" to dominate this early - stability builds over weeks, not days. What to watch instead is whether a sitting stays short: five to ten cards a day is the target shape, not fifty.
+
+Because each formula is asked both ways, a sitting has roughly twice the cards it would otherwise - but the reverse ones are quicker, since recognising is the easier half. If sittings start feeling long, that is worth saying out loud rather than pushing through: the pace is a product decision, and it can change.

@@ -21,6 +21,8 @@ name = "I am / you are"
 pattern = "<pronoun> + am/is/are + <rest>"
 explanation = "..."
 order = 10
+family = "be-present"      # optional: the shape this is one form of
+form = "statement"          # optional: statement, negation or question
 
   [[formula.sample]]
   native = "<prompt in the learner's own language>"
@@ -51,12 +53,34 @@ order = 10
 | `pattern` | The assembly shown compactly, with `<placeholder>` holes matching slot names. |
 | `explanation` | One paragraph, in the pack's native language. |
 | `order` | The position this formula is introduced in - the pack decides the learning sequence, not the clock. |
+| `family` | Optional. The shape this formula is one form of, so the card can offer a switch between them. |
+| `form` | Optional, required alongside `family`. One of `statement`, `negation`, `question`. |
 | `[[formula.sample]]` | A worked example: what a correct answer looks like. At least one per formula. |
 | `[[formula.slot]]` | A hole in the pattern the drill substitutes into. Optional. |
 
 A `sample` has `native` (the prompt) and `target` (the answer). A `slot` has a `name` matching a `<placeholder>` in the pattern, and `values` - a list of `{ native, target }` pairs the drill draws substitutions from.
 
 A formula with no slot can still be recalled, just not drilled by substitution.
+
+### Forms of a shape
+
+A statement, its negation and its question are three formulas, not one: the negation with `don't` is genuinely a separate thing to remember, and each gets its own review schedule. `family` and `form` are what let the drill show the three on one card behind a switch, so a learner who can say *I am tired* is one tap from asking *Are you tired?*
+
+```toml
+[[formula]]
+id = "be-present-statement"
+family = "be-present"
+form = "statement"
+# ...
+
+[[formula]]
+id = "be-present-negation"
+family = "be-present"
+form = "negation"
+# ...
+```
+
+Both fields are optional and go together. A formula that is nobody's negation - `let-s-verb`, `how-much-many` - leaves both out, and the drill shows it without a switch.
 
 ## Validation
 
@@ -68,6 +92,9 @@ The loader rejects a pack outright rather than loading it partway - a half-loade
 - A slot has no values.
 - Two slots in the same formula share a `name`.
 - A slot's `name` has no matching `<name>` placeholder anywhere in the formula's `pattern` - a slot the pattern never mentions would be stored and never used.
+- A formula names a `form` but no `family`, or a `family` but no `form` - a form with nothing to belong to can never be switched to.
+- Two formulas claim the same `form` of the same `family` - the switch would show one of them at random.
+- A `family` holds a single formula - a switch with nothing to switch to, always a sister renamed or not written yet.
 
 ## Loading
 
