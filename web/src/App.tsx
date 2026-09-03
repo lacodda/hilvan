@@ -47,8 +47,11 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
     return (
       <Drill
         // A new formula is a new drill, not the same one reset: the key does
-        // what an effect full of setState would otherwise have to.
-        key={due.formula.id}
+        // what an effect full of setState would otherwise have to. The
+        // direction is part of it, because the same formula asked backwards
+        // is a different question and must not inherit the state of the one
+        // before it.
+        key={`${due.formula.id}:${due.direction}`}
         due={due}
         position={view.index + 1}
         total={today.queue.length}

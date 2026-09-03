@@ -1,23 +1,31 @@
 import { useCallback, useRef, useState } from 'react'
 
-import { api, type Due, type Rating, type Reviewed } from '@/api'
+import { api, type Due, type Form, type Formula, type Rating, type Reviewed, type Stitch } from '@/api'
 import { Shell } from '@/App'
-import { nextPrompt, ratings, whenBack, type Prompt } from '@/prompts'
+import { ask, instruction, ladder, nextPrompt, paceLine, ratings, seconds, whenBack, type Prompt } from '@/prompts'
 
 /** How many turns one formula gets before the learner grades it. */
 const TURNS = 4
 
 type Phase =
   | { kind: 'asking'; turn: number; prompt: Prompt; revealed: boolean }
+  | { kind: 'laddering' }
   | { kind: 'grading' }
   | { kind: 'graded'; reviewed: Reviewed }
+
+/** The word shown on each tab of the switch. */
+const formLabels: Record<Form, string> = {
+  statement: 'I am',
+  negation: 'I am not',
+  question: 'Am I?',
+}
 
 /**
  * One formula, drilled.
  *
- * The loop is the whole method: read a prompt in your own language, say the
- * English out loud, then look. Nothing is typed - typing is a different skill,
- * and it turns a ten-second turn into a minute.
+ * The loop is the whole method: read a prompt, say the answer out loud, then
+ * look. Nothing is typed - typing is a different skill, and it turns a
+ * ten-second turn into a minute.
  *
  * The caller mounts this with the formula's id as `key`, so moving to the
  * next formula is a fresh component rather than an effect that resets four
@@ -36,6 +44,12 @@ export function Drill({
   onAnswered: () => void
   onLeave: () => void
 }) {
+  // The formula on screen can be a sister the learner switched to. The one in
+  // the queue is what gets graded, so the two are held apart: switching is
+  // for seeing the shape from another side, not for changing what is due.
+  const [shown, setShown] = useState<Formula>(due.formula)
+  const [switching, setSwitching] = useState(false)
+
   // The first prompt is drawn once, when the drill is built: drawing it
   // during render would hand the learner a different sentence on every
   // repaint.
@@ -49,40 +63,72 @@ export function Drill({
   const startedAt = useRef<number | null>(null)
   startedAt.current ??= Date.now()
 
-  const ask = (turn: number) =>
-    setPhase({ kind: 'asking', turn, prompt: nextPrompt(due.formula, turn, Math.random), revealed: false })
+  const rungs = ladder(shown)
+  const isDrilled = shown.id === due.formula.id
+
+  const ask_ = (turn: number) =>
+    setPhase({ kind: 'asking', turn, prompt: nextPrompt(shown, turn, Math.random), revealed: false })
+
+  const switchTo = (id: string) => {
+    if (id === shown.id) return
+    setSwitching(true)
+    void api
+      .formula(id)
+      .then((formula) => {
+        setShown(formula)
+        setPhase({ kind: 'asking', turn: 0, prompt: nextPrompt(formula, 0, Math.random), revealed: false })
+      })
+      // A switch that fails leaves the drill where it was, which is a working
+      // drill: the learner loses a look at another form, not their sitting.
+      .catch(() => undefined)
+      .finally(() => setSwitching(false))
+  }
 
   const grade = useCallback(
     (rating: Rating) => {
-    setPhase({ kind: 'grading' })
-    const took = startedAt.current === null ? null : Date.now() - startedAt.current
-    void api
-      .review(due.formula.id, rating, took)
-      .then((reviewed) => setPhase({ kind: 'graded', reviewed }))
-      // A failed save is not worth stranding the learner mid-sitting: the
-      // queue is re-read from the server on the way out anyway.
-      .catch(() => onAnswered())
+      setPhase({ kind: 'grading' })
+      const took = startedAt.current === null ? null : Date.now() - startedAt.current
+      void api
+        .review(due.formula.id, rating, due.direction, took)
+        .then((reviewed) => setPhase({ kind: 'graded', reviewed }))
+        // A failed save is not worth stranding the learner mid-sitting: the
+        // queue is re-read from the server on the way out anyway.
+        .catch(() => onAnswered())
     },
-    [due.formula.id, onAnswered],
+    [due.formula.id, due.direction, onAnswered],
   )
+
+  const question = phase.kind === 'asking' ? ask(phase.prompt, due.direction) : null
 
   return (
     <Shell>
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold tracking-tight">{due.formula.name}</h2>
-          <p className="font-mono text-xs text-dim">{due.formula.pattern}</p>
+          <h2 className="text-lg font-semibold tracking-tight">{shown.name}</h2>
+          <p className="font-mono text-xs text-dim">{shown.pattern}</p>
         </div>
         <span className="shrink-0 font-mono text-2xs text-faint">
           {position}/{total}
         </span>
       </header>
 
+      <Forms formula={shown} due={due.formula} busy={switching} onSwitch={switchTo} />
+
+      {due.direction === 'recognise' && (
+        <p className="text-2xs tracking-caption text-faint uppercase">Understanding - what does it mean?</p>
+      )}
+
+      {!isDrilled && (
+        <p className="text-xs text-faint">
+          Looking at another form. {due.formula.name} is the one being graded.
+        </p>
+      )}
+
       {explaining && (
         <section className="flex flex-col gap-3 rounded-md bg-raise p-4">
-          <p className="text-sm leading-relaxed text-dim">{due.formula.explanation}</p>
+          <p className="text-sm leading-relaxed text-dim">{shown.explanation}</p>
           <ul className="flex flex-col gap-1">
-            {due.formula.samples.slice(0, 3).map((sample) => (
+            {shown.samples.slice(0, 3).map((sample) => (
               <li key={sample.target} className="text-sm">
                 <span className="text-dim">{sample.native}</span> <span className="text-text">{sample.target}</span>
               </li>
@@ -98,18 +144,18 @@ export function Drill({
         </section>
       )}
 
-      {!explaining && phase.kind === 'asking' && (
+      {!explaining && phase.kind === 'asking' && question && (
         <section className="flex flex-col gap-6">
-          <p className="text-2xl leading-snug">{phase.prompt.native}</p>
+          <p className="text-2xl leading-snug">{question.native}</p>
 
           {phase.revealed ? (
             <>
-              <p className="border-t border-line pt-4 text-2xl leading-snug text-accent">{phase.prompt.target}</p>
+              <p className="border-t border-line pt-4 text-2xl leading-snug text-accent">{question.target}</p>
               <div className="flex flex-col gap-2">
                 {phase.turn + 1 < TURNS ? (
                   <button
                     type="button"
-                    onClick={() => ask(phase.turn + 1)}
+                    onClick={() => ask_(phase.turn + 1)}
                     className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
                   >
                     Next
@@ -123,13 +169,26 @@ export function Drill({
                     How did it go?
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setPhase({ kind: 'grading' })}
-                  className="text-xs text-faint underline"
-                >
-                  Grade it now
-                </button>
+                <div className="flex items-baseline justify-between gap-3">
+                  {rungs.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setPhase({ kind: 'laddering' })}
+                      className="text-xs text-faint underline"
+                    >
+                      Run the ladder
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPhase({ kind: 'grading' })}
+                    className="text-xs text-faint underline"
+                  >
+                    Grade it now
+                  </button>
+                </div>
               </div>
             </>
           ) : (
@@ -138,13 +197,35 @@ export function Drill({
               onClick={() => setPhase({ ...phase, revealed: true })}
               className="rounded-md border border-line px-4 py-4 text-base font-medium"
             >
-              Say it, then look
+              {instruction(due.direction)}
             </button>
           )}
 
           <p className="text-2xs text-faint">
             Turn {phase.turn + 1} of {TURNS}
+            {due.pace && <> · usually {seconds(due.pace.typical_ms)}</>}
           </p>
+        </section>
+      )}
+
+      {!explaining && phase.kind === 'laddering' && (
+        <section className="flex flex-col gap-4">
+          <p className="text-base text-dim">Every person, straight through. Say them out loud without stopping.</p>
+          <ul className="flex flex-col gap-1">
+            {rungs.map((rung) => (
+              <li key={rung.target} className="flex items-baseline gap-3 rounded-md bg-raise px-3 py-2">
+                <span className="w-16 shrink-0 text-xs text-faint">{rung.native}</span>
+                <span className="text-base">{rung.target}</span>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => setPhase({ kind: 'grading' })}
+            className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
+          >
+            Done - how did it go?
+          </button>
         </section>
       )}
 
@@ -170,6 +251,7 @@ export function Drill({
           <p className="text-base">
             {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
           </p>
+          {paceLine(phase.reviewed.pace) && <p className="text-xs text-faint">{paceLine(phase.reviewed.pace)}</p>}
           <button
             type="button"
             onClick={onAnswered}
@@ -187,6 +269,81 @@ export function Drill({
       </footer>
     </Shell>
   )
+}
+
+/**
+ * The switch between the three forms of one shape.
+ *
+ * Statement, negation, question on one card: a learner who can say "I am
+ * tired" and cannot ask "Are you tired?" has half a formula, and the switch is
+ * what makes the other halves one tap away. The dot on a tab says where that
+ * form stands, so the untouched question is visible next to the sewn
+ * statement.
+ */
+function Forms({
+  formula,
+  due,
+  busy,
+  onSwitch,
+}: {
+  formula: Formula
+  due: Formula
+  busy: boolean
+  onSwitch: (id: string) => void
+}) {
+  // The tabs are the formula on screen plus its sisters, drawn in the pack's
+  // own order rather than the enum's.
+  const tabs = [...(due.sisters ?? []), { id: due.id, form: due.form, name: due.name, pattern: due.pattern, stitch: null }]
+    .filter((tab): tab is { id: string; form: Form; name: string; pattern: string; stitch: Stitch | null } => tab.form !== null)
+    .sort((a, b) => order(a.form) - order(b.form))
+
+  if (tabs.length < 2) return null
+
+  return (
+    <nav className="flex gap-1" aria-label="Forms of this shape">
+      {tabs.map((tab) => {
+        const current = tab.id === formula.id
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            disabled={busy || current}
+            onClick={() => onSwitch(tab.id)}
+            aria-current={current ? 'true' : undefined}
+            className={`flex flex-1 flex-col items-center gap-1 rounded-md px-2 py-2 text-xs ${
+              current ? 'bg-accent text-on-accent' : 'bg-raise text-dim'
+            }`}
+          >
+            <span className="font-medium">{formLabels[tab.form]}</span>
+            <span className={`h-1 w-6 rounded-full ${stitchBar(tab.stitch, current)}`} />
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+/** Statement, negation, question: the order they are learnt in. */
+function order(form: Form): number {
+  return { statement: 0, negation: 1, question: 2 }[form]
+}
+
+/**
+ * How far along a form is, as a bar rather than a number.
+ *
+ * The form being drilled has no bar of its own to show - the card it is being
+ * graded on is the one on screen - so it reads as current instead.
+ */
+function stitchBar(stitch: Stitch | null, current: boolean): string {
+  if (current || stitch === null) return 'bg-on-accent/40'
+  switch (stitch) {
+    case 'new':
+      return 'bg-line'
+    case 'basted':
+      return 'bg-accent/50'
+    case 'sewn':
+      return 'bg-accent'
+  }
 }
 
 function stitchLine(stitch: Reviewed['stitch']): string {

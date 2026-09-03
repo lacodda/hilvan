@@ -6,7 +6,7 @@
  * point: you learn a formula by assembling it, not by recognising it.
  */
 
-import type { Formula, Sample, Slot } from '@/api'
+import type { Direction, Formula, Pace, Sample, Slot } from '@/api'
 
 /** One question: a prompt in the learner's language and the answer expected. */
 export interface Prompt {
@@ -86,6 +86,64 @@ export function nextPrompt(formula: Formula, turn: number, random: Random): Prom
   return { native: formula.pattern, target: formula.pattern, source: 'sample' }
 }
 
+/**
+ * The same question, asked the way this direction asks it.
+ *
+ * Producing reads the native prompt and says the English; recognising reads
+ * the English and says what it means. One prompt, turned round - the two
+ * directions must be the same sentence, or the learner is being asked two
+ * different questions and told they are one.
+ */
+export function ask(prompt: Prompt, direction: Direction): Prompt {
+  if (direction === 'produce') return prompt
+  return { native: prompt.target, target: prompt.native, source: prompt.source }
+}
+
+/** What the learner is being asked to do, in the drill's own words. */
+export function instruction(direction: Direction): string {
+  return direction === 'produce' ? 'Say it in English, then look' : 'What does it mean? Then look'
+}
+
+/**
+ * One rung of the ladder: the same formula with one pronoun substituted.
+ *
+ * The ladder is Petrov's drill - one shape run through every person until the
+ * choice of "am/is/are" stops being a decision. It is built from the pronoun
+ * slot, so a formula without one has no ladder and the screen does not offer
+ * it.
+ */
+export interface Rung {
+  /** The pronoun, in the learner's own language. */
+  native: string
+  /** The whole assembled sentence. */
+  target: string
+}
+
+/** The slot names a ladder can be built from, most specific first. */
+const LADDER_SLOTS = ['pronoun', 'subject']
+
+/**
+ * Every person of one formula, in the pack's own order.
+ *
+ * The other slots are held still at their first value: the ladder is about
+ * one thing changing, and a sentence where the noun moves too teaches
+ * nothing about the person.
+ */
+export function ladder(formula: Formula): Rung[] {
+  const pronouns = LADDER_SLOTS.map((name) => formula.slots.find((slot) => slot.name === name)).find(Boolean)
+  if (!pronouns || pronouns.values.length === 0) return []
+
+  const held = formula.slots.filter((slot) => slot.name !== pronouns.name)
+  return pronouns.values.map((value) => {
+    let target = formula.pattern.split(`<${pronouns.name}>`).join(value.target)
+    for (const slot of held) {
+      const first = slot.values[0]
+      if (first) target = target.split(`<${slot.name}>`).join(first.target)
+    }
+    return { native: value.native, target }
+  })
+}
+
 /** The four answers, in the order they are shown. */
 export const ratings = [
   { rating: 'again', label: 'Again', hint: 'nothing came' },
@@ -101,4 +159,25 @@ export function whenBack(days: number): string {
   if (days < 30) return `in ${days} days`
   const months = Math.round(days / 30)
   return months === 1 ? 'in a month' : `in ${months} months`
+}
+
+/** A duration in seconds, short enough to read at a glance. */
+export function seconds(ms: number): string {
+  const value = ms / 1000
+  return value < 10 ? `${value.toFixed(1)}s` : `${Math.round(value)}s`
+}
+
+/**
+ * How this answer compared with the usual pace of the card.
+ *
+ * `null` when the difference is not worth a sentence: a quarter either way is
+ * ordinary variation, and a screen that remarks on every answer stops being
+ * read.
+ */
+export function paceLine(pace: Pace | null): string | null {
+  if (!pace) return null
+  const ratio = pace.last_ms / pace.typical_ms
+  if (ratio > 1.25) return `${seconds(pace.last_ms)} - slower than your usual ${seconds(pace.typical_ms)}`
+  if (ratio < 0.75) return `${seconds(pace.last_ms)} - quicker than your usual ${seconds(pace.typical_ms)}`
+  return `${seconds(pace.last_ms)}, about your usual`
 }

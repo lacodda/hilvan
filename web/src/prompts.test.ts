@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Formula } from '@/api'
-import { nextPrompt, substitute, whenBack } from '@/prompts'
+import { ask, instruction, ladder, nextPrompt, paceLine, seconds, substitute, whenBack } from '@/prompts'
 
 const formula: Formula = {
   id: 'be-present',
@@ -21,6 +21,12 @@ const formula: Formula = {
       ],
     },
     { name: 'rest', values: [{ native: 'third', target: 'at home' }] },
+  ],
+  family: 'be-present',
+  form: 'statement',
+  sisters: [
+    { id: 'be-present-negation', form: 'negation', name: 'not', pattern: 'x', stitch: 'basted' },
+    { id: 'be-present-question', form: 'question', name: 'am?', pattern: 'y', stitch: 'new' },
   ],
 }
 
@@ -99,5 +105,82 @@ describe('whenBack', () => {
     expect(whenBack(4)).toBe('in 4 days')
     expect(whenBack(30)).toBe('in a month')
     expect(whenBack(95)).toBe('in 3 months')
+  })
+})
+
+describe('ask', () => {
+  const prompt = { native: 'Я дома.', target: 'I am at home.', source: 'sample' } as const
+
+  it('leaves a producing prompt as it is', () => {
+    expect(ask(prompt, 'produce')).toEqual(prompt)
+  })
+
+  it('turns the same sentence round to ask for its meaning', () => {
+    // The two directions must be the same sentence: asking a different one
+    // and calling it the reverse of this card is a lie about what was drilled.
+    expect(ask(prompt, 'recognise')).toEqual({
+      native: 'I am at home.',
+      target: 'Я дома.',
+      source: 'sample',
+    })
+  })
+
+  it('is its own inverse', () => {
+    expect(ask(ask(prompt, 'recognise'), 'recognise')).toEqual(prompt)
+  })
+
+  it('says what is being asked for', () => {
+    expect(instruction('produce')).toContain('English')
+    expect(instruction('recognise')).toContain('mean')
+  })
+})
+
+describe('ladder', () => {
+  it('runs the formula through every person', () => {
+    expect(ladder(formula)).toEqual([
+      { native: 'first', target: 'I + am/is/are + at home' },
+      { native: 'second', target: 'you + am/is/are + at home' },
+    ])
+  })
+
+  it('holds the other slots still, so only the person moves', () => {
+    // A rung where the noun changes too teaches nothing about the person, so
+    // the fixture gives the held slot more than one value it could drift to.
+    const roomy = {
+      ...formula,
+      slots: [
+        { name: 'pronoun', values: [{ native: 'first', target: 'I' }, { native: 'second', target: 'you' }] },
+        { name: 'rest', values: [{ native: 'third', target: 'at home' }, { native: 'fourth', target: 'tired' }] },
+      ],
+    }
+    const rests = new Set(ladder(roomy).map((rung) => rung.target.split(' + ')[2]))
+    expect(rests).toEqual(new Set(['at home']))
+  })
+
+  it('offers no ladder for a formula with no person to run through', () => {
+    const lets = { ...formula, pattern: "Let's + <verb>", slots: [{ name: 'verb', values: [{ native: 'идти', target: 'go' }] }] }
+    expect(ladder(lets)).toEqual([])
+  })
+
+  it('offers no ladder when there is nothing to substitute', () => {
+    expect(ladder({ ...formula, slots: [] })).toEqual([])
+  })
+})
+
+describe('pace', () => {
+  it('reads a duration at a glance', () => {
+    expect(seconds(3800)).toBe('3.8s')
+    expect(seconds(45_200)).toBe('45s')
+  })
+
+  it('says nothing when there is no pace yet', () => {
+    expect(paceLine(null)).toBeNull()
+  })
+
+  it('remarks only on a difference worth remarking on', () => {
+    // A screen that comments on every answer stops being read.
+    expect(paceLine({ typical_ms: 4000, last_ms: 4200, answers: 5 })).toBe('4.2s, about your usual')
+    expect(paceLine({ typical_ms: 4000, last_ms: 9000, answers: 5 })).toContain('slower')
+    expect(paceLine({ typical_ms: 4000, last_ms: 1500, answers: 5 })).toContain('quicker')
   })
 })

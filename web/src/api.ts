@@ -14,6 +14,19 @@ export interface Slot {
   values: Sample[]
 }
 
+/** Which of the three ways a shape can be said. */
+export type Form = 'statement' | 'negation' | 'question'
+
+/** Another form of the same shape, as the switch on the card shows it. */
+export interface Sister {
+  id: string
+  form: Form
+  name: string
+  pattern: string
+  /** Where that form stands, so the switch can show what is still untouched. */
+  stitch: Stitch
+}
+
 /** A grammar formula: a shape sentences are assembled from. */
 export interface Formula {
   id: string
@@ -22,17 +35,49 @@ export interface Formula {
   explanation: string
   samples: Sample[]
   slots: Slot[]
+  /** The shape this is one form of, when it is one of several. */
+  family: string | null
+  form: Form | null
+  /** The other forms of the same shape. Empty when the formula stands alone. */
+  sisters: Sister[]
 }
 
 /** How far along a formula is - the basting stitch the product is named after. */
 export type Stitch = 'new' | 'basted' | 'sewn'
 
+/**
+ * Which way round a formula is being asked.
+ *
+ * Producing is saying it: the prompt is in your own language. Recognising is
+ * understanding it: the prompt is the English. They are scheduled apart,
+ * because they are learnt apart.
+ */
+export type Direction = 'produce' | 'recognise'
+
+/**
+ * How fast a card usually comes.
+ *
+ * The second dimension of knowing something: stability says whether it is
+ * still there, pace says whether it still costs thought. Shown, never used to
+ * schedule.
+ */
+export interface Pace {
+  /** The median of the last few answers, in milliseconds. */
+  typical_ms: number
+  /** The most recent answer. */
+  last_ms: number
+  /** How many timed answers the median rests on. */
+  answers: number
+}
+
 /** One item in today's queue. */
 export interface Due {
   formula: Formula
+  direction: Direction
   stitch: Stitch
   is_new: boolean
   due: string
+  pace: Pace | null
 }
 
 /** How many formulas stand in each state. */
@@ -42,11 +87,18 @@ export interface Counts {
   sewn: number
 }
 
+/** The same standing told once per direction. */
+export interface Progress {
+  produce: Counts
+  recognise: Counts
+}
+
 /** Everything the Today screen shows. */
 export interface Today {
   queue: Due[]
   reviewed_today: number
   counts: Counts
+  progress: Progress
 }
 
 /** How the answer went. The four the drill offers. */
@@ -57,6 +109,7 @@ export interface Reviewed {
   stitch: Stitch
   due: string
   interval_days: number
+  pace: Pace | null
 }
 
 /** Whether the door is locked, and whether this browser is through it. */
@@ -93,9 +146,10 @@ export const api = {
   logIn: (password: string) => call<Session>('/session', { method: 'POST', body: JSON.stringify({ password }) }),
   logOut: () => call<Session>('/session', { method: 'DELETE' }),
   today: () => call<Today>('/today'),
-  review: (id: string, rating: Rating, durationMs: number | null) =>
+  formula: (id: string) => call<Formula>(`/formulas/${encodeURIComponent(id)}`),
+  review: (id: string, rating: Rating, direction: Direction, durationMs: number | null) =>
     call<Reviewed>(`/formulas/${encodeURIComponent(id)}/review`, {
       method: 'POST',
-      body: JSON.stringify({ rating, duration_ms: durationMs }),
+      body: JSON.stringify({ rating, direction, duration_ms: durationMs }),
     }),
 }
