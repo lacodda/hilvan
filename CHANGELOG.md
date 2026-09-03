@@ -3,3 +3,18 @@
 All notable changes to this project are documented in this file.
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-09-03
+
+### Dependencies
+- Update the toolchain and dependencies
+
+### Documentation
+- Document the API, packs and a learner's first week
+
+### Features
+- Scaffold the hilvan server, SPA, docs and CI
+- Add the brand assets and the product colour
+- Add the learner model, formula packs and FSRS scheduling
+- Serve today's queue, the drill and a door to put them behind
+- Add the tutor app - today, the drill and signing in
