@@ -2,6 +2,7 @@ import { Component, use, useCallback, useState, Suspense, type ReactNode } from 
 
 import { api, Unauthorized, type Today } from '@/api'
 import { Drill } from '@/Drill'
+import { Mark } from '@/Mark'
 import { SignIn } from '@/SignIn'
 import { TodayScreen } from '@/TodayScreen'
 
@@ -105,7 +106,7 @@ class Boundary extends Component<
     return (
       <Shell>
         <p className="text-bad">{error.message}</p>
-        <button type="button" className="self-start text-sm underline" onClick={this.props.reload}>
+        <button type="button" className="self-start text-[0.9375rem] underline" onClick={this.props.reload}>
           Try again
         </button>
       </Shell>
@@ -117,9 +118,13 @@ class Boundary extends Component<
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 px-5 py-8 text-text">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">hilvan</h1>
-        <span className="font-mono text-2xs text-faint">v{__APP_VERSION__}</span>
+      {/* The mark and the name, the way every app in the line wears them. */}
+      <header className="flex items-center justify-between">
+        <h1 className="flex items-center gap-2 font-mono text-[0.9375rem] font-semibold tracking-tight">
+          <Mark />
+          hilvan
+        </h1>
+        <span className="font-mono text-[0.6875rem] text-faint">v{__APP_VERSION__}</span>
       </header>
       {children}
     </main>

@@ -24,27 +24,27 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
             .finally(() => setBusy(false))
         }}
       >
-        <label className="flex flex-col gap-2 text-sm text-dim" htmlFor="password">
+        <label className="flex flex-col gap-2 text-[0.9375rem] text-dim" htmlFor="password">
           Password
           <input
             id="password"
             type="password"
             autoFocus
             autoComplete="current-password"
-            className="rounded-md border border-line bg-raise px-3 py-3 text-base text-text outline-none focus-visible:border-accent"
+            className="rounded-md border border-line bg-raise px-3 py-3 text-[1.0625rem] text-text outline-none focus-visible:border-accent"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
         </label>
         {failed && (
-          <p className="text-sm text-bad" role="alert">
+          <p className="text-[0.9375rem] text-bad" role="alert">
             That is not the password.
           </p>
         )}
         <button
           type="submit"
           disabled={busy || password.length === 0}
-          className="rounded-md bg-accent px-4 py-3 text-base font-medium text-on-accent disabled:opacity-50"
+          className="rounded-md bg-accent px-4 py-3 text-[0.9375rem] font-medium text-on-accent disabled:opacity-50"
         >
           {busy ? 'Checking…' : 'Come in'}
         </button>

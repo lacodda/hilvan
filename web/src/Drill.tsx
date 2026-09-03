@@ -104,10 +104,10 @@ export function Drill({
     <Shell>
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold tracking-tight">{shown.name}</h2>
-          <p className="font-mono text-xs text-dim">{shown.pattern}</p>
+          <h2 className="text-xl font-semibold tracking-tight">{shown.name}</h2>
+          <p className="font-mono text-[0.8125rem] text-dim">{shown.pattern}</p>
         </div>
-        <span className="shrink-0 font-mono text-2xs text-faint">
+        <span className="shrink-0 font-mono text-[0.6875rem] text-faint">
           {position}/{total}
         </span>
       </header>
@@ -115,21 +115,21 @@ export function Drill({
       <Forms formula={shown} due={due.formula} busy={switching} onSwitch={switchTo} />
 
       {due.direction === 'recognise' && (
-        <p className="text-2xs tracking-caption text-faint uppercase">Understanding - what does it mean?</p>
+        <p className="text-[0.6875rem] tracking-caption text-faint uppercase">Understanding - what does it mean?</p>
       )}
 
       {!isDrilled && (
-        <p className="text-xs text-faint">
+        <p className="text-[0.8125rem] text-faint">
           Looking at another form. {due.formula.name} is the one being graded.
         </p>
       )}
 
       {explaining && (
         <section className="flex flex-col gap-3 rounded-md bg-raise p-4">
-          <p className="text-sm leading-relaxed text-dim">{shown.explanation}</p>
+          <p className="text-[0.9375rem] leading-relaxed text-dim">{shown.explanation}</p>
           <ul className="flex flex-col gap-1">
             {shown.samples.slice(0, 3).map((sample) => (
-              <li key={sample.target} className="text-sm">
+              <li key={sample.target} className="text-[0.9375rem] leading-relaxed">
                 <span className="text-dim">{sample.native}</span> <span className="text-text">{sample.target}</span>
               </li>
             ))}
@@ -137,7 +137,7 @@ export function Drill({
           <button
             type="button"
             onClick={() => setExplaining(false)}
-            className="self-start rounded-md bg-accent px-4 py-2 text-sm font-medium text-on-accent"
+            className="self-start rounded-md bg-accent px-4 py-2 text-[0.9375rem] font-medium text-on-accent"
           >
             Got it
           </button>
@@ -156,7 +156,7 @@ export function Drill({
                   <button
                     type="button"
                     onClick={() => ask_(phase.turn + 1)}
-                    className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
+                    className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
                   >
                     Next
                   </button>
@@ -164,7 +164,7 @@ export function Drill({
                   <button
                     type="button"
                     onClick={() => setPhase({ kind: 'grading' })}
-                    className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
+                    className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
                   >
                     How did it go?
                   </button>
@@ -174,7 +174,7 @@ export function Drill({
                     <button
                       type="button"
                       onClick={() => setPhase({ kind: 'laddering' })}
-                      className="text-xs text-faint underline"
+                      className="text-[0.8125rem] text-faint underline"
                     >
                       Run the ladder
                     </button>
@@ -184,7 +184,7 @@ export function Drill({
                   <button
                     type="button"
                     onClick={() => setPhase({ kind: 'grading' })}
-                    className="text-xs text-faint underline"
+                    className="text-[0.8125rem] text-faint underline"
                   >
                     Grade it now
                   </button>
@@ -195,13 +195,13 @@ export function Drill({
             <button
               type="button"
               onClick={() => setPhase({ ...phase, revealed: true })}
-              className="rounded-md border border-line px-4 py-4 text-base font-medium"
+              className="rounded-md border border-line px-4 py-4 text-[1.0625rem] font-medium"
             >
               {instruction(due.direction)}
             </button>
           )}
 
-          <p className="text-2xs text-faint">
+          <p className="text-[0.6875rem] text-faint">
             Turn {phase.turn + 1} of {TURNS}
             {due.pace && <> · usually {seconds(due.pace.typical_ms)}</>}
           </p>
@@ -210,19 +210,19 @@ export function Drill({
 
       {!explaining && phase.kind === 'laddering' && (
         <section className="flex flex-col gap-4">
-          <p className="text-base text-dim">Every person, straight through. Say them out loud without stopping.</p>
+          <p className="text-[1.0625rem] text-dim">Every person, straight through. Say them out loud without stopping.</p>
           <ul className="flex flex-col gap-1">
             {rungs.map((rung) => (
               <li key={rung.target} className="flex items-baseline gap-3 rounded-md bg-raise px-3 py-2">
-                <span className="w-16 shrink-0 text-xs text-faint">{rung.native}</span>
-                <span className="text-base">{rung.target}</span>
+                <span className="w-16 shrink-0 text-[0.8125rem] text-faint">{rung.native}</span>
+                <span className="text-[1.0625rem]">{rung.target}</span>
               </li>
             ))}
           </ul>
           <button
             type="button"
             onClick={() => setPhase({ kind: 'grading' })}
-            className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
+            className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
           >
             Done - how did it go?
           </button>
@@ -231,7 +231,7 @@ export function Drill({
 
       {!explaining && phase.kind === 'grading' && (
         <section className="flex flex-col gap-3">
-          <p className="text-base text-dim">How did that go?</p>
+          <p className="text-[1.0625rem] text-dim">How did that go?</p>
           {ratings.map(({ rating, label, hint }) => (
             <button
               key={rating}
@@ -239,8 +239,8 @@ export function Drill({
               onClick={() => grade(rating)}
               className="flex items-baseline justify-between rounded-md border border-line px-4 py-4 text-left"
             >
-              <span className="text-base font-medium">{label}</span>
-              <span className="text-xs text-faint">{hint}</span>
+              <span className="text-[1.0625rem] font-medium">{label}</span>
+              <span className="text-[0.8125rem] text-faint">{hint}</span>
             </button>
           ))}
         </section>
@@ -248,14 +248,14 @@ export function Drill({
 
       {phase.kind === 'graded' && (
         <section className="flex flex-col gap-4">
-          <p className="text-base">
+          <p className="text-[1.0625rem]">
             {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
           </p>
-          {paceLine(phase.reviewed.pace) && <p className="text-xs text-faint">{paceLine(phase.reviewed.pace)}</p>}
+          {paceLine(phase.reviewed.pace) && <p className="text-[0.8125rem] text-faint">{paceLine(phase.reviewed.pace)}</p>}
           <button
             type="button"
             onClick={onAnswered}
-            className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
+            className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
           >
             {position < total ? 'Next formula' : 'Finish'}
           </button>
@@ -263,7 +263,7 @@ export function Drill({
       )}
 
       <footer className="mt-auto pt-6">
-        <button type="button" onClick={onLeave} className="text-xs text-faint underline">
+        <button type="button" onClick={onLeave} className="text-[0.8125rem] text-faint underline">
           Stop for now
         </button>
       </footer>
@@ -310,7 +310,7 @@ function Forms({
             disabled={busy || current}
             onClick={() => onSwitch(tab.id)}
             aria-current={current ? 'true' : undefined}
-            className={`flex flex-1 flex-col items-center gap-1 rounded-md px-2 py-2 text-xs ${
+            className={`flex flex-1 flex-col items-center gap-1 rounded-md px-2 py-2 text-[0.8125rem] ${
               current ? 'bg-accent text-on-accent' : 'bg-raise text-dim'
             }`}
           >

@@ -32,7 +32,7 @@ export function TodayScreen({
     <Shell>
       <section className="flex flex-col gap-2">
         <h2 className="text-2xl font-semibold tracking-tight">Today</h2>
-        <p className="text-base text-dim">
+        <p className="text-[1.0625rem] text-dim">
           {waiting === 0
             ? today.reviewed_today > 0
               ? `Done for today - ${today.reviewed_today} answered. Come back tomorrow.`
@@ -45,21 +45,21 @@ export function TodayScreen({
         <button
           type="button"
           onClick={onStart}
-          className="rounded-md bg-accent px-4 py-4 text-base font-medium text-on-accent"
+          className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
         >
           Start
         </button>
       )}
 
       <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium tracking-caption text-dim uppercase">Your formulas</h3>
+        <h3 className="text-[0.8125rem] font-medium tracking-caption text-dim uppercase">Your formulas</h3>
         <div className="grid grid-cols-[1fr_auto_auto] items-baseline gap-x-4 gap-y-2">
           {/* Saying it and understanding it, side by side. Recognition always
               runs ahead, and the gap between the columns is the honest
               picture one averaged number would hide. */}
           <span />
-          <span className="text-2xs tracking-caption text-faint uppercase">say</span>
-          <span className="text-2xs tracking-caption text-faint uppercase">know</span>
+          <span className="text-[0.6875rem] tracking-caption text-faint uppercase">say</span>
+          <span className="text-[0.6875rem] tracking-caption text-faint uppercase">know</span>
           {stitches.map(({ key, label, meaning }) => (
             <Row
               key={key}
@@ -71,17 +71,17 @@ export function TodayScreen({
           ))}
         </div>
         {behind(today.progress.produce, today.progress.recognise) && (
-          <p className="text-xs text-faint">
+          <p className="text-[0.8125rem] text-faint">
             You understand more than you can say, which is how it goes. The drill asks both ways.
           </p>
         )}
         {today.reviewed_today > 0 && waiting > 0 && (
-          <p className="text-xs text-faint">{today.reviewed_today} answered so far today.</p>
+          <p className="text-[0.8125rem] text-faint">{today.reviewed_today} answered so far today.</p>
         )}
       </section>
 
       <footer className="mt-auto pt-6">
-        <button type="button" onClick={onSignOut} className="text-xs text-faint underline">
+        <button type="button" onClick={onSignOut} className="text-[0.8125rem] text-faint underline">
           Sign out
         </button>
       </footer>
@@ -102,11 +102,11 @@ function Row({
 }) {
   return (
     <>
-      <span className="text-base">
-        {label} <span className="text-xs text-faint">- {meaning}</span>
+      <span className="text-[1.0625rem]">
+        {label} <span className="text-[0.8125rem] text-faint">- {meaning}</span>
       </span>
-      <span className="text-right font-mono text-base tabular-nums">{produce}</span>
-      <span className="text-right font-mono text-base tabular-nums text-dim">{recognise}</span>
+      <span className="text-right font-mono text-[1.0625rem] tabular-nums">{produce}</span>
+      <span className="text-right font-mono text-[1.0625rem] tabular-nums text-dim">{recognise}</span>
     </>
   )
 }
