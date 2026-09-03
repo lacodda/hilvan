@@ -56,7 +56,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.1.1 Formulas** - the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, spaced repetition (FSRS) decides what comes back and when, and a drill runs a sitting on a phone: the formula of the day, a prompt, your own answer, and how it went.
+**v0.1.2 Formulas** - the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, spaced repetition (FSRS) decides what comes back and when, and a drill runs a sitting on a phone: the formula of the day, a prompt, your own answer, and how it went.
 
 What is built: the learner model, formula packs as data, FSRS scheduling with three states - new, basted, sewn - one new formula a day, the drill, and a password on the door. What comes next: audio, words inside sentences, the reader, and the compiler that writes material from the learner model.
 
