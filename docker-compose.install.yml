@@ -1,0 +1,39 @@
+# Install hilvan: the published image, and nothing to build.
+#
+# The image comes from the registry, so a machine needs Docker and nothing
+# else. Building from source is `docker-compose.prod.yml`, which is what a
+# developer's machine uses.
+#
+#   curl -o docker-compose.yml \
+#     https://raw.githubusercontent.com/lacodda/hilvan/main/docker-compose.install.yml
+#   docker run --rm -it ghcr.io/lacodda/hilvan:latest hilvan hash > /tmp/hash
+#   { printf "HILVAN_PASSWORD_HASH='%s'\n" "$(cat /tmp/hash)"; } > .env && rm /tmp/hash
+#   chmod 600 .env
+#   docker compose up -d
+#   docker compose exec server hilvan load-pack packs/en-from-ru/pack.toml
+#
+# Leaving HILVAN_PASSWORD_HASH out leaves the tutor open to anyone who can
+# reach it; the server says so in its first log line.
+services:
+  server:
+    # Pin a version in production. `latest` is convenient for a first look and
+    # a poor thing to have an unattended `docker compose pull` follow.
+    image: ghcr.io/lacodda/hilvan:${HILVAN_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      RUST_LOG: ${RUST_LOG:-hilvan=info,tower_http=info}
+      # The whole PHC string goes in .env single-quoted: it is full of $, and
+      # compose expands $VAR in an unquoted value.
+      HILVAN_PASSWORD_HASH: ${HILVAN_PASSWORD_HASH:-}
+    ports:
+      # 8086 on the host: the other services on this machine hold the ports
+      # below it. The port is the stand's address, so it is not a default to
+      # change lightly.
+      - "${HILVAN_PORT:-8086}:8086"
+    volumes:
+      # Everything the tutor remembers is one file in here; a backup is a copy
+      # of this volume.
+      - data:/data
+
+volumes:
+  data:

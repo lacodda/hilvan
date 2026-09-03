@@ -26,13 +26,19 @@ First target language: English. Spanish later.
 Requires Docker on the Pi. The image is built there, for the Pi's own architecture, and one container is the whole installation.
 
 ```sh
-git clone https://github.com/lacodda/hilvan && cd hilvan
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml exec hilvan hilvan load-pack packs/en-from-ru/pack.toml
+curl -o docker-compose.yml https://raw.githubusercontent.com/lacodda/hilvan/main/docker-compose.install.yml
+docker run --rm -it ghcr.io/lacodda/hilvan:latest hilvan hash    # prints the hash of a password it asks for
+printf "HILVAN_PASSWORD_HASH='%s'
+" '<paste the hash>' > .env && chmod 600 .env
+
+docker compose up -d
+docker compose exec server hilvan load-pack packs/en-from-ru/pack.toml
 curl http://pi:8086/api/health
 ```
 
-Lock the stand before starting, or it is open to anyone on the network: run `hilvan hash` and put the string it prints in `.env` as `HILVAN_PASSWORD_HASH`, single-quoted - a PHC string is full of `$`, which compose would otherwise expand.
+Nothing is built: the image comes from the registry, so the machine needs Docker and nothing else. Building from source is `docker-compose.prod.yml`.
+
+The hash goes into `.env` **single-quoted** - a PHC string is full of `$`, which compose would otherwise expand. Leave `HILVAN_PASSWORD_HASH` out and the tutor is open to anyone who can reach it; the server says so in its first log line.
 
 Everything hilvan remembers lives in the `data` volume as one file; back it up by copying it ([ADR 0001](https://github.com/lacodda/hilvan/blob/main/docs/adr/0001-stack.md)). The full walk-through is in the docs: [lacodda.github.io/hilvan](https://lacodda.github.io/hilvan/).
 

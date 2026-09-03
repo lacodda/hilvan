@@ -175,4 +175,24 @@ fn the_compose_files_name_the_image_this_repository_publishes() {
 
     let prod = read("docker-compose.prod.yml");
     assert!(prod.contains("build:"), "the stand compose must build from source");
+
+    // The install compose is the one a machine with no source checkout uses,
+    // so it is the one that breaks silently when the image name drifts: the
+    // stand keeps working because it builds its own.
+    let install = read("docker-compose.install.yml");
+    assert!(
+        install.contains("ghcr.io/lacodda/hilvan:"),
+        "the install compose must pull the image the publish workflow pushes"
+    );
+    assert!(
+        !install.contains("build:"),
+        "the install compose must not build; that is what the prod one is for"
+    );
+
+    // Both files carry the same variables, or locking one stand and not the
+    // other becomes a thing someone discovers the hard way.
+    for variable in ["HILVAN_PASSWORD_HASH", "HILVAN_PORT"] {
+        assert!(install.contains(variable), "docker-compose.install.yml does not pass {variable}");
+        assert!(prod.contains(variable), "docker-compose.prod.yml does not pass {variable}");
+    }
 }
