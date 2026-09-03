@@ -5,5 +5,9 @@
 //! the way `main` does; the binary in `main.rs` is the command line over it.
 
 pub mod app;
+pub mod auth;
 pub mod config;
 pub mod db;
+pub mod pack;
+pub mod scheduling;
+pub mod study;
