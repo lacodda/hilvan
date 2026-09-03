@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.2] - 2026-09-03
+
+### Bug Fixes
+- Drill the form you switch to, and name the tabs honestly
+
+
 ## [0.2.1] - 2026-09-03
 
 ### Bug Fixes
