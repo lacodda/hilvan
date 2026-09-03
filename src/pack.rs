@@ -10,13 +10,15 @@
 //! it was, and a pack whose contents changed replaces its own formulas
 //! without touching what the learner has learnt about them.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+
+use crate::scheduling::Direction;
 
 /// A pack as it is written on disk. See `packs/en-from-ru/README.md` for the
 /// shape and what each field is for.
@@ -35,6 +37,50 @@ pub struct Pack {
     pub formulas: Vec<Formula>,
 }
 
+/// Which of the three ways a shape can be said.
+///
+/// The three are one shape, not three: a learner who can say "I am tired" and
+/// cannot ask "Are you tired?" has half a formula. Naming the form lets the
+/// drill put the three on one card behind a switch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Form {
+    Statement,
+    Negation,
+    Question,
+}
+
+impl Form {
+    /// The word stored in the formula row.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Statement => "statement",
+            Self::Negation => "negation",
+            Self::Question => "question",
+        }
+    }
+
+    /// Reads a form back from a formula row.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the word is not one of the three.
+    pub fn parse(value: &str) -> Result<Self, UnknownForm> {
+        match value {
+            "statement" => Ok(Self::Statement),
+            "negation" => Ok(Self::Negation),
+            "question" => Ok(Self::Question),
+            other => Err(UnknownForm(other.to_string())),
+        }
+    }
+}
+
+/// A form that is not one of the three.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} is not a form: expected statement, negation or question")]
+pub struct UnknownForm(String);
+
 /// One assembly pattern the learner builds sentences from.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Formula {
@@ -48,6 +94,16 @@ pub struct Formula {
     pub explanation: String,
     /// The order formulas are introduced in.
     pub order: i64,
+    /// The shape this formula is one form of, when it is: `be-present` holds
+    /// a statement, a negation and a question. Absent for a formula that has
+    /// no sisters - `let's`, `how much` - and the drill shows those without a
+    /// switch.
+    #[serde(default)]
+    pub family: Option<String>,
+    /// Which form of the family this is. Required with `family`, meaningless
+    /// without it.
+    #[serde(default)]
+    pub form: Option<Form>,
     #[serde(default, rename = "sample")]
     pub samples: Vec<Sample>,
     #[serde(default, rename = "slot")]
@@ -94,7 +150,9 @@ impl Pack {
     ///
     /// Fails on an empty pack, a duplicate formula id, a formula with no
     /// sample, a slot with no values, a duplicate slot name within a formula,
-    /// or a slot whose name has no matching `<placeholder>` in the pattern.
+    /// a slot whose name has no matching `<placeholder>` in the pattern, a
+    /// form without a family, or two formulas claiming the same form of the
+    /// same family.
     pub fn validate(&self) -> Result<()> {
         if self.id.trim().is_empty() {
             bail!("the pack has no id");
@@ -135,6 +193,44 @@ impl Pack {
                 }
             }
         }
+
+        self.validate_families()
+    }
+
+    /// The rules that hold a family of forms together.
+    ///
+    /// A form without a family cannot be switched to from anywhere, and two
+    /// formulas claiming to be the negation of the same shape would make the
+    /// switch show one of them at random. Both are pack-editing mistakes, and
+    /// both are silent in the drill, which is why they are caught here.
+    fn validate_families(&self) -> Result<()> {
+        let mut taken: HashSet<(&str, Form)> = HashSet::new();
+        for formula in &self.formulas {
+            match (formula.family.as_deref(), formula.form) {
+                (Some(family), Some(form)) => {
+                    if family.trim().is_empty() {
+                        bail!("formula {:?} has an empty family", formula.id);
+                    }
+                    if !taken.insert((family, form)) {
+                        bail!("two formulas are the {} of family {family:?}", form.as_str());
+                    }
+                }
+                (Some(family), None) => bail!("formula {:?} is in family {family:?} but says no form", formula.id),
+                (None, Some(form)) => bail!("formula {:?} is a {} of nothing: it has no family", formula.id, form.as_str()),
+                (None, None) => {}
+            }
+        }
+
+        // A family of one draws a switch with nothing to switch to. It is
+        // always an editing mistake - a sister renamed, or one not written
+        // yet - and it is silent in the drill.
+        let mut sizes: HashMap<&str, usize> = HashMap::new();
+        for family in self.formulas.iter().filter_map(|formula| formula.family.as_deref()) {
+            *sizes.entry(family).or_default() += 1;
+        }
+        if let Some((family, _)) = sizes.iter().find(|(_, count)| **count < 2) {
+            bail!("family {family:?} holds one formula: a form with no sisters is a switch to nowhere");
+        }
         Ok(())
     }
 }
@@ -144,8 +240,8 @@ impl Pack {
 pub struct Loaded {
     /// Formulas the pack holds.
     pub formulas: usize,
-    /// Cards created for formulas that had none - what is genuinely new to
-    /// the learner.
+    /// Cards created for formulas that had none, counting both directions -
+    /// what is genuinely new to the learner.
     pub new_cards: usize,
     /// Whether anything was written at all.
     pub changed: bool,
@@ -218,22 +314,26 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
         insert_formula(&mut tx, &pack.id, &pack.target, formula).await?;
     }
 
-    // A card per formula, created once. `ON CONFLICT DO NOTHING` is what
-    // makes a reload keep the learner's history: a formula that has been
-    // drilled for a month keeps its schedule when its wording is corrected.
+    // A card per formula per direction, created once. `ON CONFLICT DO
+    // NOTHING` is what makes a reload keep the learner's history: a formula
+    // that has been drilled for a month keeps its schedule when its wording
+    // is corrected.
     let mut new_cards = 0;
     for formula in &pack.formulas {
-        let result = sqlx::query(
-            "INSERT INTO card (kind, subject_id, state, stability, difficulty, due, reps, lapses)
-             VALUES ('formula', ?, 'new', 0.0, 0.0, ?, 0, 0)
-             ON CONFLICT (kind, subject_id) DO NOTHING",
-        )
-        .bind(&formula.id)
-        .bind(&now)
-        .execute(&mut *tx)
-        .await
-        .with_context(|| format!("failed to create a card for formula {}", formula.id))?;
-        new_cards += usize::try_from(result.rows_affected()).unwrap_or(0);
+        for direction in Direction::ALL {
+            let result = sqlx::query(
+                "INSERT INTO card (kind, subject_id, state, stability, difficulty, due, reps, lapses)
+                 VALUES (?, ?, 'new', 0.0, 0.0, ?, 0, 0)
+                 ON CONFLICT (kind, subject_id) DO NOTHING",
+            )
+            .bind(direction.kind())
+            .bind(&formula.id)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await
+            .with_context(|| format!("failed to create a card for formula {}", formula.id))?;
+            new_cards += usize::try_from(result.rows_affected()).unwrap_or(0);
+        }
     }
 
     tx.commit().await.context("failed to commit the pack")?;
@@ -247,8 +347,8 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
 /// Writes one formula with its samples, slots and slot values.
 async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &str, target: &str, formula: &Formula) -> Result<()> {
     sqlx::query(
-        "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position, family, form)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&formula.id)
     .bind(pack_id)
@@ -257,6 +357,8 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
     .bind(&formula.pattern)
     .bind(&formula.explanation)
     .bind(formula.order)
+    .bind(formula.family.as_deref())
+    .bind(formula.form.map(Form::as_str))
     .execute(&mut **tx)
     .await
     .with_context(|| format!("failed to insert formula {}", formula.id))?;
@@ -306,8 +408,8 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
 /// Fails when the database rejects the query.
 pub async fn orphaned_cards(pool: &SqlitePool) -> Result<Vec<String>> {
     let rows = sqlx::query(
-        "SELECT subject_id FROM card
-         WHERE kind = 'formula' AND subject_id NOT IN (SELECT id FROM formula)
+        "SELECT DISTINCT subject_id FROM card
+         WHERE kind IN ('formula', 'formula-recognise') AND subject_id NOT IN (SELECT id FROM formula)
          ORDER BY subject_id",
     )
     .fetch_all(pool)
@@ -340,6 +442,8 @@ name = "{name}"
 pattern = "<pronoun> + am/is/are"
 explanation = "explained"
 order = 10
+family = "be-present"
+form = "statement"
 
   [[formula.sample]]
   native = "prompt"
@@ -460,6 +564,166 @@ order = 1
     }
 
     #[test]
+    fn a_form_with_no_family_is_rejected() {
+        // A form nobody can switch to: the drill would never show it.
+        let toml = r#"
+id = "p"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "f"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 1
+form = "negation"
+  [[formula.sample]]
+  native = "a"
+  target = "b"
+"#;
+        let error = parse(toml).validate().unwrap_err().to_string();
+        assert!(error.contains("no family"), "{error}");
+    }
+
+    #[test]
+    fn a_family_with_no_form_is_rejected() {
+        let toml = r#"
+id = "p"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "f"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 1
+family = "be-present"
+  [[formula.sample]]
+  native = "a"
+  target = "b"
+"#;
+        let error = parse(toml).validate().unwrap_err().to_string();
+        assert!(error.contains("no form"), "{error}");
+    }
+
+    #[test]
+    fn two_formulas_claiming_the_same_form_are_rejected() {
+        // The switch would show one of the two at random, and which one would
+        // depend on row order.
+        let toml = r#"
+id = "p"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "one"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 1
+family = "be-present"
+form = "question"
+  [[formula.sample]]
+  native = "a"
+  target = "b"
+
+[[formula]]
+id = "two"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 2
+family = "be-present"
+form = "question"
+  [[formula.sample]]
+  native = "a"
+  target = "b"
+"#;
+        let error = parse(toml).validate().unwrap_err().to_string();
+        assert!(error.contains("question"), "{error}");
+    }
+
+    #[test]
+    fn a_family_of_one_is_rejected() {
+        // A switch with nothing to switch to: always a sister renamed or not
+        // written yet, and silent in the drill.
+        let toml = r#"
+id = "p"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "only"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 1
+family = "be-present"
+form = "statement"
+  [[formula.sample]]
+  native = "a"
+  target = "b"
+"#;
+        let error = parse(toml).validate().unwrap_err().to_string();
+        assert!(error.contains("one formula"), "{error}");
+    }
+
+    #[test]
+    fn a_formula_with_no_family_at_all_is_fine() {
+        // "Let's go" is nobody's negation. Most of a pack is like this at
+        // first, and requiring a family would force made-up groupings.
+        let toml = r#"
+id = "p"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "lets"
+name = "n"
+pattern = "Let's + x"
+explanation = "e"
+order = 1
+  [[formula.sample]]
+  native = "a"
+  target = "b"
+"#;
+        parse(toml).validate().expect("a formula without a family should load");
+    }
+
+    #[tokio::test]
+    async fn a_family_and_a_form_reach_the_database() {
+        let pool = pool().await;
+        load(&pool, &parse(&pack_toml(1, "first"))).await.unwrap();
+
+        let (family, form): (Option<String>, Option<String>) = sqlx::query_as("SELECT family, form FROM formula WHERE id = 'be-present'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!((family.as_deref(), form.as_deref()), (Some("be-present"), Some("statement")));
+
+        let (family, form): (Option<String>, Option<String>) = sqlx::query_as("SELECT family, form FROM formula WHERE id = 'have-got'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!((family, form), (None, None), "a formula with no family should not invent one");
+    }
+
+    #[test]
+    fn forms_survive_the_round_trip_through_the_database() {
+        for form in [Form::Statement, Form::Negation, Form::Question] {
+            assert_eq!(Form::parse(form.as_str()).unwrap(), form);
+        }
+        assert!(Form::parse("exclamation").is_err());
+    }
+
+    #[test]
     fn two_formulas_with_the_same_id_are_rejected() {
         let toml = r#"
 id = "p"
@@ -496,7 +760,7 @@ order = 2
         let pool = pool().await;
         let loaded = load(&pool, &parse(&pack_toml(1, "first"))).await.unwrap();
         assert_eq!(loaded.formulas, 2);
-        assert_eq!(loaded.new_cards, 2);
+        assert_eq!(loaded.new_cards, 4, "each formula should get a card in each direction");
         assert!(loaded.changed);
 
         let formulas: i64 = sqlx::query_scalar("SELECT count(*) FROM formula").fetch_one(&pool).await.unwrap();
@@ -519,7 +783,7 @@ order = 2
 
         let formulas: i64 = sqlx::query_scalar("SELECT count(*) FROM formula").fetch_one(&pool).await.unwrap();
         let cards: i64 = sqlx::query_scalar("SELECT count(*) FROM card").fetch_one(&pool).await.unwrap();
-        assert_eq!((formulas, cards), (2, 2), "a reload duplicated rows");
+        assert_eq!((formulas, cards), (2, 4), "a reload duplicated rows");
     }
 
     #[tokio::test]
@@ -528,7 +792,7 @@ order = 2
         // wording must not reset a month of drilling it.
         let pool = pool().await;
         load(&pool, &parse(&pack_toml(1, "first"))).await.unwrap();
-        sqlx::query("UPDATE card SET state = 'sewn', reps = 9 WHERE subject_id = 'be-present'")
+        sqlx::query("UPDATE card SET state = 'sewn', reps = 9 WHERE kind = 'formula' AND subject_id = 'be-present'")
             .execute(&pool)
             .await
             .unwrap();
@@ -543,7 +807,7 @@ order = 2
             .unwrap();
         assert_eq!(name, "corrected", "the new wording should have replaced the old");
 
-        let (state, reps): (String, i64) = sqlx::query_as("SELECT state, reps FROM card WHERE subject_id = 'be-present'")
+        let (state, reps): (String, i64) = sqlx::query_as("SELECT state, reps FROM card WHERE kind = 'formula' AND subject_id = 'be-present'")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -562,8 +826,12 @@ order = 2
         shrunk.formulas.retain(|formula| formula.id != "have-got");
         load(&pool, &shrunk).await.unwrap();
 
-        assert_eq!(orphaned_cards(&pool).await.unwrap(), vec!["have-got".to_string()]);
+        assert_eq!(
+            orphaned_cards(&pool).await.unwrap(),
+            vec!["have-got".to_string()],
+            "a formula with cards in two directions should be reported once"
+        );
         let cards: i64 = sqlx::query_scalar("SELECT count(*) FROM card").fetch_one(&pool).await.unwrap();
-        assert_eq!(cards, 2, "a card was deleted along with its formula");
+        assert_eq!(cards, 4, "a card was deleted along with its formula");
     }
 }

@@ -26,6 +26,21 @@ async fn stand(password: Option<&str>) -> (Router, tempfile::TempDir, tempfile::
     (app, data, web)
 }
 
+/// A stand with the pack the product ships loaded into it.
+async fn taught() -> (Router, tempfile::TempDir, tempfile::TempDir) {
+    let data = tempfile::tempdir().expect("a temporary directory");
+    let url = format!("sqlite://{}?mode=rwc", data.path().join("hilvan.db").display());
+    let pool = hilvan::db::connect(&url).await.expect("the database should open");
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
+    let pack = hilvan::pack::Pack::read(&path).expect("the shipped pack should read");
+    hilvan::pack::load(&pool, &pack).await.expect("the shipped pack should load");
+
+    let web = tempfile::tempdir().expect("a temporary directory");
+    let app = hilvan::app::router(pool, None, web.path());
+    (app, data, web)
+}
+
 async fn json(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
@@ -59,7 +74,11 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
     let pack = hilvan::pack::Pack::read(&path).expect("the shipped pack should read");
     let loaded = hilvan::pack::load(&pool, &pack).await.expect("the shipped pack should load");
-    assert_eq!(loaded.new_cards, loaded.formulas, "every formula should arrive with a card");
+    assert_eq!(
+        loaded.new_cards,
+        loaded.formulas * 2,
+        "every formula should arrive with a card in each direction"
+    );
 
     // The container runs the load command on every start; the second run must
     // not touch a row.
@@ -96,11 +115,57 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     assert_eq!(status, StatusCode::OK);
     assert_ne!(reviewed["stitch"], "new");
 
-    // Answered, so the formula is out of today's queue, and the day's one new
+    // Producing it once opens the other direction: the same shape, asked
+    // backwards. It is the only thing left in the queue - the day's one new
     // formula has been used up.
     let (_, today) = json(&app, Request::get("/api/today").body(Body::empty()).unwrap()).await;
-    assert!(today["queue"].as_array().unwrap().is_empty(), "the sitting did not end: {today}");
+    let queue = today["queue"].as_array().expect("a queue");
+    assert_eq!(queue.len(), 1, "the reverse side of the formula just shown should be waiting: {today}");
+    assert_eq!(queue[0]["direction"], "recognise");
+    assert_eq!(queue[0]["formula"]["id"], first.as_str());
     assert_eq!(today["reviewed_today"], 1);
+
+    // The two directions are counted apart, which is the whole point of
+    // having two: recognition is untouched by having produced the shape.
+    assert_eq!(today["progress"]["produce"]["new"], i64::try_from(loaded.formulas - 1).unwrap());
+    assert_eq!(today["progress"]["recognise"]["new"], i64::try_from(loaded.formulas).unwrap());
+
+    let (status, backwards) = json(
+        &app,
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/formulas/{first}/review"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"rating":"good","direction":"recognise","duration_ms":1800}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_ne!(backwards["stitch"], "new");
+
+    let (_, today) = json(&app, Request::get("/api/today").body(Body::empty()).unwrap()).await;
+    assert!(today["queue"].as_array().unwrap().is_empty(), "the sitting did not end: {today}");
+    assert_eq!(today["reviewed_today"], 2);
+}
+
+#[tokio::test]
+async fn the_shipped_pack_carries_the_three_forms_of_a_shape() {
+    // What the switch on the card is drawn from, checked against the material
+    // the product actually ships rather than a fixture.
+    let (app, _data, _web) = taught().await;
+
+    let (status, formula) = json(&app, Request::get("/api/formulas/be-present-statement").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(formula["family"], "be-present");
+    assert_eq!(formula["form"], "statement");
+
+    let sisters = formula["sisters"].as_array().expect("the other forms of the shape");
+    let forms: Vec<&str> = sisters.iter().filter_map(|sister| sister["form"].as_str()).collect();
+    assert_eq!(forms, vec!["negation", "question"], "the switch should offer the other two forms");
+    assert!(
+        sisters.iter().all(|sister| sister["stitch"] == "new"),
+        "a learner who has answered nothing should see every form as new"
+    );
 }
 
 #[tokio::test]

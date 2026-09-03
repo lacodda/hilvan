@@ -117,6 +117,58 @@ impl Stitch {
 #[error("{0:?} is not a stitch: expected new, basted or sewn")]
 pub struct UnknownStitch(String);
 
+/// Which way round a formula is being asked.
+///
+/// Producing a sentence and understanding one are different skills that run
+/// at different speeds - recognition is always ahead - so each direction gets
+/// its own card and its own schedule, and the gap between them is something
+/// the learner can see rather than something averaged away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Direction {
+    /// Native prompt, target answer: say it.
+    Produce,
+    /// Target prompt, native answer: understand it.
+    Recognise,
+}
+
+impl Direction {
+    /// Both directions, in the order the queue offers them: producing is the
+    /// harder skill and the one the product is about, so it goes first.
+    pub const ALL: [Self; 2] = [Self::Produce, Self::Recognise];
+
+    /// The `card.kind` this direction schedules under.
+    ///
+    /// The producing card keeps the bare `formula` kind it was written with
+    /// in v0.1.0, so a learner's history survives the arrival of the second
+    /// direction untouched.
+    #[must_use]
+    pub const fn kind(self) -> &'static str {
+        match self {
+            Self::Produce => "formula",
+            Self::Recognise => "formula-recognise",
+        }
+    }
+
+    /// Reads a direction back from a card row.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the kind is not one this module writes.
+    pub fn parse(kind: &str) -> Result<Self, UnknownDirection> {
+        match kind {
+            "formula" => Ok(Self::Produce),
+            "formula-recognise" => Ok(Self::Recognise),
+            other => Err(UnknownDirection(other.to_string())),
+        }
+    }
+}
+
+/// A card kind that is neither direction of a formula.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} is not a direction: expected formula or formula-recognise")]
+pub struct UnknownDirection(String);
+
 /// The schedulable state of one thing being learnt.
 ///
 /// A formula today; a word from v0.4.0. The card does not know what it is
@@ -318,5 +370,20 @@ mod tests {
             assert_eq!(Stitch::parse(stitch.as_str()).unwrap(), stitch);
         }
         assert!(Stitch::parse("review").is_err(), "FSRS's own words are not the product's");
+    }
+
+    #[test]
+    fn directions_survive_the_round_trip_through_the_database() {
+        for direction in Direction::ALL {
+            assert_eq!(Direction::parse(direction.kind()).unwrap(), direction);
+        }
+        assert!(Direction::parse("word").is_err(), "a word's card is not a direction of a formula");
+    }
+
+    #[test]
+    fn producing_keeps_the_kind_v0_1_0_wrote() {
+        // The reason a learner's history survives v0.2.0: the producing card
+        // is the card that was already there, under the name it already had.
+        assert_eq!(Direction::Produce.kind(), "formula");
     }
 }

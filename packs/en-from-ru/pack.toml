@@ -1,5 +1,5 @@
 id = "en-from-ru"
-version = 1
+version = 2
 native = "ru"
 target = "en"
 
@@ -13,6 +13,8 @@ name = "Я есть - to be в настоящем"
 pattern = "<pronoun> + am/is/are + <rest>"
 explanation = "В русском мы говорим «я дома», «он врач» без всякой связки, а в английском связка обязательна: I am, he/she/it is, we/you/they are. Самая частая ошибка русскоговорящего - выбросить эту связку вообще, сказать «I doctor» вместо «I am a doctor». Запомните её просто как часть местоимения: I am, you are, he is - одно целое, которое нельзя разорвать."
 order = 10
+family = "be-present"
+form = "statement"
 
   [[formula.sample]]
   native = "Я дома."
@@ -64,6 +66,8 @@ name = "Я не - to be, отрицание"
 pattern = "<pronoun> + am not/isn't/aren't + <rest>"
 explanation = "Отрицание строится той же связкой плюс not: am not, isn't, aren't. В разговоре почти всегда используют слитную форму isn't и aren't, а с I говорят am not (сокращения I'm not). Ошибка новичка - добавить don't туда, где уже есть am/is/are: «I don't tired» вместо «I'm not tired» - с to be частица do не нужна никогда."
 order = 20
+family = "be-present"
+form = "negation"
 
   [[formula.sample]]
   native = "Я не голоден."
@@ -113,6 +117,8 @@ name = "Он дома? - to be, вопрос"
 pattern = "Am/Is/Are + <pronoun> + <rest>?"
 explanation = "В вопросе связка просто выходит вперёд, перед местоимением: Is he at home?, Are you ready? Порядок слов - вот что здесь ломается у русских: по привычке хочется спросить «He is at home?» с интонацией, как в русском, но по-английски так не говорят - глагол обязан встать первым."
 order = 30
+family = "be-present"
+form = "question"
 
   [[formula.sample]]
   native = "Ты готов?"
@@ -257,6 +263,8 @@ name = "Я делаю - Present Simple"
 pattern = "<pronoun> + <verb> + <rest>"
 explanation = "Это формула для обычных, повторяющихся дел: то, что вы делаете вообще, каждый день, а не прямо сейчас. Глагол берётся в самой простой форме, без всяких добавок - I work, you live, we play. Проблем здесь обычно немного, но помните: эта формула не подходит для он/она/оно - там появляется своя, со звуком -s (следующая формула)."
 order = 60
+family = "present-simple"
+form = "statement"
 
   [[formula.sample]]
   native = "Я работаю в офисе."
@@ -371,6 +379,8 @@ name = "Я не делаю - Present Simple, отрицание"
 pattern = "<pronoun> + don't/doesn't + <verb> + <rest>"
 explanation = "Отрицание строится с помощью don't (я/ты/мы/они) или doesn't (он/она/оно) плюс глагол в самой простой форме - без -s, ведь -s уже «спрятана» в doesn't. Вот тут и рождается частая ошибка: говорят «he doesn't works» вместо «he doesn't work», ставя -s дважды."
 order = 80
+family = "present-simple"
+form = "negation"
 
   [[formula.sample]]
   native = "Я не пью кофе вечером."
@@ -430,6 +440,8 @@ name = "Ты делаешь? - Present Simple, вопрос"
 pattern = "Do/Does + <pronoun> + <verb> + <rest>?"
 explanation = "Вопрос начинается с do (я/ты/мы/они) или does (он/она/оно), а сам смысловой глагол снова стоит в простой форме без -s - вся работа по указанию на лицо уже сделана словом does. Ошибка новичка - спросить «Does he works?» вместо «Does he work?», либо вообще забыть do/does и спросить «He works?» с одной интонацией, как в русском."
 order = 90
+family = "present-simple"
+form = "question"
 
   [[formula.sample]]
   native = "Ты работаешь по субботам?"
@@ -951,6 +963,8 @@ name = "Я был - to be в прошлом"
 pattern = "<pronoun> + was/were + <rest>"
 explanation = "В прошлом у to be всего две формы: was для я/он/она/оно, were для ты/мы/они. Это проще, чем в настоящем, но именно поэтому русскоговорящие иногда путают было ли I was или I were - запомните: were только с you, we, they, всё остальное - was."
 order = 200
+family = "be-past"
+form = "statement"
 
   [[formula.sample]]
   native = "Я был на работе вчера."
@@ -999,6 +1013,8 @@ name = "Ты был там? - to be в прошлом, вопрос"
 pattern = "Was/Were + <pronoun> + <rest>?"
 explanation = "Как и в настоящем, was/were просто выходят вперёд местоимения: Were you there?, Was he late? Никакого do/did здесь не нужно - это касается только обычных глаголов, а to be всегда справляется сам, и в прошлом тоже."
 order = 210
+family = "be-past"
+form = "question"
 
   [[formula.sample]]
   native = "Ты был на встрече?"
@@ -1049,6 +1065,8 @@ name = "Я сделал - Past Simple"
 pattern = "<pronoun> + <verb-ed/irregular> + <rest>"
 explanation = "Для завершённого действия в прошлом обычные глаголы получают окончание -ed (work - worked), а самые частые глаголы вроде go, see, have меняются полностью и их формы нужно просто запомнить (went, saw, had). Хорошая новость - эта форма одна для всех местоимений, никакого -s у he/she/it здесь уже нет, это то, что путает по инерции после present simple."
 order = 220
+family = "past-simple"
+form = "statement"
 
   [[formula.sample]]
   native = "Вчера я работал допоздна."
@@ -1097,6 +1115,8 @@ name = "Я не сделал - Past Simple, отрицание"
 pattern = "<pronoun> + didn't + <verb> + <rest>"
 explanation = "Отрицание в прошлом всегда через didn't - и после него глагол возвращается в самую простую форму, даже если это неправильный глагол: didn't go, а не didn't went. Именно эту ошибку - оставить прошедшую форму глагола после didn't - делают чаще всего, потому что кажется, будто прошедшее время нужно показать дважды."
 order = 230
+family = "past-simple"
+form = "negation"
 
   [[formula.sample]]
   native = "Я не позвонил вчера."
@@ -1154,6 +1174,8 @@ name = "Ты сделал? - Past Simple, вопрос"
 pattern = "Did + <pronoun> + <verb> + <rest>?"
 explanation = "Вопрос делается через did впереди, и глагол снова стоит в простой форме без -ed и без неправильных изменений: Did you see him?, а не Did you saw him? Did уже сам по себе показывает, что речь о прошлом - смысловому глаголу второй раз это показывать не нужно."
 order = 240
+family = "past-simple"
+form = "question"
 
   [[formula.sample]]
   native = "Ты позвонил маме?"
@@ -1204,6 +1226,8 @@ name = "Я сделаю - will"
 pattern = "<pronoun> + will + <verb>"
 explanation = "Will - самый простой способ говорить о будущем: одна форма на все местоимения, после неё глагол в простой форме без to. В речи will почти всегда сжимают до 'll: I'll call, we'll see. Ошибка новичка - добавить to после will (I will to go) по привычке от русского «буду» плюс инфинитив."
 order = 250
+family = "future-will"
+form = "statement"
 
   [[formula.sample]]
   native = "Я позвоню тебе завтра."
@@ -1251,6 +1275,8 @@ name = "Я не сделаю - won't"
 pattern = "<pronoun> + won't + <verb>"
 explanation = "Отрицание will и not сливается в won't - это стоит просто запомнить как отдельное слово, потому что оно не выглядит как will плюс not на письме. После won't - опять простой глагол без to: I won't go, а не I won't to go."
 order = 260
+family = "future-will"
+form = "negation"
 
   [[formula.sample]]
   native = "Я не буду это есть."
@@ -1298,6 +1324,8 @@ name = "Ты сделаешь? - will, вопрос"
 pattern = "Will + <pronoun> + <verb>?"
 explanation = "Will выходит вперёд местоимения так же, как can и должен и все остальные помощники: Will you help me? Форма глагола после него не меняется ни при каких условиях - никакого -s, никакого -ed, только простая форма."
 order = 270
+family = "future-will"
+form = "question"
 
   [[formula.sample]]
   native = "Ты поможешь мне?"

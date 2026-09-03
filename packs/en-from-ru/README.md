@@ -23,6 +23,8 @@ name = "I am / you are"       # what the learner sees as the title
 pattern = "<pronoun> + am/is/are + <rest>"
 explanation = "..."           # one paragraph, in the native language
 order = 10                    # the order formulas are introduced in
+family = "be-present"          # optional: the shape this is one form of
+form = "statement"             # optional: statement, negation or question
 
   [[formula.sample]]          # worked examples: what a correct answer looks like
   native = "Я дома."
@@ -38,3 +40,9 @@ order = 10                    # the order formulas are introduced in
 
 Every formula needs at least one sample; slots are optional, but a formula
 with no slot cannot be drilled by substitution, only recalled.
+
+A statement, its negation and its question stay three formulas with three
+schedules - the negation with `don't` really is a separate thing to
+remember - and `family` is what lets the drill show them on one card behind a
+switch. Both fields go together, and a formula that is nobody's negation
+leaves them out.
