@@ -7,13 +7,13 @@ All endpoints are under `/api` and speak JSON. A path outside `/api` that does n
 
 ## Sessions
 
-Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}`, `/api/formulas/{id}/review`) sits behind [`HILVAN_PASSWORD`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
+Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}`, `/api/formulas/{id}/review`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
 
 ```json
 { "error": "sign in first" }
 ```
 
-The session cookie is `hilvan_session`, `HttpOnly`, `SameSite=Lax`, and lasts 30 days from sign-in. It is not marked `Secure`, because the stand is reached over plain HTTP on a home network.
+The session cookie is `hilvan_session`, `HttpOnly`, `SameSite=Lax`, and lasts 90 days. It is not marked `Secure`, because the stand is reached over plain HTTP on a home network. Sessions are rows in the database rather than signed tokens, so they survive a restart of the server and a sign-out ends one for good; every request refreshes the 90 days.
 
 ### `GET /api/health`
 
@@ -41,7 +41,7 @@ Whether the door is locked, and whether this client is through it.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `required` | boolean | Whether `HILVAN_PASSWORD` is set. |
+| `required` | boolean | Whether `HILVAN_PASSWORD_HASH` is set. |
 | `signed_in` | boolean | Whether the request's own session cookie is valid. |
 
 ### `POST /api/session`
@@ -84,7 +84,7 @@ Forgets the session server-side and clears the cookie.
 
 ## Study
 
-Everything below requires a valid session when `HILVAN_PASSWORD` is set.
+Everything below requires a valid session when `HILVAN_PASSWORD_HASH` is set.
 
 ### `GET /api/today`
 

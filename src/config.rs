@@ -27,9 +27,14 @@ pub struct Config {
     pub database_url: String,
     /// Directory holding the built SPA (`HILVAN_WEB_DIR`).
     pub web_dir: PathBuf,
-    /// The password the learner is let in with (`HILVAN_PASSWORD`). Unset
-    /// leaves the stand open, which is what a developer's machine wants.
-    pub password: Option<String>,
+    /// Argon2 hash of the password the learner signs in with
+    /// (`HILVAN_PASSWORD_HASH`, produced by `hilvan hash`). Unset leaves the
+    /// stand open, which is what a developer's machine wants.
+    ///
+    /// A hash rather than the password itself: an .env file travels into
+    /// backups and shows up in `docker inspect`, and neither should hand
+    /// anyone the password.
+    pub password_hash: Option<String>,
 }
 
 impl Config {
@@ -53,12 +58,12 @@ impl Config {
         let web_dir = lookup("HILVAN_WEB_DIR")
             .filter(|path| !path.trim().is_empty())
             .map_or_else(|| PathBuf::from(DEFAULT_WEB_DIR), PathBuf::from);
-        let password = lookup("HILVAN_PASSWORD").filter(|password| !password.is_empty());
+        let password_hash = lookup("HILVAN_PASSWORD_HASH").filter(|hash| !hash.trim().is_empty());
         Ok(Self {
             addr,
             database_url,
             web_dir,
-            password,
+            password_hash,
         })
     }
 }
@@ -77,7 +82,7 @@ mod tests {
         assert_eq!(config.addr, DEFAULT_ADDR.parse().unwrap());
         assert_eq!(config.database_url, DEFAULT_DATABASE_URL);
         assert_eq!(config.web_dir, PathBuf::from(DEFAULT_WEB_DIR));
-        assert!(config.password.is_none(), "an unset password should leave the stand open");
+        assert!(config.password_hash.is_none(), "an unset password should leave the stand open");
     }
 
     #[test]
@@ -97,12 +102,12 @@ mod tests {
     fn treats_blank_optionals_as_unset() {
         // A compose file that leaves a variable empty means "the default",
         // not "a database with no name" or "serve the working directory".
-        let config = Config::from_lookup(env(&[("HILVAN_DATABASE_URL", ""), ("HILVAN_WEB_DIR", " "), ("HILVAN_PASSWORD", "")])).unwrap();
+        let config = Config::from_lookup(env(&[("HILVAN_DATABASE_URL", ""), ("HILVAN_WEB_DIR", " "), ("HILVAN_PASSWORD_HASH", "  ")])).unwrap();
         assert_eq!(config.database_url, DEFAULT_DATABASE_URL);
         assert_eq!(config.web_dir, PathBuf::from(DEFAULT_WEB_DIR));
-        // An .env with `HILVAN_PASSWORD=` means unset, not "the empty string
-        // lets you in".
-        assert!(config.password.is_none());
+        // An .env with `HILVAN_PASSWORD_HASH=` means unset, not "a hash of
+        // nothing lets you in".
+        assert!(config.password_hash.is_none());
     }
 
     #[test]

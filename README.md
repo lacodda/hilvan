@@ -32,7 +32,7 @@ docker compose -f docker-compose.prod.yml exec hilvan hilvan load-pack packs/en-
 curl http://pi:8086/api/health
 ```
 
-Set `HILVAN_PASSWORD` before starting, or the stand is open to anyone on the network.
+Lock the stand before starting, or it is open to anyone on the network: run `hilvan hash` and put the string it prints in `.env` as `HILVAN_PASSWORD_HASH`, single-quoted - a PHC string is full of `$`, which compose would otherwise expand.
 
 Everything hilvan remembers lives in the `data` volume as one file; back it up by copying it ([ADR 0001](https://github.com/lacodda/hilvan/blob/main/docs/adr/0001-stack.md)). The full walk-through is in the docs: [lacodda.github.io/hilvan](https://lacodda.github.io/hilvan/).
 
@@ -45,12 +45,12 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 | `HILVAN_DATABASE_URL` | no | `sqlite://data/hilvan.db?mode=rwc` | The SQLite file holding everything the tutor remembers. |
 | `HILVAN_ADDR` | no | `0.0.0.0:8086` | Socket address the HTTP server binds to. |
 | `HILVAN_WEB_DIR` | no | `web/dist` | Directory holding the built app, served for every path outside `/api`. |
-| `HILVAN_PASSWORD` | no | unset | The password the learner signs in with. Unset leaves the stand open to anyone who can reach it, and the server says so at startup. |
+| `HILVAN_PASSWORD_HASH` | no | unset | Argon2 hash of the learner's password, from `hilvan hash`. Unset leaves the stand open to anyone who can reach it, and the server says so at startup. |
 | `RUST_LOG` | no | `hilvan=info,tower_http=info` | Log filter, in `tracing-subscriber` `EnvFilter` syntax. |
 
 ## Status
 
-**v0.1.0 Formulas** - the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, spaced repetition (FSRS) decides what comes back and when, and a drill runs a sitting on a phone: the formula of the day, a prompt, your own answer, and how it went.
+**v0.1.1 Formulas** - the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, spaced repetition (FSRS) decides what comes back and when, and a drill runs a sitting on a phone: the formula of the day, a prompt, your own answer, and how it went.
 
 What is built: the learner model, formula packs as data, FSRS scheduling with three states - new, basted, sewn - one new formula a day, the drill, and a password on the door. What comes next: audio, words inside sentences, the reader, and the compiler that writes material from the learner model.
 

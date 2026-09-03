@@ -17,7 +17,7 @@ This is a one-time step (or one you repeat only when the pack file itself change
 
 ## Signing in
 
-If the stand has [`HILVAN_PASSWORD`](/hilvan/reference/configuration/#the-password) set, the app asks for it once; the session then lasts 30 days, so this is not a daily step. On an open stand - no password set - there is nothing to sign into at all.
+If the stand has [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password) set, the app asks for the password once; the session then lasts 90 days and every visit pushes that out, so this is not a daily step - and it survives the stand being updated. On an open stand - no password set - there is nothing to sign into at all.
 
 ## A sitting
 

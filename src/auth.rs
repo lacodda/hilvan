@@ -5,198 +5,231 @@
 //! "easy" on someone else's formulas, and nothing here should be readable by
 //! whoever finds the stand from outside.
 //!
-//! So the whole of it is: one password, held in the environment rather than
-//! the database, and a session cookie holding a random token the server
-//! remembers until it expires. No accounts, no registration, no reset flow -
-//! those need a second person to exist.
+//! So the whole of it is: one password, kept as an Argon2 hash in the
+//! environment, and sessions as rows in the database. No accounts, no
+//! registration, no reset flow - those need a second person to exist.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use anyhow::{Context, Result};
+use argon2::password_hash::phc::PasswordHash;
+use argon2::{Argon2, PasswordHasher, PasswordVerifier};
+use sqlx::SqlitePool;
 
-use chrono::{DateTime, Duration, Utc};
-use rand::RngExt;
-use subtle::ConstantTimeEq;
-
-/// The name of the session cookie.
+/// The cookie the session token travels in.
 pub const COOKIE: &str = "hilvan_session";
 
-/// How long a session lasts before the learner has to type the password again.
+/// How long a session lives without being used.
 ///
-/// Thirty days: the tutor is opened from a phone every day, and a login screen
-/// between the learner and a five-minute drill is the surest way to skip the
-/// drill.
-const SESSION_DAYS: i64 = 30;
+/// Ninety days, refreshed on every request: the learner is one person on
+/// their own phone, opening the tutor daily, and a login screen between them
+/// and a five-minute drill is the surest way to skip the drill.
+pub const SESSION_DAYS: i64 = 90;
 
-/// Sessions the server currently honours.
+/// Hashes a password for `HILVAN_PASSWORD_HASH`.
 ///
-/// In memory, not in the database: a restart asking for the password once is
-/// a fair price for tokens that cannot leak from a file that gets backed up.
-#[derive(Clone)]
-pub struct Sessions {
-    /// The password to be let in with; `None` leaves the door open.
-    password: Option<Arc<str>>,
-    live: Arc<Mutex<HashMap<String, DateTime<Utc>>>>,
+/// Argon2id with the crate's defaults, which are the OWASP-recommended
+/// parameters. The salt is random per password and travels inside the PHC
+/// string, so nothing else has to be stored beside it.
+///
+/// # Errors
+///
+/// Fails when the hasher rejects the password.
+pub fn hash(password: &str) -> Result<String> {
+    Argon2::default()
+        .hash_password(password.as_bytes())
+        .map(|hash| hash.to_string())
+        .map_err(|error| anyhow::anyhow!("failed to hash the password: {error}"))
 }
 
-impl std::fmt::Debug for Sessions {
-    /// Written by hand so a stray `{:?}` in a log line cannot print the
-    /// password.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Sessions").field("required", &self.password.is_some()).finish_non_exhaustive()
-    }
+/// Checks a password against the configured hash.
+///
+/// # Errors
+///
+/// Fails when the configured hash is not a valid PHC string, which is a
+/// deployment error worth naming rather than reading as a wrong password.
+pub fn verify(password: &str, hash: &str) -> Result<bool> {
+    let parsed = PasswordHash::new(hash).map_err(|error| anyhow::anyhow!("HILVAN_PASSWORD_HASH is not a valid Argon2 hash: {error}"))?;
+    Ok(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
 }
 
-impl Sessions {
-    /// A door with `password` on it, or an open one when it is `None`.
-    #[must_use]
-    pub fn new(password: Option<String>) -> Self {
-        Self {
-            password: password.filter(|p| !p.is_empty()).map(Into::into),
-            live: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
+/// A fresh session token: 256 bits from the operating system's generator,
+/// hex-encoded so it survives a cookie header unescaped.
+#[must_use]
+pub fn new_token() -> String {
+    use std::fmt::Write as _;
 
-    /// Whether a password is required at all.
-    ///
-    /// Unset means an open stand, which is what a developer's machine wants
-    /// and what a home network can choose. The server says so at startup.
-    #[must_use]
-    pub fn is_required(&self) -> bool {
-        self.password.is_some()
+    let bytes: [u8; 32] = rand::random();
+    let mut token = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(token, "{byte:02x}");
     }
+    token
+}
 
-    /// Checks a password and issues a session token, or returns `None`.
-    ///
-    /// The comparison is constant-time: the difference between a wrong first
-    /// character and a wrong last one should not be measurable.
-    #[must_use]
-    pub fn log_in(&self, attempt: &str, now: DateTime<Utc>) -> Option<String> {
-        let password = self.password.as_ref()?;
-        if !bool::from(attempt.as_bytes().ct_eq(password.as_bytes())) {
-            return None;
-        }
-        Some(self.issue(now))
-    }
+/// Stores a new session.
+///
+/// # Errors
+///
+/// Fails when the database rejects the insert.
+pub async fn start(pool: &SqlitePool, token: &str) -> Result<()> {
+    sqlx::query("INSERT INTO session (token) VALUES (?)")
+        .bind(token)
+        .execute(pool)
+        .await
+        .context("failed to store the session")?;
+    Ok(())
+}
 
-    /// Issues a session without checking anything. Used when no password is
-    /// set, and by `log_in` once the password matched.
-    fn issue(&self, now: DateTime<Utc>) -> String {
-        // 32 bytes of randomness, hex-encoded: not guessable, and safe to put
-        // in a cookie without escaping.
-        let token = {
-            let mut rng = rand::rng();
-            let bytes: [u8; 32] = rng.random();
-            let mut token = String::with_capacity(bytes.len() * 2);
-            for byte in bytes {
-                use std::fmt::Write as _;
-                let _ = write!(token, "{byte:02x}");
-            }
-            token
-        };
-        let expires = now + Duration::days(SESSION_DAYS);
-        if let Ok(mut live) = self.live.lock() {
-            live.retain(|_, at| *at > now);
-            live.insert(token.clone(), expires);
-        }
-        token
-    }
+/// Ends a session.
+///
+/// # Errors
+///
+/// Fails when the database rejects the delete.
+pub async fn end(pool: &SqlitePool, token: &str) -> Result<()> {
+    sqlx::query("DELETE FROM session WHERE token = ?")
+        .bind(token)
+        .execute(pool)
+        .await
+        .context("failed to end the session")?;
+    Ok(())
+}
 
-    /// Whether a request carrying `token` is allowed in.
-    #[must_use]
-    pub fn is_valid(&self, token: Option<&str>, now: DateTime<Utc>) -> bool {
-        if self.password.is_none() {
-            return true;
-        }
-        let Some(token) = token else { return false };
-        let Ok(live) = self.live.lock() else { return false };
-        live.get(token).is_some_and(|expires| *expires > now)
-    }
-
-    /// Forgets a session.
-    pub fn log_out(&self, token: Option<&str>) {
-        let Some(token) = token else { return };
-        if let Ok(mut live) = self.live.lock() {
-            live.remove(token);
-        }
-    }
-
-    /// How long a freshly issued session lasts, for the cookie's own expiry.
-    #[must_use]
-    pub const fn lifetime_days() -> i64 {
-        SESSION_DAYS
-    }
+/// Whether a token names a live session, refreshing it if it does.
+///
+/// # Errors
+///
+/// Fails when the database cannot be read.
+pub async fn is_live(pool: &SqlitePool, token: &str) -> Result<bool> {
+    // The lifetime is enforced in the query rather than by a sweep: a session
+    // that has not been used in ninety days is dead the moment it is asked
+    // about, whether or not anything has cleaned it up.
+    let refreshed = sqlx::query(
+        "UPDATE session
+            SET seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+          WHERE token = ?
+            AND seen_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?)",
+    )
+    .bind(token)
+    .bind(format!("-{SESSION_DAYS} days"))
+    .execute(pool)
+    .await
+    .context("failed to check the session")?;
+    Ok(refreshed.rows_affected() > 0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn now() -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339("2026-09-03T09:00:00Z").unwrap().with_timezone(&Utc)
+    async fn pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.expect("an in-memory database");
+        sqlx::migrate!().run(&pool).await.expect("migrations should apply");
+        pool
     }
 
     #[test]
-    fn the_right_password_opens_the_door_and_a_wrong_one_does_not() {
-        let sessions = Sessions::new(Some("hunter2".into()));
-        assert!(sessions.log_in("wrong", now()).is_none());
-
-        let token = sessions.log_in("hunter2", now()).expect("the password should be accepted");
-        assert!(sessions.is_valid(Some(&token), now()));
+    fn the_right_password_verifies_and_a_wrong_one_does_not() {
+        let stored = hash("hunter2").expect("a password should hash");
+        assert!(verify("hunter2", &stored).unwrap());
+        assert!(!verify("hunter3", &stored).unwrap());
     }
 
     #[test]
-    fn a_token_nobody_issued_is_refused() {
-        let sessions = Sessions::new(Some("hunter2".into()));
-        assert!(!sessions.is_valid(Some("0".repeat(64).as_str()), now()));
-        assert!(!sessions.is_valid(None, now()));
+    fn the_hash_does_not_contain_the_password() {
+        // The whole point of storing a hash: an .env that leaks into a backup
+        // does not hand over the password.
+        let stored = hash("hunter2").unwrap();
+        assert!(!stored.contains("hunter2"), "the hash carries the password: {stored}");
+        assert!(stored.starts_with("$argon2"), "not a PHC string: {stored}");
     }
 
     #[test]
-    fn a_session_expires() {
-        let sessions = Sessions::new(Some("hunter2".into()));
-        let token = sessions.log_in("hunter2", now()).unwrap();
-        assert!(!sessions.is_valid(Some(&token), now() + Duration::days(SESSION_DAYS + 1)));
+    fn the_same_password_hashes_differently_every_time() {
+        // A random salt per hash, so two stands with the same password do not
+        // share a hash anyone could recognise.
+        assert_ne!(hash("hunter2").unwrap(), hash("hunter2").unwrap());
     }
 
     #[test]
-    fn logging_out_ends_the_session_at_once() {
-        let sessions = Sessions::new(Some("hunter2".into()));
-        let token = sessions.log_in("hunter2", now()).unwrap();
-        sessions.log_out(Some(&token));
-        assert!(!sessions.is_valid(Some(&token), now()));
+    fn a_configured_hash_that_is_not_a_hash_is_named_as_such() {
+        // A deployment error, not a wrong password: the message has to say
+        // which variable is wrong.
+        let error = verify("hunter2", "not-a-hash").unwrap_err().to_string();
+        assert!(error.contains("HILVAN_PASSWORD_HASH"), "{error}");
     }
 
     #[test]
-    fn two_sessions_get_different_tokens() {
-        // The phone and the desktop are two sessions; one must not be able to
-        // guess or share the other's token.
-        let sessions = Sessions::new(Some("hunter2".into()));
-        let phone = sessions.log_in("hunter2", now()).unwrap();
-        let desktop = sessions.log_in("hunter2", now()).unwrap();
-        assert_ne!(phone, desktop);
-        assert!(sessions.is_valid(Some(&phone), now()) && sessions.is_valid(Some(&desktop), now()));
+    fn two_tokens_are_never_the_same() {
+        assert_ne!(new_token(), new_token());
+        assert_eq!(new_token().len(), 64, "256 bits, hex-encoded");
     }
 
-    #[test]
-    fn no_password_means_no_door() {
-        // A developer's machine, or a stand the learner deliberately leaves
-        // open on the home network.
-        let sessions = Sessions::new(None);
-        assert!(!sessions.is_required());
-        assert!(sessions.is_valid(None, now()));
+    #[tokio::test]
+    async fn a_stored_session_is_live_and_an_unknown_token_is_not() {
+        let pool = pool().await;
+        let token = new_token();
+        start(&pool, &token).await.unwrap();
+
+        assert!(is_live(&pool, &token).await.unwrap());
+        assert!(!is_live(&pool, &new_token()).await.unwrap(), "a token nobody issued was accepted");
     }
 
-    #[test]
-    fn an_empty_password_is_no_password() {
-        // An .env with `HILVAN_PASSWORD=` means unset, not "the empty string
-        // lets you in".
-        let sessions = Sessions::new(Some(String::new()));
-        assert!(!sessions.is_required());
+    #[tokio::test]
+    async fn ending_a_session_takes_effect_at_once() {
+        let pool = pool().await;
+        let token = new_token();
+        start(&pool, &token).await.unwrap();
+        end(&pool, &token).await.unwrap();
+        assert!(!is_live(&pool, &token).await.unwrap());
     }
 
-    #[test]
-    fn the_password_never_reaches_a_log_line() {
-        let sessions = Sessions::new(Some("hunter2".into()));
-        assert!(!format!("{sessions:?}").contains("hunter2"), "the password is printable: {sessions:?}");
+    #[tokio::test]
+    async fn a_session_unused_for_too_long_is_dead() {
+        let pool = pool().await;
+        let token = new_token();
+        start(&pool, &token).await.unwrap();
+
+        // Pushed past the lifetime the way time would.
+        sqlx::query("UPDATE session SET seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-91 days')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(!is_live(&pool, &token).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn using_a_session_pushes_its_expiry_out() {
+        // The reason a phone opened every few days never sees the login
+        // screen again.
+        let pool = pool().await;
+        let token = new_token();
+        start(&pool, &token).await.unwrap();
+        sqlx::query("UPDATE session SET seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-89 days')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(is_live(&pool, &token).await.unwrap(), "a session inside its lifetime was refused");
+
+        // Refreshed by that check, so it survives well past the original
+        // ninety days.
+        let stale: i64 = sqlx::query_scalar("SELECT count(*) FROM session WHERE seen_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stale, 0, "the session was not refreshed on use");
+    }
+
+    #[tokio::test]
+    async fn two_devices_hold_two_sessions() {
+        // The phone and the desktop: signing out of one must not sign out of
+        // the other.
+        let pool = pool().await;
+        let (phone, desktop) = (new_token(), new_token());
+        start(&pool, &phone).await.unwrap();
+        start(&pool, &desktop).await.unwrap();
+
+        end(&pool, &phone).await.unwrap();
+        assert!(!is_live(&pool, &phone).await.unwrap());
+        assert!(is_live(&pool, &desktop).await.unwrap(), "signing out of one device ended the other");
     }
 }

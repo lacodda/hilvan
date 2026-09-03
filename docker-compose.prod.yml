@@ -6,7 +6,11 @@
 # Settings come from a .env file next to this one, which is never committed:
 #
 #   HILVAN_PORT=8086      # the stand's address
-#   HILVAN_PASSWORD=...   # unset leaves the stand open to the whole network
+#
+# Optionally, to lock the stand - single-quoted, because a PHC string is full
+# of $ and compose expands $VAR in an unquoted value:
+#
+#   HILVAN_PASSWORD_HASH='$argon2id$v=19$m=...'   # from `hilvan hash`
 services:
   server:
     build:
@@ -15,9 +19,11 @@ services:
     restart: unless-stopped
     environment:
       RUST_LOG: ${RUST_LOG:-hilvan=info,tower_http=info}
-      # Unset leaves the tutor open to anyone who can reach the stand; the
-      # server says so in its first log line.
-      HILVAN_PASSWORD: ${HILVAN_PASSWORD:-}
+      # Empty unless set, which leaves the tutor open to anyone who can reach
+      # the stand; the server says so in its first log line. The whole PHC
+      # string goes in .env single-quoted: it is full of $, and compose
+      # expands $VAR in an unquoted value.
+      HILVAN_PASSWORD_HASH: ${HILVAN_PASSWORD_HASH:-}
     ports:
       # 8086 on the host: the other services on this machine hold the ports
       # below it. The port is the stand's address, so it is not a default to

@@ -60,7 +60,7 @@ pnpm dev
 
 ## Signing in
 
-There are no accounts - hilvan serves one learner. Set `HILVAN_PASSWORD` and the study endpoints ask for it once, with a session that lasts 30 days; leave it unset and the stand is open, which is the default and what a developer's machine wants. See [Configuration](/hilvan/reference/configuration/#the-password).
+There are no accounts - hilvan serves one learner. Run `hilvan hash`, put the string it prints in `.env` as `HILVAN_PASSWORD_HASH` (single-quoted), and the study endpoints ask for the password once, with a session that lasts 90 days and survives a restart of the server; leave it unset and the stand is open, which is the default and what a developer's machine wants. See [Configuration](/hilvan/reference/configuration/#the-password).
 
 ## Next
 

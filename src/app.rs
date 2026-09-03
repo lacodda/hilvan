@@ -1,6 +1,7 @@
 //! The router: what the browser asks the server for.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use axum::{
     Json, Router,
@@ -18,13 +19,14 @@ use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
-use crate::auth::{self, Sessions};
+use crate::auth;
 use crate::study::{self, Answer};
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: SqlitePool,
-    pub sessions: Sessions,
+    /// Argon2 hash of the learner's password; `None` leaves the stand open.
+    pub password_hash: Option<Arc<str>>,
 }
 
 /// The router: the API under `/api`, the tutor app everywhere else.
@@ -33,8 +35,11 @@ pub struct AppState {
 /// `index.html` otherwise, so a deep link into a lesson loads the app rather
 /// than a 404. The API never falls through to it: a misspelled endpoint has to
 /// look like a mistake, not like a page.
-pub fn router(pool: SqlitePool, sessions: Sessions, web_dir: &Path) -> Router {
-    let state = AppState { pool, sessions };
+pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path) -> Router {
+    let state = AppState {
+        pool,
+        password_hash: password_hash.filter(|hash| !hash.trim().is_empty()).map(Into::into),
+    };
 
     // Everything the learner's own data flows through sits behind the door;
     // health and the session endpoints are what a locked-out client is still
@@ -119,11 +124,30 @@ async fn api_not_found() -> Response {
 /// decides for itself whether to show the login screen or keep what it has
 /// cached on screen.
 async fn require_session(State(state): State<AppState>, jar: CookieJar, request: Request, next: Next) -> Response {
-    let token = jar.get(auth::COOKIE).map(Cookie::value);
-    if state.sessions.is_valid(token, Utc::now()) {
+    if signed_in(&state, &jar).await {
         return next.run(request).await;
     }
     (StatusCode::UNAUTHORIZED, Json(json!({ "error": "sign in first" }))).into_response()
+}
+
+/// Whether this request is allowed in.
+///
+/// A stand with no password has no gate: everyone who can reach it is the
+/// learner.
+async fn signed_in(state: &AppState, jar: &CookieJar) -> bool {
+    if state.password_hash.is_none() {
+        return true;
+    }
+    let Some(token) = jar.get(auth::COOKIE).map(Cookie::value) else {
+        return false;
+    };
+    match auth::is_live(&state.pool, token).await {
+        Ok(live) => live,
+        Err(error) => {
+            tracing::error!(error = format!("{error:#}"), "the session could not be checked");
+            false
+        }
+    }
 }
 
 /// What `GET /api/session` answers: whether the door is locked, and whether
@@ -135,10 +159,10 @@ struct Session {
 }
 
 async fn session(State(state): State<AppState>, jar: CookieJar) -> Response {
-    let token = jar.get(auth::COOKIE).map(Cookie::value);
+    let signed_in = signed_in(&state, &jar).await;
     Json(Session {
-        required: state.sessions.is_required(),
-        signed_in: state.sessions.is_valid(token, Utc::now()),
+        required: state.password_hash.is_some(),
+        signed_in,
     })
     .into_response()
 }
@@ -149,19 +173,35 @@ struct Credentials {
 }
 
 async fn log_in(State(state): State<AppState>, jar: CookieJar, Json(credentials): Json<Credentials>) -> Response {
-    if !state.sessions.is_required() {
+    let Some(hash) = state.password_hash.as_deref() else {
+        // Nothing to sign into, and nothing to hand out either.
         return Json(Session {
             required: false,
             signed_in: true,
         })
         .into_response();
-    }
+    };
 
-    let Some(token) = state.sessions.log_in(&credentials.password, Utc::now()) else {
+    match auth::verify(&credentials.password, hash) {
         // No detail about why: a wrong password and an unknown one are the
         // same answer.
-        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "that is not the password" }))).into_response();
-    };
+        Ok(false) => {
+            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "that is not the password" }))).into_response();
+        }
+        // A malformed hash is the deployment's mistake, not the learner's,
+        // and telling them "wrong password" would send them hunting for a
+        // password that was never going to work.
+        Err(error) => {
+            tracing::error!(error = format!("{error:#}"), "the configured password hash is unusable");
+            return failed("the stand's password is misconfigured", &error);
+        }
+        Ok(true) => {}
+    }
+
+    let token = auth::new_token();
+    if let Err(error) = auth::start(&state.pool, &token).await {
+        return failed("the session could not be stored", &error);
+    }
 
     let cookie = Cookie::build((auth::COOKIE, token))
         .path("/")
@@ -170,7 +210,7 @@ async fn log_in(State(state): State<AppState>, jar: CookieJar, Json(credentials)
         // Not `secure`: the stand is reached over plain HTTP on a home
         // network, and a cookie the browser refuses to send is a login screen
         // that never goes away.
-        .max_age(time::Duration::days(Sessions::lifetime_days()))
+        .max_age(time::Duration::days(auth::SESSION_DAYS))
         .build();
 
     (
@@ -184,12 +224,18 @@ async fn log_in(State(state): State<AppState>, jar: CookieJar, Json(credentials)
 }
 
 async fn log_out(State(state): State<AppState>, jar: CookieJar) -> Response {
-    state.sessions.log_out(jar.get(auth::COOKIE).map(Cookie::value));
+    if let Some(token) = jar.get(auth::COOKIE).map(Cookie::value)
+        && let Err(error) = auth::end(&state.pool, token).await
+    {
+        // The cookie is cleared regardless: a session row that outlives the
+        // browser is a stale row, not an open door on this device.
+        tracing::error!(error = format!("{error:#}"), "the session could not be ended");
+    }
     let jar = jar.remove(Cookie::from(auth::COOKIE));
     (
         jar,
         Json(Session {
-            required: state.sessions.is_required(),
+            required: state.password_hash.is_some(),
             signed_in: false,
         }),
     )
@@ -283,12 +329,12 @@ order = 10
 
     /// The router as a locked stand runs it.
     fn locked(pool: SqlitePool, dir: &tempfile::TempDir) -> Router {
-        router(pool, Sessions::new(Some("hunter2".into())), dir.path())
+        router(pool, Some(auth::hash("hunter2").unwrap()), dir.path())
     }
 
     /// The router as a developer's machine runs it: no password.
     fn open(pool: SqlitePool, dir: &tempfile::TempDir) -> Router {
-        router(pool, Sessions::new(None), dir.path())
+        router(pool, None, dir.path())
     }
 
     async fn body_json(response: Response) -> serde_json::Value {
@@ -396,7 +442,7 @@ order = 10
         // The directory exists but holds no build: the answer names the fix
         // instead of a blank page or a stack trace.
         let dir = tempfile::tempdir().unwrap();
-        let response = router(pool().await, Sessions::new(None), dir.path())
+        let response = router(pool().await, None, dir.path())
             .oneshot(Request::get("/").body(Body::empty()).unwrap())
             .await
             .unwrap();
@@ -528,6 +574,36 @@ order = 10
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_session_outlives_a_restart_of_the_server() {
+        // The stand is updated with `docker compose up -d` every week. If
+        // that logged the learner's phone out, the login screen would stand
+        // between them and the drill on exactly the days a new version lands.
+        let dir = web_root();
+        let pool = taught().await;
+        let cookie = sign_in(&locked(pool.clone(), &dir)).await;
+
+        // A brand-new router over the same database is what a restart is.
+        let restarted = locked(pool, &dir);
+        let response = restarted
+            .oneshot(Request::get("/api/today").header(header::COOKIE, &cookie).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "restarting the server logged the learner out");
+    }
+
+    #[tokio::test]
+    async fn a_misconfigured_hash_is_not_reported_as_a_wrong_password() {
+        // Telling the learner "wrong password" would send them hunting for a
+        // password that was never going to work.
+        let dir = web_root();
+        let response = router(pool().await, Some("not-a-hash".to_string()), dir.path())
+            .oneshot(json_request("POST", "/api/session", r#"{"password":"anything"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[tokio::test]

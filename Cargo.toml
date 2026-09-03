@@ -1,6 +1,6 @@
 [package]
 name = "hilvan"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.94"
 description = "A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know"
@@ -28,12 +28,14 @@ exclude = [
 
 [dependencies]
 anyhow = "1.0.104"
+argon2 = "0.6.0"
 axum = "0.8.9"
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock", "std"] }
 clap = { version = "4.6.6", features = ["derive"] }
 dotenvy = "0.15.7"
 rand = "0.10.2"
+rpassword = "7.5.4"
 rs-fsrs = { version = "1.2.1", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

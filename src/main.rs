@@ -19,6 +19,15 @@ struct Cli {
 enum Command {
     /// Run the HTTP server: the API and the tutor app.
     Serve,
+    /// Hash a password for `HILVAN_PASSWORD_HASH`.
+    ///
+    /// Without a hash to put in the variable, locking a stand means finding
+    /// an Argon2 tool elsewhere, and most of what turns up online is a web
+    /// form asking for the password.
+    Hash {
+        /// The password to hash. Prompted for if omitted.
+        password: Option<String>,
+    },
     /// Load a formula pack into the database, or confirm it is already there.
     ///
     /// Safe to run on every start: an unchanged pack is a no-op, and a
@@ -51,16 +60,24 @@ async fn main() -> Result<()> {
         // container image or a systemd unit expects.
         None | Some(Command::Serve) => serve(&config).await,
         Some(Command::LoadPack { path }) => load_pack(&config, &path).await,
+        Some(Command::Hash { password }) => {
+            let password = match password {
+                Some(password) => password,
+                None => rpassword::prompt_password("Password: ").context("failed to read the password")?,
+            };
+            anyhow::ensure!(!password.trim().is_empty(), "an empty password is not a password");
+            println!("{}", auth::hash(&password)?);
+            Ok(())
+        }
     }
 }
 
 async fn serve(config: &config::Config) -> Result<()> {
     let pool = db::connect(&config.database_url).await?;
-    let sessions = auth::Sessions::new(config.password.clone());
-    if !sessions.is_required() {
+    if config.password_hash.is_none() {
         // Said once, loudly: a stand nobody has to sign in to is a choice,
         // and it should never be one made by forgetting a variable.
-        tracing::warn!("HILVAN_PASSWORD is not set: anyone who can reach this server can use the tutor");
+        tracing::warn!("HILVAN_PASSWORD_HASH is not set: anyone who can reach this server can use the tutor");
     }
 
     let listener = TcpListener::bind(config.addr)
@@ -72,7 +89,7 @@ async fn serve(config: &config::Config) -> Result<()> {
         "hilvan listening"
     );
 
-    axum::serve(listener, app::router(pool, sessions, &config.web_dir))
+    axum::serve(listener, app::router(pool, config.password_hash.clone(), &config.web_dir))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("server error")?;
