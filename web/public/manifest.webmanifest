@@ -1,0 +1,15 @@
+{
+  "name": "hilvan",
+  "short_name": "hilvan",
+  "description": "A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0b0d",
+  "theme_color": "#d64550",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ]
+}

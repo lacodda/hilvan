@@ -1,0 +1,104 @@
+/**
+ * What one turn of the drill asks.
+ *
+ * A formula is a shape with holes in it. The drill fills the holes from the
+ * slot values and asks the learner to say the whole thing - which is the
+ * point: you learn a formula by assembling it, not by recognising it.
+ */
+
+import type { Formula, Sample, Slot } from '@/api'
+
+/** One question: a prompt in the learner's language and the answer expected. */
+export interface Prompt {
+  /** What the learner reads. */
+  native: string
+  /** What they should have said. */
+  target: string
+  /** Where it came from, so the screen can say "an example" or "your own". */
+  source: 'sample' | 'substitution'
+}
+
+/** A source of randomness, passed in so a test can hand over a fixed one. */
+export type Random = () => number
+
+function pick<T>(values: readonly T[], random: Random): T | undefined {
+  if (values.length === 0) return undefined
+  const index = Math.min(values.length - 1, Math.floor(random() * values.length))
+  return values[index]
+}
+
+/**
+ * Fills every `<slot>` in a pattern with one of its values.
+ *
+ * Returns `null` when the pattern cannot be filled - a slot with no values,
+ * or a pattern with no holes at all. The caller falls back to a sample rather
+ * than showing a half-substituted string.
+ */
+export function substitute(formula: Formula, random: Random): Prompt | null {
+  if (formula.slots.length === 0) return null
+
+  let native = formula.pattern
+  let target = formula.pattern
+  const chosen: { slot: Slot; value: Sample }[] = []
+
+  for (const slot of formula.slots) {
+    const value = pick(slot.values, random)
+    if (!value) return null
+    chosen.push({ slot, value })
+  }
+
+  for (const { slot, value } of chosen) {
+    const hole = `<${slot.name}>`
+    if (!native.includes(hole)) return null
+    native = native.split(hole).join(value.native)
+    target = target.split(hole).join(value.target)
+  }
+
+  // The pattern also carries the scaffolding a learner has to choose between
+  // ("am/is/are"), and that is deliberately left in the prompt: choosing the
+  // right one is half of what the formula teaches.
+  return { native, target, source: 'substitution' }
+}
+
+/**
+ * The question for one turn.
+ *
+ * Every third turn is a worked sample rather than a substitution: the samples
+ * are natural sentences an adult actually says, and a drill that is only
+ * assembled fragments drifts away from the language.
+ */
+export function nextPrompt(formula: Formula, turn: number, random: Random): Prompt {
+  const wantsSample = turn % 3 === 0
+  const sample = formula.samples.length > 0 ? formula.samples[turn % formula.samples.length] : undefined
+
+  if (wantsSample && sample) {
+    return { native: sample.native, target: sample.target, source: 'sample' }
+  }
+
+  const substituted = substitute(formula, random)
+  if (substituted) return substituted
+
+  // A formula with no usable slots is drilled on its samples alone.
+  if (sample) return { native: sample.native, target: sample.target, source: 'sample' }
+
+  // Neither: the pack validator rejects this, so it can only happen to a
+  // database edited by hand. Show the pattern rather than an empty card.
+  return { native: formula.pattern, target: formula.pattern, source: 'sample' }
+}
+
+/** The four answers, in the order they are shown. */
+export const ratings = [
+  { rating: 'again', label: 'Again', hint: 'nothing came' },
+  { rating: 'hard', label: 'Hard', hint: 'slowly, with effort' },
+  { rating: 'good', label: 'Good', hint: 'it came' },
+  { rating: 'easy', label: 'Easy', hint: 'without thinking' },
+] as const
+
+/** How long until a formula comes back, said the way a person would. */
+export function whenBack(days: number): string {
+  if (days <= 0) return 'later today'
+  if (days === 1) return 'tomorrow'
+  if (days < 30) return `in ${days} days`
+  const months = Math.round(days / 30)
+  return months === 1 ? 'in a month' : `in ${months} months`
+}
