@@ -12,14 +12,12 @@ hilvan is a language tutor for one learner, running on a Raspberry Pi at home. G
 
 The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in place loosely, then sewn for good by repetition - *hilvanar frases*, to string words into speech.
 
-## What it will do
+## What you get
 
-- **Formulas first.** Grammar drilled as substitution patterns, so production practice starts on structures you can already half-manage. Thirty of them ship as a [pack](https://github.com/lacodda/hilvan/blob/main/packs/en-from-ru/README.md) - a file, not code, which is how a second language arrives later.
-- **Repetition that measures.** Spaced repetition (FSRS) over formulas and words, and a reader that scores how much of a real text you already know - coverage as the honest progress metric.
-- **Material compiled for you.** An LLM assembles sentences and audio lessons from your learner model, voiced by a TTS provider - a compiler of material, not a chatbot.
-
-First target language: English. Spanish later.
-
+- **Formulas, not vocabulary lists.** Grammar drilled as substitution patterns, so production practice starts on structures you can already half-manage. Thirty of them ship as a [pack](https://github.com/lacodda/hilvan/blob/main/packs/en-from-ru/README.md) for English from Russian - a file, not code.
+- **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
+- **A sitting on a phone.** The formula of the day, a prompt, your own answer, and how it went.
+- **A password on the door.** The server refuses to run open and says so in its first log line if you skip it.
 
 ## Install
 
@@ -56,24 +54,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.1.2 Formulas** - the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, spaced repetition (FSRS) decides what comes back and when, and a drill runs a sitting on a phone: the formula of the day, a prompt, your own answer, and how it went.
-
-What is built: the learner model, formula packs as data, FSRS scheduling with three states - new, basted, sewn - one new formula a day, the drill, and a password on the door. What comes next: audio, words inside sentences, the reader, and the compiler that writes material from the learner model.
-
-The architecture is recorded in the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr): [SQLite on a Pi](https://github.com/lacodda/hilvan/blob/main/docs/adr/0001-stack.md), [one model for every language](https://github.com/lacodda/hilvan/blob/main/docs/adr/0002-one-model-for-every-language.md), [FSRS](https://github.com/lacodda/hilvan/blob/main/docs/adr/0003-fsrs-scheduler.md).
-
-## Development
-
-Requires Rust (see `rust-version` in `Cargo.toml`) and Node LTS with pnpm.
-
-```sh
-cp .env.example .env
-cargo run -- load-pack packs/en-from-ru/pack.toml   # the formulas the tutor teaches from
-cargo run -- serve                        # the API on :8086; /api/health reports the database
-
-cd web && pnpm install && pnpm dev        # the app on :5173, proxying /api to the server
-cd docs/site && pnpm install && pnpm dev  # the documentation site
-```
+**v0.2.2**: the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, FSRS scheduling drills each formula in both directions and groups its forms on one card, and a sitting runs end to end on a phone, behind a password. Running on a Raspberry Pi at home since v0.1.0. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
 
 ## Documentation
 
