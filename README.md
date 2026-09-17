@@ -1,10 +1,9 @@
 <p align="center"><img src="https://raw.githubusercontent.com/lacodda/hilvan/main/assets/banner.svg" alt="hilvan" width="720"></p>
 
-# hilvan
-
-[![CI](https://github.com/lacodda/hilvan/actions/workflows/ci.yml/badge.svg)](https://github.com/lacodda/hilvan/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-lacodda.github.io%2Fhilvan-blue)](https://lacodda.github.io/hilvan/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/lacodda/hilvan/blob/main/LICENSE)
+<p align="center">
+  <a href="https://github.com/lacodda/hilvan/actions"><img src="https://img.shields.io/github/actions/workflow/status/lacodda/hilvan/ci.yml?style=flat-square" alt="CI"></a>
+  <a href="https://github.com/lacodda/hilvan/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lacodda/hilvan?style=flat-square" alt="License"></a>
+</p>
 
 > A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know
 
@@ -62,4 +61,4 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## License
 
-[MIT](https://github.com/lacodda/hilvan/blob/main/LICENSE)
+MIT (c) [Kirill Lakhtachev](https://lacodda.com)
