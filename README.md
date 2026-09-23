@@ -56,7 +56,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.2.2**: the tutor teaches. Thirty English grammar formulas for a Russian speaker ship as a pack, FSRS scheduling drills each formula in both directions and groups its forms on one card, and a sitting runs end to end on a phone, behind a password. Running on a Raspberry Pi at home since v0.1.0. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
+**v0.3.0**: the tutor speaks. Every sentence of the drill is heard - the language being learnt in a native ElevenLabs voice, your own in a Piper voice running beside the tutor - with the answer said the moment it is shown, a listening mode that asks by ear, and your own recorded answer played next to the voice. Thirty English grammar formulas for a Russian speaker ship as a pack, FSRS drills each in both directions, and a sitting runs end to end on a phone, behind a password. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
 
 ## Documentation
 
