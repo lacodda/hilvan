@@ -101,6 +101,11 @@ pub struct Voice {
     /// language its model does - every `ElevenLabs` voice on a multilingual
     /// model.
     pub languages: Vec<String>,
+    /// Whether the engine itself puts this voice first - Piper's default
+    /// voice, the one its service loads at start. What speaks a language
+    /// nobody has chosen a voice for.
+    #[serde(skip)]
+    pub preferred: bool,
 }
 
 impl Voice {
@@ -283,7 +288,7 @@ impl Voices {
             },
         };
         let listed = listed.map(|mut voices| {
-            voices.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+            voices.sort_by(|a, b| b.preferred.cmp(&a.preferred).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
             voices
         });
         let mut remembered = self.remembered.lock().await;

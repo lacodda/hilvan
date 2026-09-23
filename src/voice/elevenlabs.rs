@@ -164,6 +164,7 @@ impl Speaker for ElevenLabs {
                 name: listed.name,
                 // Every voice speaks every language of a multilingual model.
                 languages: Vec::new(),
+                preferred: false,
             })
             .collect())
     }

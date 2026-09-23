@@ -36,6 +36,18 @@ struct Described {
     language: Option<Language>,
 }
 
+/// What `GET /info` says, as far as hilvan reads it: the voice the service
+/// loaded at start.
+#[derive(Deserialize)]
+struct Info {
+    voice: InfoVoice,
+}
+
+#[derive(Deserialize)]
+struct InfoVoice {
+    name: String,
+}
+
 #[derive(Deserialize)]
 struct Language {
     /// `ru_RU`, `en_US`.
@@ -65,6 +77,19 @@ fn display_name(id: &str) -> String {
     let speaker = id.split('-').nth(1).unwrap_or(id);
     let mut chars = speaker.chars();
     chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
+impl Piper {
+    /// The voice the service loaded at start: its operator's pick, and the
+    /// default for a language nobody has chosen a voice for. `None` when the
+    /// service does not say - the voices are then in name order.
+    async fn default_voice(&self) -> Option<String> {
+        let response = self.http.get(format!("{}/info", self.url)).timeout(Duration::from_secs(5)).send().await.ok()?;
+        let info: Info = response.error_for_status().ok()?.json().await.ok()?;
+        // The service names it the way it trims the file name, which can
+        // leave a stray character; the list of voices is the authority.
+        Some(info.voice.name)
+    }
 }
 
 impl Speaker for Piper {
@@ -97,6 +122,7 @@ impl Speaker for Piper {
             bail!("Piper at {} answered {} to a list of voices", self.url, response.status());
         }
         let described: BTreeMap<String, Described> = response.json().await.context("Piper listed its voices in a shape hilvan does not read")?;
+        let default = self.default_voice().await;
         Ok(described
             .into_iter()
             .map(|(id, described)| {
@@ -113,6 +139,7 @@ impl Speaker for Piper {
                 Voice {
                     engine: Engine::Piper,
                     name: display_name(&id),
+                    preferred: default.as_deref() == Some(id.as_str()),
                     id,
                     languages: vec![language],
                 }

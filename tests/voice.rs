@@ -68,6 +68,10 @@ async fn piper() -> (String, Arc<Asked>) {
             }),
         )
         .route(
+            "/info",
+            get(|| async { Json(json!({ "voice": { "name": "ru_RU-irina-medium" }, "last": null })) }),
+        )
+        .route(
             "/synthesize",
             post(move |Json(body): Json<Value>| {
                 let asked = counter.clone();
@@ -201,6 +205,11 @@ async fn each_language_is_spoken_by_its_own_engine() {
     assert_eq!(russian.status(), StatusCode::OK);
     assert_eq!(russian.headers()[header::CONTENT_TYPE], "audio/wav");
     assert_eq!(piper.sentences.load(Ordering::SeqCst), 1, "the learner's own language goes to Piper");
+    assert_eq!(
+        piper.last.lock().await.clone().unwrap()["voice"],
+        "ru_RU-irina-medium",
+        "a language nobody chose a voice for speaks with the voice the service puts first, not the first by name"
+    );
     assert_eq!(
         eleven.sentences.load(Ordering::SeqCst),
         1,
