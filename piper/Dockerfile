@@ -15,7 +15,9 @@ FROM python:3.13-slim
 # sentence made by one version must not sit next to one made by another
 # without anyone having decided so.
 ARG PIPER_VERSION=1.8.0
-RUN pip install --no-cache-dir "piper-tts[http]==${PIPER_VERSION}"
+# A stalled download hangs pip forever without a timeout: seen on the Pi,
+# twenty minutes on one wheel. Fail and retry instead.
+RUN pip install --no-cache-dir --timeout 60 --retries 5 "piper-tts[http]==${PIPER_VERSION}"
 
 # Four Russian voices to choose the teacher from, and one English voice for
 # a stand with no ElevenLabs key. Irina is the default: the one loaded first.
