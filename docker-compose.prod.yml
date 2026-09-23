@@ -6,6 +6,7 @@
 # Settings come from a .env file next to this one, which is never committed:
 #
 #   HILVAN_PORT=8086      # the stand's address
+#   HILVAN_ELEVENLABS_KEY=...   # optional: a native voice for the language being learnt
 #
 # Optionally, to lock the stand - single-quoted, because a PHC string is full
 # of $ and compose expands $VAR in an unquoted value:
@@ -24,6 +25,11 @@ services:
       # string goes in .env single-quoted: it is full of $, and compose
       # expands $VAR in an unquoted value.
       HILVAN_PASSWORD_HASH: ${HILVAN_PASSWORD_HASH:-}
+      # The voice. Piper runs beside the server and speaks the learner's own
+      # language; the ElevenLabs key, when .env has one, speaks the language
+      # being learnt. Without the key Piper speaks both.
+      HILVAN_PIPER_URL: http://piper:5000
+      HILVAN_ELEVENLABS_KEY: ${HILVAN_ELEVENLABS_KEY:-}
     ports:
       # 8086 on the host: the other services on this machine hold the ports
       # below it. The port is the stand's address, so it is not a default to
@@ -31,6 +37,19 @@ services:
       - "${HILVAN_PORT:-8086}:8086"
     volumes:
       - data:/data
+    depends_on:
+      - piper
+
+  # The local voice. A service of its own, so the other products on the stand
+  # can speak with it too: its port is published for them, and hilvan reaches
+  # it by name inside this file. The server does not wait for it - a tutor
+  # whose voice is still loading drills all the same.
+  piper:
+    build:
+      context: piper
+    restart: unless-stopped
+    ports:
+      - "${HILVAN_PIPER_PORT:-8088}:5000"
 
 volumes:
   data:

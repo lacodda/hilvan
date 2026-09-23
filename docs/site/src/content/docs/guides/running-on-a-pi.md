@@ -39,3 +39,17 @@ docker compose -f docker-compose.prod.yml cp server:/data/hilvan.db ./hilvan-bac
 ```
 
 Copying while the server runs is safe: the database is in WAL mode. Restoring is copying the file back and restarting the container.
+
+## The voice
+
+The compose files run a second container beside the server: `piper`, the local voice that speaks the learner's own language. Its image carries its voices, so it needs no network at start, and it is published at the tutor's own version - pinning `HILVAN_VERSION` pins both. On a Pi 4 it answers a sentence in one to two seconds once a voice is loaded, and takes about 150 MB plus 130 MB for each voice in use.
+
+Its port is published as `8088` (`HILVAN_PIPER_PORT` moves it) so other services on the Pi can speak with the same voice; hilvan itself reaches it by name inside the compose network.
+
+For the language being learnt, add an ElevenLabs key to `.env` and bring the stand up again:
+
+```sh
+HILVAN_ELEVENLABS_KEY=sk_...
+```
+
+Without it, Piper speaks that language too, and [health](/hilvan/reference/health/) says `"elevenlabs": "off"`. Recording your own voice in the drill needs the page to be opened over HTTPS - a browser only lends the microphone to a secure page.

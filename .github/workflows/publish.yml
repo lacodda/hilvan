@@ -19,16 +19,22 @@ permissions:
   # to store, and nothing to rotate.
   packages: write
 
+# Two images, one version: the tutor, and the Piper voice it speaks the
+# learner's own language with (`piper/`). They ship together so a compose file
+# that pins HILVAN_VERSION pins both, and a voice never drifts under the
+# sentences cached with it.
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   build:
-    name: ${{ matrix.platform }}
+    name: ${{ matrix.image }} ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        image: [hilvan, hilvan-piper]
+        platform: [linux/amd64, linux/arm64]
         include:
           - platform: linux/amd64
             runner: ubuntu-latest
@@ -36,6 +42,12 @@ jobs:
             # Native arm64 rather than emulation: a Rust build under QEMU takes
             # the better part of an hour, and this one has a Node stage too.
             runner: ubuntu-24.04-arm
+          - image: hilvan
+            context: .
+            suffix: ''
+          - image: hilvan-piper
+            context: piper
+            suffix: -piper
     steps:
       - uses: actions/checkout@v7
 
@@ -53,11 +65,14 @@ jobs:
         id: build
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: ${{ matrix.context }}
           platforms: ${{ matrix.platform }}
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
-          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # The source label is what links a new package to this repository,
+          # so it takes the repository's visibility instead of starting private.
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }}${{ matrix.suffix }},push-by-digest=true,name-canonical=true,push=true
 
       # The file's name is the digest without its `sha256:` prefix, which is
       # what `imagetools create` wants back when it assembles the manifest.
@@ -70,19 +85,26 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: digest-${{ strategy.job-index }}
+          name: digest-${{ matrix.image }}-${{ strategy.job-index }}
           path: /tmp/digests/*
           retention-days: 1
 
   manifest:
-    name: Publish the manifest
+    name: Publish the manifest of ${{ matrix.image }}
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: hilvan
+            suffix: ''
+          - image: hilvan-piper
+            suffix: -piper
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
-          pattern: digest-*
+          pattern: digest-${{ matrix.image }}-*
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@v4
@@ -98,12 +120,16 @@ jobs:
       # gets whatever shipped last.
       - name: Create the multi-architecture tag
         working-directory: /tmp/digests
+        env:
+          NAME: ${{ env.IMAGE }}${{ matrix.suffix }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           docker buildx imagetools create \
-            --tag "$IMAGE:$version" \
-            --tag "$IMAGE:latest" \
-            $(printf "$IMAGE@sha256:%s " *)
+            --tag "$NAME:$version" \
+            --tag "$NAME:latest" \
+            $(printf "$NAME@sha256:%s " *)
 
       - name: Show what was published
-        run: docker buildx imagetools inspect "$IMAGE:${GITHUB_REF_NAME#v}"
+        env:
+          NAME: ${{ env.IMAGE }}${{ matrix.suffix }}
+        run: docker buildx imagetools inspect "$NAME:${GITHUB_REF_NAME#v}"

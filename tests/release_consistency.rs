@@ -191,8 +191,35 @@ fn the_compose_files_name_the_image_this_repository_publishes() {
 
     // Both files carry the same variables, or locking one stand and not the
     // other becomes a thing someone discovers the hard way.
-    for variable in ["HILVAN_PASSWORD_HASH", "HILVAN_PORT"] {
+    for variable in ["HILVAN_PASSWORD_HASH", "HILVAN_PORT", "HILVAN_ELEVENLABS_KEY", "HILVAN_PIPER_URL"] {
         assert!(install.contains(variable), "docker-compose.install.yml does not pass {variable}");
         assert!(prod.contains(variable), "docker-compose.prod.yml does not pass {variable}");
+    }
+}
+
+#[test]
+fn the_voice_ships_with_the_tutor() {
+    // Piper is a second image published beside the first. If the install
+    // compose names an image the workflow never pushes, a fresh stand comes
+    // up with a tutor and no voice, and nothing fails loudly enough to notice.
+    let workflow = read(".github/workflows/publish.yml");
+    assert!(workflow.contains("hilvan-piper"), "the publish workflow does not build the Piper image");
+    assert!(workflow.contains("context: piper"), "the Piper image is not built from piper/");
+    assert!(repo_root().join("piper/Dockerfile").is_file(), "piper/Dockerfile is missing");
+
+    // One version pins both: a voice that moved under the cached sentences
+    // would sit next to sound made by the old one.
+    let install = read("docker-compose.install.yml");
+    assert!(
+        install.contains("ghcr.io/lacodda/hilvan-piper:${HILVAN_VERSION"),
+        "the install compose must pull the Piper image at the tutor's own version"
+    );
+    let prod = read("docker-compose.prod.yml");
+    assert!(prod.contains("context: piper"), "the stand compose must build Piper from source too");
+    for compose in [&install, &prod] {
+        assert!(
+            compose.contains("HILVAN_PIPER_URL: http://piper:5000"),
+            "the server is not pointed at the piper service"
+        );
     }
 }

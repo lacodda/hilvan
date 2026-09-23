@@ -11,10 +11,20 @@ services:
       dockerfile: Dockerfile
     environment:
       RUST_LOG: ${RUST_LOG:-hilvan=debug,tower_http=info}
+      HILVAN_PIPER_URL: http://piper:5000
+      HILVAN_ELEVENLABS_KEY: ${HILVAN_ELEVENLABS_KEY:-}
     ports:
       - "${HILVAN_PORT:-8086}:8086"
     volumes:
       - data:/data
+    depends_on:
+      - piper
+
+  piper:
+    build:
+      context: piper
+    ports:
+      - "${HILVAN_PIPER_PORT:-5000}:5000"
 
 volumes:
   data:

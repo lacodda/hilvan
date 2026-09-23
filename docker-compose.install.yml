@@ -12,6 +12,9 @@
 #   docker compose up -d
 #   docker compose exec server hilvan load-pack packs/en-from-ru/pack.toml
 #
+# To give the language being learnt a native voice, add an ElevenLabs key to
+# .env as HILVAN_ELEVENLABS_KEY=... and run `docker compose up -d` again.
+#
 # Leaving HILVAN_PASSWORD_HASH out leaves the tutor open to anyone who can
 # reach it; the server says so in its first log line.
 services:
@@ -25,6 +28,11 @@ services:
       # The whole PHC string goes in .env single-quoted: it is full of $, and
       # compose expands $VAR in an unquoted value.
       HILVAN_PASSWORD_HASH: ${HILVAN_PASSWORD_HASH:-}
+      # The voice. Piper runs beside the server and speaks the learner's own
+      # language; the ElevenLabs key, when .env has one, speaks the language
+      # being learnt. Without the key Piper speaks both.
+      HILVAN_PIPER_URL: http://piper:5000
+      HILVAN_ELEVENLABS_KEY: ${HILVAN_ELEVENLABS_KEY:-}
     ports:
       # 8086 on the host: the other services on this machine hold the ports
       # below it. The port is the stand's address, so it is not a default to
@@ -34,6 +42,18 @@ services:
       # Everything the tutor remembers is one file in here; a backup is a copy
       # of this volume.
       - data:/data
+    depends_on:
+      - piper
+
+  # The local voice. A service of its own, so the other products on the stand
+  # can speak with it too: its port is published for them, and hilvan reaches
+  # it by name inside this file. The server does not wait for it - a tutor
+  # whose voice is still loading drills all the same.
+  piper:
+    image: ghcr.io/lacodda/hilvan-piper:${HILVAN_VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "${HILVAN_PIPER_PORT:-8088}:5000"
 
 volumes:
   data:
