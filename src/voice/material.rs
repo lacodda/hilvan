@@ -67,6 +67,26 @@ pub async fn speakable(pool: &SqlitePool, language: &str, text: &str) -> Result<
     Ok(false)
 }
 
+/// The first sample of the pack's sequence in a language: what the voices
+/// screen lets the learner hear a voice say.
+///
+/// # Errors
+///
+/// Fails when the database rejects the query.
+pub async fn sample_in(pool: &SqlitePool, language: &str) -> Result<Option<String>> {
+    sqlx::query_scalar(
+        "SELECT CASE WHEN p.target = ?1 THEN s.target ELSE s.native END FROM sample s
+         JOIN formula f ON f.id = s.formula_id
+         JOIN pack p ON p.id = f.pack_id
+         WHERE p.target = ?1 OR p.native = ?1
+         ORDER BY f.position, s.position LIMIT 1",
+    )
+    .bind(language)
+    .fetch_optional(pool)
+    .await
+    .context("failed to find a sample sentence")
+}
+
 /// A sentence for the listening mode: heard in the language being learnt,
 /// recalled, then read with its meaning.
 #[derive(Debug, Clone, Serialize)]
@@ -192,6 +212,22 @@ order = 20
         assert!(!speakable(&pool, "ru", "I am at home.").await.unwrap(), "the right text in the wrong language");
         assert!(!speakable(&pool, "en", "Я дома.").await.unwrap(), "a prompt in the language being learnt");
         assert!(!speakable(&pool, "en", "").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_sample_is_found_in_either_language() {
+        let pool = taught().await;
+        assert_eq!(sample_in(&pool, "en").await.unwrap().as_deref(), Some("I am at home."));
+        assert_eq!(sample_in(&pool, "ru").await.unwrap().as_deref(), Some("Я дома."));
+        assert_eq!(sample_in(&pool, "es").await.unwrap(), None);
+        // And what it finds, the voice will say.
+        for language in ["en", "ru"] {
+            let sample = sample_in(&pool, language).await.unwrap().unwrap();
+            assert!(
+                speakable(&pool, language, &sample).await.unwrap(),
+                "the voices screen offered {sample:?}, which is refused"
+            );
+        }
     }
 
     #[tokio::test]

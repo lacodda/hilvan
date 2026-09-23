@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { api, type Due, type Formula, type Rating, type Reviewed, type Stitch } from '@/api'
+import { api, speechUrl, type Due, type Formula, type Rating, type Reviewed, type Stitch } from '@/api'
 import { Shell } from '@/App'
 import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, ratings, seconds, tabs, whenBack, type Prompt } from '@/prompts'
+import { Speak } from '@/Speak'
+import { player, sides, tempoFor, urlOf, useRecorder, useStopOnLeave, usePlaying } from '@/speech'
 
 /** How many turns one formula gets before the learner grades it. */
 const TURNS = 4
@@ -43,7 +45,11 @@ export function Drill({
   // would need a sentence of explanation, and a drill that needs explaining
   // on every turn is a drill with a design problem.
   const [shown, setShown] = useState<Formula>(due.formula)
+  // Where the form on screen stands: what decides how fast it is said. The
+  // queue's own card knows; a sister switched to brings its own.
+  const [shownStitch, setShownStitch] = useState<Stitch>(due.stitch)
   const [switching, setSwitching] = useState(false)
+  useStopOnLeave()
 
   // The first prompt is drawn once, when the drill is built: drawing it
   // during render would hand the learner a different sentence on every
@@ -59,17 +65,20 @@ export function Drill({
   startedAt.current ??= Date.now()
 
   const rungs = ladder(shown)
+  const tempo = tempoFor(shownStitch, due.is_new && shown.id === due.formula.id)
 
   const ask_ = (turn: number) =>
     setPhase({ kind: 'asking', turn, prompt: nextPrompt(shown, turn, Math.random), revealed: false })
 
   const switchTo = (id: string) => {
     if (id === shown.id) return
+    const sister = shown.sisters.find((candidate) => candidate.id === id)
     setSwitching(true)
     void api
       .formula(id)
       .then((formula) => {
         setShown(formula)
+        setShownStitch(sister?.stitch ?? 'new')
         setPhase({ kind: 'asking', turn: 0, prompt: nextPrompt(formula, 0, Math.random), revealed: false })
         // The clock starts over: how long this form took must not include the
         // time spent on the one before it.
@@ -98,6 +107,24 @@ export function Drill({
   )
 
   const question = phase.kind === 'asking' ? ask(phase.prompt, due.direction) : null
+  const said = phase.kind === 'asking' ? sides(phase.prompt, due.direction, shown) : null
+  const questionUrl = said ? urlOf(said.question, tempo) : null
+  const answerUrl = said ? urlOf(said.answer, tempo) : null
+
+  // Asked backwards, the question is the language being learnt, and it is
+  // heard before it is read: understanding is a listening skill first.
+  const listening = due.direction === 'recognise' && !explaining && phase.kind === 'asking' && !phase.revealed
+  useEffect(() => {
+    if (listening && questionUrl) void player.play(questionUrl)
+  }, [listening, questionUrl])
+
+  const reveal = () => {
+    if (phase.kind !== 'asking') return
+    setPhase({ ...phase, revealed: true })
+    // The answer is said the moment it is shown: hearing the right sentence
+    // straight after saying your own is the whole of the correction.
+    if (answerUrl) void player.play(answerUrl)
+  }
 
   return (
     <Shell>
@@ -119,11 +146,17 @@ export function Drill({
 
       {explaining && (
         <section className="flex flex-col gap-3 rounded-md bg-raise p-4">
-          <p className="text-[0.9375rem] leading-relaxed text-dim">{shown.explanation}</p>
-          <ul className="flex flex-col gap-1">
+          <div className="flex items-start gap-3">
+            <p className="flex-1 text-[0.9375rem] leading-relaxed text-dim">{shown.explanation}</p>
+            <Speak url={speechUrl(shown.languages.native, shown.explanation, 'normal')} label="Read the explanation aloud" />
+          </div>
+          <ul className="flex flex-col gap-2">
             {shown.samples.slice(0, 3).map((sample) => (
-              <li key={sample.target} className="text-[0.9375rem] leading-relaxed">
-                <span className="text-dim">{sample.native}</span> <span className="text-text">{sample.target}</span>
+              <li key={sample.target} className="flex items-center gap-3 text-[0.9375rem] leading-relaxed">
+                <span className="flex-1">
+                  <span className="text-dim">{sample.native}</span> <span className="text-text">{sample.target}</span>
+                </span>
+                <Speak url={speechUrl(shown.languages.target, sample.target, tempo)} label={`Hear "${sample.target}"`} />
               </li>
             ))}
           </ul>
@@ -139,11 +172,18 @@ export function Drill({
 
       {!explaining && phase.kind === 'asking' && question && (
         <section className="flex flex-col gap-6">
-          <p className="text-2xl leading-snug">{question.native}</p>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-2xl leading-snug">{question.native}</p>
+            <Speak url={questionUrl} label="Hear the question" />
+          </div>
 
           {phase.revealed ? (
             <>
-              <p className="border-t border-line pt-4 text-2xl leading-snug text-accent">{question.target}</p>
+              <div className="flex items-start justify-between gap-3 border-t border-line pt-4">
+                <p className="text-2xl leading-snug text-accent">{question.target}</p>
+                <Speak url={answerUrl} label="Hear the answer" />
+              </div>
+              {due.direction === 'produce' && answerUrl && <OwnVoice key={answerUrl} native={answerUrl} />}
               <div className="flex flex-col gap-2">
                 {phase.turn + 1 < TURNS ? (
                   <button
@@ -187,7 +227,7 @@ export function Drill({
           ) : (
             <button
               type="button"
-              onClick={() => setPhase({ ...phase, revealed: true })}
+              onClick={reveal}
               className="rounded-md border border-line px-4 py-4 text-[1.0625rem] font-medium"
             >
               {instruction(due.direction)}
@@ -206,12 +246,20 @@ export function Drill({
           <p className="text-[1.0625rem] text-dim">Every person, straight through. Say them out loud without stopping.</p>
           <ul className="flex flex-col gap-1">
             {rungs.map((rung) => (
-              <li key={rung.target} className="flex items-baseline gap-3 rounded-md bg-raise px-3 py-2">
+              <li key={rung.target} className="flex items-center gap-3 rounded-md bg-raise px-3 py-2">
                 <span className="w-16 shrink-0 text-[0.8125rem] text-faint">{rung.native}</span>
-                <span className="text-[1.0625rem]">{rung.target}</span>
+                <span className="flex-1 text-[1.0625rem]">{rung.target}</span>
+                <Speak url={speechUrl(shown.languages.target, rung.target, tempo)} label={`Hear "${rung.target}"`} />
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            onClick={() => void player.playAll(rungs.map((rung) => speechUrl(shown.languages.target, rung.target, tempo)))}
+            className="self-start text-[0.8125rem] text-dim underline"
+          >
+            Hear them all
+          </button>
           <button
             type="button"
             onClick={() => setPhase({ kind: 'grading' })}
@@ -261,6 +309,49 @@ export function Drill({
         </button>
       </footer>
     </Shell>
+  )
+}
+
+/**
+ * Your own voice next to the native one.
+ *
+ * Record the answer you just said, then hear yours and the sample one after
+ * the other: half of what speech recognition would give, for nothing, and
+ * with the learner's own ear as the judge. The recording lives in memory
+ * until the card goes, and is never sent anywhere.
+ */
+function OwnVoice({ native }: { native: string }) {
+  const recorder = useRecorder()
+  const playing = usePlaying()
+
+  if (!recorder.available) {
+    return <p className="text-[0.75rem] text-faint">Recording your voice needs the https:// address of the tutor.</p>
+  }
+
+  const button = 'rounded-md border border-line px-3 py-2 text-[0.8125rem] font-medium'
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {recorder.state === 'recording' ? (
+        <button type="button" onClick={recorder.stop} className={`${button} border-accent text-accent`}>
+          Stop recording
+        </button>
+      ) : (
+        <button type="button" onClick={recorder.start} className={button}>
+          {recorder.state === 'recorded' ? 'Record again' : 'Record yourself'}
+        </button>
+      )}
+      {recorder.state === 'recorded' && recorder.url && (
+        <button
+          type="button"
+          disabled={playing !== null}
+          onClick={() => recorder.url && void player.playAll([recorder.url, native], 600)}
+          className={`${button} disabled:opacity-50`}
+        >
+          You, then the voice
+        </button>
+      )}
+      {recorder.state === 'refused' && <span className="text-[0.75rem] text-faint">The microphone was not allowed.</span>}
+    </div>
   )
 }
 

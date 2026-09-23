@@ -48,6 +48,8 @@ export interface Formula {
   form: Form | null
   /** The other forms of the same shape. Empty when the formula stands alone. */
   sisters: Sister[]
+  /** Which language each side is in, ISO 639-1: what the voice is asked for. */
+  languages: { native: string; target: string }
 }
 
 /** How far along a formula is - the basting stitch the product is named after. */
@@ -120,6 +122,62 @@ export interface Reviewed {
   pace: Pace | null
 }
 
+/** How fast a sentence is said: slowly while it is new. */
+export type Tempo = 'slow' | 'normal'
+
+/** A voice the learner can choose. */
+export interface Voice {
+  engine: 'piper' | 'elevenlabs'
+  id: string
+  name: string
+  /** Empty for a voice that speaks any language. */
+  languages: string[]
+}
+
+/** One language as the voices screen shows it. */
+export interface LanguageVoices {
+  code: string
+  /** `native` for the learner's own language, `target` for one being learnt. */
+  role: 'native' | 'target'
+  /** The voice it is spoken in now, and whether the learner chose it. */
+  spoken: { voice: Voice; chosen: boolean } | null
+  options: Voice[]
+  /** A sentence of the material to hear a voice say. */
+  sample: string | null
+}
+
+/** Whether an engine is configured and answering. */
+export type EngineState = 'ok' | 'unreachable' | 'off'
+
+/** What is left of the ElevenLabs budget, and whether it will last. */
+export interface Budget {
+  remaining: number
+  limit: number
+  resets_at: string | null
+  per_day: number
+  runs_out_at: string | null
+  lasts: boolean
+}
+
+/** Everything the voices screen shows. */
+export interface VoicesScreen {
+  languages: LanguageVoices[]
+  piper: EngineState
+  elevenlabs: EngineState
+  budget: Budget | null
+}
+
+/** A sentence of the listening mode. */
+export interface Heard {
+  formula: string
+  /** What is heard. */
+  target: string
+  /** What it means. */
+  native: string
+  /** The language `target` is in. */
+  language: string
+}
+
 /** Whether the door is locked, and whether this browser is through it. */
 export interface Session {
   required: boolean
@@ -160,4 +218,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ rating, direction, duration_ms: durationMs }),
     }),
+  voices: () => call<VoicesScreen>('/voices'),
+  chooseVoice: (language: string, voice: Voice) =>
+    call<Voice>(`/voices/${encodeURIComponent(language)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ engine: voice.engine, voice: voice.id }),
+    }),
+  listen: () => call<{ sentences: Heard[] }>('/listen').then((body) => body.sentences),
+}
+
+/**
+ * Where a sentence of the material is spoken.
+ *
+ * A URL rather than a call: an audio element fetches it itself, with the
+ * cookie, and the browser keeps the sound under its ETag.
+ */
+export function speechUrl(language: string, text: string, tempo: Tempo): string {
+  const query = new URLSearchParams({ language, text, tempo })
+  return `/api/speech?${query.toString()}`
 }

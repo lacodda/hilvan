@@ -35,6 +35,14 @@ pub use piper::Piper;
 /// front of every sound.
 const VOICES_TTL: Duration = Duration::from_secs(600);
 
+/// How long an engine that did not answer is left alone.
+///
+/// One screen asks for voices several times - every language, the states -
+/// and an engine that is down takes seconds to refuse each time. Remembering
+/// the refusal briefly makes one screen one wait, and is short enough that an
+/// engine coming back is noticed within the minute.
+const FAILURE_TTL: Duration = Duration::from_secs(15);
+
 /// Which engine makes a voice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -144,10 +152,19 @@ pub enum State {
 }
 
 /// A voice list remembered for a while.
-#[derive(Default)]
 struct Remembered {
     at: Option<Instant>,
-    voices: Vec<Voice>,
+    /// The list, or why there was none.
+    voices: Result<Vec<Voice>, String>,
+}
+
+impl Default for Remembered {
+    fn default() -> Self {
+        Self {
+            at: None,
+            voices: Ok(Vec::new()),
+        }
+    }
 }
 
 /// Every engine the stand has, and the voice each language is spoken in.
@@ -238,10 +255,9 @@ impl Voices {
         (piper, elevenlabs)
     }
 
-    /// The voices of one engine, remembered for [`VOICES_TTL`].
-    ///
-    /// A failure is not remembered: an engine that was down a second ago may
-    /// be up now, and the learner should not wait ten minutes to find out.
+    /// The voices of one engine, remembered for [`VOICES_TTL`], and a failure
+    /// for [`FAILURE_TTL`]: an engine that was down a moment ago may be up
+    /// now, and the learner should not wait ten minutes to find out.
     async fn listed(&self, engine: Engine) -> Result<Vec<Voice>> {
         let slot = match engine {
             Engine::Piper => 0,
@@ -249,29 +265,33 @@ impl Voices {
         };
         {
             let remembered = self.remembered.lock().await;
-            if let Some(at) = remembered[slot].at
-                && at.elapsed() < VOICES_TTL
-            {
-                return Ok(remembered[slot].voices.clone());
+            let fresh = |ttl| remembered[slot].at.is_some_and(|at| at.elapsed() < ttl);
+            match &remembered[slot].voices {
+                Ok(voices) if fresh(VOICES_TTL) => return Ok(voices.clone()),
+                Err(why) if fresh(FAILURE_TTL) => anyhow::bail!("{why}"),
+                _ => {}
             }
         }
-        let mut voices = match engine {
+        let listed = match engine {
             Engine::Piper => match &self.piper {
-                Some(piper) => piper.voices().await?,
-                None => Vec::new(),
+                Some(piper) => piper.voices().await,
+                None => Ok(Vec::new()),
             },
             Engine::ElevenLabs => match &self.elevenlabs {
-                Some(elevenlabs) => elevenlabs.voices().await?,
-                None => Vec::new(),
+                Some(elevenlabs) => elevenlabs.voices().await,
+                None => Ok(Vec::new()),
             },
         };
-        voices.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+        let listed = listed.map(|mut voices| {
+            voices.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+            voices
+        });
         let mut remembered = self.remembered.lock().await;
         remembered[slot] = Remembered {
             at: Some(Instant::now()),
-            voices: voices.clone(),
+            voices: listed.as_ref().map(Clone::clone).map_err(|error| format!("{error:#}")),
         };
-        Ok(voices)
+        listed
     }
 
     /// Every voice that may speak a language, the preferred engine first.

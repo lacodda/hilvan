@@ -366,3 +366,30 @@ async fn a_voice_that_is_down_does_not_take_the_tutor_down() {
     let response = app.oneshot(speech("ru", "Я дома.", "normal")).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND, "no voice answers, so none speaks the language");
 }
+
+#[tokio::test]
+async fn an_engine_that_is_down_is_asked_once_per_screen() {
+    // A service that is down takes seconds to refuse. The voices screen asks
+    // for every language and for the states; without remembering the refusal
+    // for a moment, one screen was five waits.
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counter = asked.clone();
+    let failing = Router::new().route(
+        "/voices",
+        get(move || {
+            let asked = counter.clone();
+            async move {
+                asked.fetch_add(1, Ordering::SeqCst);
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+        }),
+    );
+    let url = serve(failing).await;
+    let app = app(taught().await, Voices::new(Some(Piper::new(&url).unwrap()), None));
+
+    let screen = app.oneshot(Request::get("/api/voices").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(screen.status(), StatusCode::OK);
+    let screen = json_of(screen).await;
+    assert_eq!(screen["piper"], "unreachable");
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "the engine that is down was asked again within one screen");
+}

@@ -193,6 +193,7 @@ One formula with its samples and slots.
   ],
   "family": "be-present",
   "form": "statement",
+  "languages": { "native": "ru", "target": "en" },
   "sisters": [
     { "id": "be-present-negation", "form": "negation", "name": "...", "pattern": "...", "stitch": "basted" },
     { "id": "be-present-question", "form": "question", "name": "...", "pattern": "...", "stitch": "new" }
@@ -201,6 +202,8 @@ One formula with its samples and slots.
 ```
 
 `explanation` is in the learner's native language - the pack carries it, the server does not translate. `pattern` holds `<slot-name>` placeholders matching each entry in `slots` and is the scaffold shown on the card. `say` is the sentence a substitution answers with - `<slot>` is the value's `target`, `<slot:form>` one of its `forms`, and the first letter is raised; `null` for a formula without slots. See [the pack format](/hilvan/reference/packs/#the-sentence-it-says).
+
+`languages` names the language of each side, ISO 639-1: what the app asks [the voice](/hilvan/reference/voice/) for.
 
 #### Forms of a shape
 

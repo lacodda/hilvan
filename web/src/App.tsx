@@ -1,13 +1,23 @@
 import { Component, use, useCallback, useState, Suspense, type ReactNode } from 'react'
 
-import { api, Unauthorized, type Today } from '@/api'
+import { api, Unauthorized, type Heard, type Today, type VoicesScreen as Voices } from '@/api'
 import { Drill } from '@/Drill'
+import { ListenScreen } from '@/ListenScreen'
 import { Mark } from '@/Mark'
 import { SignIn } from '@/SignIn'
 import { TodayScreen } from '@/TodayScreen'
+import { VoicesScreen } from '@/VoicesScreen'
 
-/** What is on screen once the queue has been read. */
-type View = { kind: 'today' } | { kind: 'drilling'; index: number }
+/**
+ * What is on screen once the queue has been read. The screens that read
+ * something of their own carry the promise of it, made when the learner
+ * asked to go there - React unwraps it with `use`, as it does the queue.
+ */
+type View =
+  | { kind: 'today' }
+  | { kind: 'drilling'; index: number }
+  | { kind: 'listening'; sentences: Promise<Heard[]> }
+  | { kind: 'voices'; screen: Promise<Voices> }
 
 /**
  * The tutor.
@@ -21,12 +31,18 @@ export function App() {
   // boundary below covers the failure, so there is no loading flag and no
   // error flag to keep in step with each other.
   const [queue, setQueue] = useState(() => api.today())
-  const reload = useCallback(() => setQueue(api.today()), [])
+  // A reload also starts the sitting over, back on Today: a screen whose own
+  // read failed would otherwise come straight back with the same failure.
+  const [generation, setGeneration] = useState(0)
+  const reload = useCallback(() => {
+    setQueue(api.today())
+    setGeneration((current) => current + 1)
+  }, [])
 
   return (
     <Boundary reload={reload} queue={queue}>
       <Suspense fallback={<Shell>Opening the tutor…</Shell>}>
-        <Sitting queue={queue} reload={reload} />
+        <Sitting key={generation} queue={queue} reload={reload} />
       </Suspense>
     </Boundary>
   )
@@ -35,6 +51,31 @@ export function App() {
 function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void }) {
   const [view, setView] = useState<View>({ kind: 'today' })
   const today = use(queue)
+
+  const backToToday = () => {
+    setView({ kind: 'today' })
+    reload()
+  }
+
+  if (view.kind === 'listening') {
+    return (
+      <Suspense fallback={<Shell>Gathering sentences…</Shell>}>
+        <ListenScreen sentences={view.sentences} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
+  if (view.kind === 'voices') {
+    return (
+      <Suspense fallback={<Shell>Asking the voices…</Shell>}>
+        <VoicesScreen
+          screen={view.screen}
+          onChanged={() => setView({ kind: 'voices', screen: api.voices() })}
+          onLeave={backToToday}
+        />
+      </Suspense>
+    )
+  }
 
   if (view.kind === 'drilling') {
     const due = today.queue[view.index]
@@ -57,10 +98,7 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
         position={view.index + 1}
         total={today.queue.length}
         onAnswered={() => setView({ kind: 'drilling', index: view.index + 1 })}
-        onLeave={() => {
-          setView({ kind: 'today' })
-          reload()
-        }}
+        onLeave={backToToday}
       />
     )
   }
@@ -69,6 +107,8 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
     <TodayScreen
       today={today}
       onStart={() => setView({ kind: 'drilling', index: 0 })}
+      onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
+      onVoices={() => setView({ kind: 'voices', screen: api.voices() })}
       onSignOut={() => void api.logOut().then(reload)}
     />
   )

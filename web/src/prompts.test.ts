@@ -25,6 +25,7 @@ const formula: Formula = {
   ],
   family: 'be-present',
   form: 'statement',
+  languages: { native: 'ru', target: 'en' },
   sisters: [
     { id: 'be-present-negation', form: 'negation', name: 'not', pattern: 'x', stitch: 'basted' },
     { id: 'be-present-question', form: 'question', name: 'am?', pattern: 'y', stitch: 'new' },

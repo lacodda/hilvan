@@ -65,13 +65,15 @@ What the voices screen shows: each language with the voice it is spoken in and t
       "code": "en",
       "role": "target",
       "spoken": { "voice": { "engine": "elevenlabs", "id": "...", "name": "Rachel", "languages": [] }, "chosen": false },
-      "options": [ { "engine": "elevenlabs", "id": "...", "name": "Rachel", "languages": [] } ]
+      "options": [ { "engine": "elevenlabs", "id": "...", "name": "Rachel", "languages": [] } ],
+      "sample": "I am at home."
     },
     {
       "code": "ru",
       "role": "native",
       "spoken": { "voice": { "engine": "piper", "id": "ru_RU-irina-medium", "name": "Irina", "languages": ["ru"] }, "chosen": true },
-      "options": [ { "engine": "piper", "id": "ru_RU-denis-medium", "name": "Denis", "languages": ["ru"] } ]
+      "options": [ { "engine": "piper", "id": "ru_RU-denis-medium", "name": "Denis", "languages": ["ru"] } ],
+      "sample": "<the first sample, in the learner's own language>"
     }
   ],
   "piper": "ok",
@@ -80,7 +82,7 @@ What the voices screen shows: each language with the voice it is spoken in and t
 }
 ```
 
-`chosen` is `false` when the learner has not picked a voice and the language speaks with the first one offered for its role. A chosen voice that is not offered right now - a lapsed key - is kept, and the default speaks until it is back. `piper` and `elevenlabs` are `ok`, `unreachable` or `off` (not configured). `budget` is described [below](#the-elevenlabs-budget).
+`chosen` is `false` when the learner has not picked a voice and the language speaks with the first one offered for its role. A chosen voice that is not offered right now - a lapsed key - is kept, and the default speaks until it is back. `piper` and `elevenlabs` are `ok`, `unreachable` or `off` (not configured). `sample` is the first sample of the pack in that language - what the screen lets the learner hear a voice say. `budget` is described [below](#the-elevenlabs-budget).
 
 ## `PUT /api/voices/{language}`
 

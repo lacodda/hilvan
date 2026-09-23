@@ -18,12 +18,17 @@ const stitches = [
 export function TodayScreen({
   today,
   onStart,
+  onListen,
+  onVoices,
   onSignOut,
 }: {
   today: Today
   onStart: () => void
+  onListen: () => void
+  onVoices: () => void
   onSignOut: () => void
 }) {
+  const started = today.progress.produce.basted + today.progress.produce.sewn + today.progress.recognise.basted + today.progress.recognise.sewn > 0
   const waiting = today.queue.length
   const fresh = today.queue.filter((due) => due.is_new).length
   const backwards = today.queue.filter((due) => due.direction === 'recognise').length
@@ -48,6 +53,15 @@ export function TodayScreen({
           className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
         >
           Start
+        </button>
+      )}
+
+      {/* Listening is practice on what has been met, so it waits for the
+          first formula; before that there is nothing to hear. */}
+      {started && (
+        <button type="button" onClick={onListen} className="rounded-md border border-line px-4 py-3 text-left">
+          <span className="block text-[1.0625rem] font-medium">Listen</span>
+          <span className="block text-[0.8125rem] text-faint">Hear a sentence, recall what it means, then look. Nothing is graded.</span>
         </button>
       )}
 
@@ -80,7 +94,10 @@ export function TodayScreen({
         )}
       </section>
 
-      <footer className="mt-auto pt-6">
+      <footer className="mt-auto flex gap-5 pt-6">
+        <button type="button" onClick={onVoices} className="text-[0.8125rem] text-faint underline">
+          Voices
+        </button>
         <button type="button" onClick={onSignOut} className="text-[0.8125rem] text-faint underline">
           Sign out
         </button>

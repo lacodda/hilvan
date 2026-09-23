@@ -373,6 +373,8 @@ struct LanguageVoices {
     /// The voice it is spoken in now; `None` when nothing speaks it.
     spoken: Option<voice::Spoken>,
     options: Vec<voice::Voice>,
+    /// A sentence of the material in this language, to hear a voice with.
+    sample: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -398,7 +400,12 @@ async fn voices_screen(State(state): State<AppState>) -> Response {
             Ok(spoken) => spoken,
             Err(error) => return failed("the voice of a language could not be read", &error),
         };
+        let sample = match voice::material::sample_in(&state.pool, &code).await {
+            Ok(sample) => sample,
+            Err(error) => return failed("a sample sentence could not be read", &error),
+        };
         screen.push(LanguageVoices {
+            sample,
             options: state.voices.options(&code, native).await,
             role: if native { "native" } else { "target" },
             spoken,

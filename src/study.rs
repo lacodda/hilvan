@@ -43,6 +43,16 @@ pub struct Formula {
     /// order: what the switch on the card offers. Empty when the formula
     /// stands alone.
     pub sisters: Vec<Sister>,
+    /// Which language each side is in: what the drill asks the voice for.
+    pub languages: Languages,
+}
+
+/// The two languages of a formula, ISO 639-1: `native` for prompts and
+/// explanations, `target` for what is being learnt.
+#[derive(Debug, Clone, Serialize)]
+pub struct Languages {
+    pub native: String,
+    pub target: String,
 }
 
 /// One other form of the same shape, as the switch shows it.
@@ -344,12 +354,15 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
 ///
 /// Fails when there is no such formula, or when the database rejects a query.
 pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
-    let row = sqlx::query("SELECT id, name, pattern, say, explanation, family, form FROM formula WHERE id = ?")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .context("failed to read a formula")?
-        .with_context(|| format!("there is no formula called {id}"))?;
+    let row = sqlx::query(
+        "SELECT f.id, f.name, f.pattern, f.say, f.explanation, f.family, f.form, p.native, p.target
+         FROM formula f JOIN pack p ON p.id = f.pack_id WHERE f.id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to read a formula")?
+    .with_context(|| format!("there is no formula called {id}"))?;
 
     let samples = sqlx::query("SELECT native, target FROM sample WHERE formula_id = ? ORDER BY position")
         .bind(id)
@@ -391,6 +404,10 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
         name: row.get("name"),
         pattern: row.get("pattern"),
         say: row.get("say"),
+        languages: Languages {
+            native: row.get("native"),
+            target: row.get("target"),
+        },
         explanation: row.get("explanation"),
         sisters: match family.as_deref() {
             Some(family) => sisters(pool, family, id).await?,
