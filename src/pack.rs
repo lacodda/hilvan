@@ -10,7 +10,7 @@
 //! it was, and a pack whose contents changed replaces its own formulas
 //! without touching what the learner has learnt about them.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -18,6 +18,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
+use crate::say::{Filling, Template};
 use crate::scheduling::Direction;
 
 /// A pack as it is written on disk. See `packs/en-from-ru/README.md` for the
@@ -90,6 +91,11 @@ pub struct Formula {
     pub name: String,
     /// The assembly shown compactly, with `<placeholder>` holes.
     pub pattern: String,
+    /// The sentence a substitution says, with `<slot>` and `<slot:form>`
+    /// holes (see [`crate::say`]). Required when the formula has slots: the
+    /// pattern is a scaffold, and a scaffold is not an answer.
+    #[serde(default)]
+    pub say: Option<String>,
     /// One paragraph in the pack's native language.
     pub explanation: String,
     /// The order formulas are introduced in.
@@ -122,7 +128,31 @@ pub struct Sample {
 pub struct Slot {
     /// Matches a `<placeholder>` in the pattern.
     pub name: String,
-    pub values: Vec<Sample>,
+    pub values: Vec<Value>,
+}
+
+/// One filling for a slot: the word in both languages, and the forms that
+/// agree with it.
+///
+/// Forms are the keys beside `native` and `target` - `{ native = "он",
+/// target = "he", be = "is" }` - because agreement belongs to the word, and a
+/// table of pronouns kept somewhere else is a second truth about them.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Value {
+    pub native: String,
+    pub target: String,
+    #[serde(flatten)]
+    pub forms: BTreeMap<String, String>,
+}
+
+impl Filling for Value {
+    fn word(&self) -> &str {
+        &self.target
+    }
+
+    fn form(&self, name: &str) -> Option<&str> {
+        self.forms.get(name).map(String::as_str)
+    }
 }
 
 impl Pack {
@@ -192,6 +222,7 @@ impl Pack {
                     );
                 }
             }
+            validate_say(formula)?;
         }
 
         self.validate_families()
@@ -233,6 +264,67 @@ impl Pack {
         }
         Ok(())
     }
+}
+
+/// The rules that make `say` a sentence rather than a scaffold with gaps.
+///
+/// Every slot is said - a value shown in the prompt and missing from the
+/// answer is a different sentence - every form asked for is on every value of
+/// its slot, and every form a value carries is asked for somewhere: a form
+/// nobody reads is almost always a misspelt key, and it would otherwise sit
+/// there as a word nobody hears.
+fn validate_say(formula: &Formula) -> Result<()> {
+    let Some(say) = formula.say.as_deref() else {
+        if formula.slots.is_empty() {
+            return Ok(());
+        }
+        bail!(
+            "formula {:?} has slots but no `say`: the pattern {:?} is a scaffold, and a substitution needs a sentence to answer with",
+            formula.id,
+            formula.pattern
+        );
+    };
+    let template = Template::parse(say).with_context(|| format!("formula {:?} has an unreadable `say`", formula.id))?;
+
+    let slots: HashSet<&str> = formula.slots.iter().map(|slot| slot.name.as_str()).collect();
+    for name in template.slots() {
+        if !slots.contains(name) {
+            bail!("formula {:?} says <{name}>, but has no slot called {name:?}", formula.id);
+        }
+    }
+    let said = template.slots();
+    let forms = template.forms();
+    for slot in &formula.slots {
+        if !said.contains(slot.name.as_str()) {
+            bail!(
+                "formula {:?} never says its slot {:?}: the answer would drop a word the prompt showed",
+                formula.id,
+                slot.name
+            );
+        }
+        let wanted = forms.get(slot.name.as_str()).cloned().unwrap_or_default();
+        for value in &slot.values {
+            for form in &wanted {
+                if !value.forms.contains_key(*form) {
+                    bail!(
+                        "value {:?} of slot {:?} in formula {:?} has no form {form:?}, which `say` asks for",
+                        value.target,
+                        slot.name,
+                        formula.id
+                    );
+                }
+            }
+            if let Some(unused) = value.forms.keys().find(|form| !wanted.contains(form.as_str())) {
+                bail!(
+                    "value {:?} of slot {:?} in formula {:?} carries a form {unused:?} that `say` never asks for",
+                    value.target,
+                    slot.name,
+                    formula.id
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 /// What a load did.
@@ -347,8 +439,8 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
 /// Writes one formula with its samples, slots and slot values.
 async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &str, target: &str, formula: &Formula) -> Result<()> {
     sqlx::query(
-        "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position, family, form)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position, family, form, say)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&formula.id)
     .bind(pack_id)
@@ -359,6 +451,7 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
     .bind(formula.order)
     .bind(formula.family.as_deref())
     .bind(formula.form.map(Form::as_str))
+    .bind(formula.say.as_deref())
     .execute(&mut **tx)
     .await
     .with_context(|| format!("failed to insert formula {}", formula.id))?;
@@ -384,11 +477,12 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
             .with_context(|| format!("failed to insert slot {} of formula {}", slot.name, formula.id))?;
 
         for (position, value) in slot.values.iter().enumerate() {
-            sqlx::query("INSERT INTO slot_value (slot_id, native, target, position) VALUES (?, ?, ?, ?)")
+            sqlx::query("INSERT INTO slot_value (slot_id, native, target, position, forms) VALUES (?, ?, ?, ?, ?)")
                 .bind(slot_id)
                 .bind(&value.native)
                 .bind(&value.target)
                 .bind(i64::try_from(position).unwrap_or(i64::MAX))
+                .bind(serde_json::to_string(&value.forms).context("failed to write the forms of a value")?)
                 .execute(&mut **tx)
                 .await
                 .with_context(|| format!("failed to insert a value of slot {}", slot.name))?;
@@ -440,6 +534,7 @@ target = "en"
 id = "be-present"
 name = "{name}"
 pattern = "<pronoun> + am/is/are"
+say = "<pronoun> is here."
 explanation = "explained"
 order = 10
 family = "be-present"
@@ -460,6 +555,7 @@ form = "statement"
 id = "have-got"
 name = "second"
 pattern = "<pronoun> + have got"
+say = "<pronoun> is here."
 explanation = "explained"
 order = 20
 
@@ -510,6 +606,131 @@ order = 20
     }
 
     #[test]
+    fn every_sentence_the_shipped_pack_can_say_is_a_sentence() {
+        // The answer to a substitution is what the learner hears and, from
+        // v0.5, what they type. A leftover scaffold - a "+", an "am/is/are" -
+        // would be read aloud as nonsense and accepted as a right answer.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
+        let pack = Pack::read(&path).expect("the shipped pack should load");
+        let mut said = 0;
+        for formula in pack.formulas.iter().filter(|formula| !formula.slots.is_empty()) {
+            let template = Template::parse(formula.say.as_deref().unwrap()).unwrap();
+            let slots: Vec<(&str, Vec<&Value>)> = formula.slots.iter().map(|slot| (slot.name.as_str(), slot.values.iter().collect())).collect();
+            let sentences = crate::say::every_sentence(&template, &slots, 10_000);
+            assert!(!sentences.is_empty(), "formula {} says nothing", formula.id);
+            for sentence in sentences {
+                assert!(
+                    !sentence.contains(" + ") && !sentence.contains('/') && !sentence.contains('<'),
+                    "formula {} says a scaffold: {sentence:?}",
+                    formula.id
+                );
+                assert!(
+                    sentence.ends_with(['.', '?', '!']),
+                    "formula {} says an unfinished sentence: {sentence:?}",
+                    formula.id
+                );
+                assert!(
+                    sentence.starts_with(char::is_uppercase),
+                    "formula {} opens in lower case: {sentence:?}",
+                    formula.id
+                );
+                said += 1;
+            }
+        }
+        assert!(said > 500, "the pack should be able to say hundreds of sentences, said {said}");
+    }
+
+    fn with_say(say: Option<&str>, values: &str) -> Pack {
+        let say = say
+            .map(|say| {
+                format!(
+                    "say = \"{say}\"
+"
+                )
+            })
+            .unwrap_or_default();
+        parse(&format!(
+            r#"
+id = "t"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "be"
+name = "n"
+pattern = "<pronoun> + am/is/are + <rest>"
+{say}explanation = "e"
+order = 10
+
+  [[formula.sample]]
+  native = "a"
+  target = "I am here."
+
+  [[formula.slot]]
+  name = "pronoun"
+  values = [{values}]
+
+  [[formula.slot]]
+  name = "rest"
+  values = [{{ native = "x", target = "here" }}]
+"#
+        ))
+    }
+
+    const AGREEING: &str = r#"{ native = "я", target = "I", be = "am" }, { native = "он", target = "he", be = "is" }"#;
+
+    #[test]
+    fn a_well_formed_say_is_accepted() {
+        with_say(Some("<pronoun> <pronoun:be> <rest>."), AGREEING)
+            .validate()
+            .expect("a complete template should pass");
+    }
+
+    #[test]
+    fn a_formula_with_slots_and_no_say_is_rejected() {
+        let error = with_say(None, AGREEING).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("no `say`"), "{error:#}");
+    }
+
+    #[test]
+    fn a_say_naming_a_slot_that_is_not_there_is_rejected() {
+        let error = with_say(Some("<pronoun> <pronoun:be> <place>."), AGREEING).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("no slot called \"place\""), "{error:#}");
+    }
+
+    #[test]
+    fn a_say_that_drops_a_slot_is_rejected() {
+        let error = with_say(Some("<pronoun> <pronoun:be> fine."), AGREEING).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("never says its slot \"rest\""), "{error:#}");
+    }
+
+    #[test]
+    fn a_value_missing_a_form_is_rejected() {
+        let values = r#"{ native = "я", target = "I", be = "am" }, { native = "он", target = "he" }"#;
+        let error = with_say(Some("<pronoun> <pronoun:be> <rest>."), values).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("has no form \"be\""), "{error:#}");
+    }
+
+    #[test]
+    fn a_form_nobody_asks_for_is_rejected() {
+        // Almost always a misspelt key: `bee = "is"` would otherwise sit there
+        // while the sentence went without it.
+        let values = r#"{ native = "я", target = "I", be = "am" }, { native = "он", target = "he", be = "is", bee = "is" }"#;
+        let error = with_say(Some("<pronoun> <pronoun:be> <rest>."), values).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("\"bee\" that `say` never asks for"), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn say_and_forms_reach_the_database() {
+        let pool = pool().await;
+        load(&pool, &with_say(Some("<pronoun> <pronoun:be> <rest>."), AGREEING)).await.unwrap();
+        let formula = crate::study::formula(&pool, "be").await.unwrap();
+        assert_eq!(formula.say.as_deref(), Some("<pronoun> <pronoun:be> <rest>."));
+        assert_eq!(formula.slots[0].values[1].forms.get("be").map(String::as_str), Some("is"));
+    }
+
+    #[test]
     fn a_pack_with_no_formulas_is_rejected() {
         let pack = parse("id = \"empty\"\nversion = 1\nnative = \"ru\"\ntarget = \"en\"\n");
         assert!(pack.validate().is_err(), "an empty pack would load as a working tutor with nothing to drill");
@@ -548,6 +769,7 @@ target = "en"
 id = "f"
 name = "n"
 pattern = "<pronoun> + am"
+say = "<pronoun> is here."
 explanation = "e"
 order = 1
 

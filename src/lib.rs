@@ -9,5 +9,6 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod pack;
+pub mod say;
 pub mod scheduling;
 pub mod study;

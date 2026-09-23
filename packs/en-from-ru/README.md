@@ -20,7 +20,8 @@ target = "en"               # the language being learnt
 [[formula]]
 id = "be-present-statement"   # stable across versions; the database keys on it
 name = "I am / you are"       # what the learner sees as the title
-pattern = "<pronoun> + am/is/are + <rest>"
+pattern = "<pronoun> + am/is/are + <rest>"   # the scaffold shown on the card
+say = "<pronoun> <pronoun:be> <rest>."       # the sentence a substitution says
 explanation = "..."           # one paragraph, in the native language
 order = 10                    # the order formulas are introduced in
 family = "be-present"          # optional: the shape this is one form of
@@ -33,13 +34,16 @@ form = "statement"             # optional: statement, negation or question
   [[formula.slot]]            # the substitutions the drill draws from
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
+    { native = "я", target = "I", be = "am" },    # be: a form `say` agrees with
+    { native = "ты", target = "you", be = "are" },
   ]
 ```
 
 Every formula needs at least one sample; slots are optional, but a formula
-with no slot cannot be drilled by substitution, only recalled.
+with no slot cannot be drilled by substitution, only recalled. A formula with
+slots needs `say`: the pattern is a scaffold, and `say` is the sentence the
+drill answers with and the tutor reads aloud. Agreement lives on the value -
+`be = "is"` on "he" - so the code knows nothing about English.
 
 A statement, its negation and its question stay three formulas with three
 schedules - the negation with `don't` really is a separate thing to

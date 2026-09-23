@@ -303,6 +303,7 @@ target = "en"
 id = "be-present"
 name = "n"
 pattern = "<pronoun> + am/is/are"
+say = "<pronoun> is here."
 explanation = "e"
 order = 10
 

@@ -1,5 +1,5 @@
 id = "en-from-ru"
-version = 2
+version = 3
 native = "ru"
 target = "en"
 
@@ -11,6 +11,7 @@ target = "en"
 id = "be-present-statement"
 name = "Я есть - to be в настоящем"
 pattern = "<pronoun> + am/is/are + <rest>"
+say = "<pronoun> <pronoun:be> <rest>."
 explanation = "В русском мы говорим «я дома», «он врач» без всякой связки, а в английском связка обязательна: I am, he/she/it is, we/you/they are. Самая частая ошибка русскоговорящего - выбросить эту связку вообще, сказать «I doctor» вместо «I am a doctor». Запомните её просто как часть местоимения: I am, you are, he is - одно целое, которое нельзя разорвать."
 order = 10
 family = "be-present"
@@ -39,13 +40,13 @@ form = "statement"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "оно", target = "it" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", be = "am" },
+    { native = "ты", target = "you", be = "are" },
+    { native = "он", target = "he", be = "is" },
+    { native = "она", target = "she", be = "is" },
+    { native = "оно", target = "it", be = "is" },
+    { native = "мы", target = "we", be = "are" },
+    { native = "они", target = "they", be = "are" },
   ]
 
   [[formula.slot]]
@@ -64,6 +65,7 @@ form = "statement"
 id = "be-present-negation"
 name = "Я не - to be, отрицание"
 pattern = "<pronoun> + am not/isn't/aren't + <rest>"
+say = "<pronoun> <pronoun:be-not> <rest>."
 explanation = "Отрицание строится той же связкой плюс not: am not, isn't, aren't. В разговоре почти всегда используют слитную форму isn't и aren't, а с I говорят am not (сокращения I'm not). Ошибка новичка - добавить don't туда, где уже есть am/is/are: «I don't tired» вместо «I'm not tired» - с to be частица do не нужна никогда."
 order = 20
 family = "be-present"
@@ -92,12 +94,12 @@ form = "negation"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", be-not = "am not" },
+    { native = "ты", target = "you", be-not = "aren't" },
+    { native = "он", target = "he", be-not = "isn't" },
+    { native = "она", target = "she", be-not = "isn't" },
+    { native = "мы", target = "we", be-not = "aren't" },
+    { native = "они", target = "they", be-not = "aren't" },
   ]
 
   [[formula.slot]]
@@ -115,6 +117,7 @@ form = "negation"
 id = "be-present-question"
 name = "Он дома? - to be, вопрос"
 pattern = "Am/Is/Are + <pronoun> + <rest>?"
+say = "<pronoun:be> <pronoun> <rest>?"
 explanation = "В вопросе связка просто выходит вперёд, перед местоимением: Is he at home?, Are you ready? Порядок слов - вот что здесь ломается у русских: по привычке хочется спросить «He is at home?» с интонацией, как в русском, но по-английски так не говорят - глагол обязан встать первым."
 order = 30
 family = "be-present"
@@ -143,11 +146,11 @@ form = "question"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "ты", target = "you", be = "are" },
+    { native = "он", target = "he", be = "is" },
+    { native = "она", target = "she", be = "is" },
+    { native = "мы", target = "we", be = "are" },
+    { native = "они", target = "they", be = "are" },
   ]
 
   [[formula.slot]]
@@ -168,6 +171,7 @@ form = "question"
 id = "there-is-are"
 name = "Там есть - there is / there are"
 pattern = "There is/are + <thing>"
+say = "There <thing:be> <thing>."
 explanation = "По-русски «в холодильнике есть молоко» начинается с места, а по-английски начинается с формулы there is/are - буквально «там имеется». Is берём для одного предмета, are - для нескольких. Ошибка новичка - переводить дословно и начинать с места («In the fridge is milk») или путать is/are по числу."
 order = 40
 
@@ -194,19 +198,20 @@ order = 40
   [[formula.slot]]
   name = "thing"
   values = [
-    { native = "молоко", target = "milk" },
-    { native = "стол", target = "a table" },
-    { native = "скамейки", target = "benches" },
-    { native = "проблема", target = "a problem" },
-    { native = "хороший ресторан", target = "a good restaurant" },
-    { native = "пробки", target = "traffic jams" },
-    { native = "магазин", target = "a shop" },
+    { native = "молоко", target = "milk", be = "is" },
+    { native = "стол", target = "a table", be = "is" },
+    { native = "скамейки", target = "benches", be = "are" },
+    { native = "проблема", target = "a problem", be = "is" },
+    { native = "хороший ресторан", target = "a good restaurant", be = "is" },
+    { native = "пробки", target = "traffic jams", be = "are" },
+    { native = "магазин", target = "a shop", be = "is" },
   ]
 
 [[formula]]
 id = "have-got"
 name = "У меня есть - have / have got"
 pattern = "<pronoun> + have/has (got) + <thing>"
+say = "<pronoun> <pronoun:have> <thing>."
 explanation = "У обладания в английском нет отдельного слова вроде русского «у меня» - вместо этого меняется сам глагол: have для я/ты/мы/они, has для он/она/оно. В разговорной речи часто добавляют got (I've got a car), но и просто have тоже верно. Частая ошибка - сказать «I has» или «he have», перепутав, к кому какая форма относится."
 order = 50
 
@@ -233,12 +238,12 @@ order = 50
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", have = "have" },
+    { native = "ты", target = "you", have = "have" },
+    { native = "он", target = "he", have = "has" },
+    { native = "она", target = "she", have = "has" },
+    { native = "мы", target = "we", have = "have" },
+    { native = "они", target = "they", have = "have" },
   ]
 
   [[formula.slot]]
@@ -261,6 +266,7 @@ order = 50
 id = "present-simple-statement"
 name = "Я делаю - Present Simple"
 pattern = "<pronoun> + <verb> + <rest>"
+say = "<pronoun> <verb> <rest>."
 explanation = "Это формула для обычных, повторяющихся дел: то, что вы делаете вообще, каждый день, а не прямо сейчас. Глагол берётся в самой простой форме, без всяких добавок - I work, you live, we play. Проблем здесь обычно немного, но помните: эта формула не подходит для он/она/оно - там появляется своя, со звуком -s (следующая формула)."
 order = 60
 family = "present-simple"
@@ -321,6 +327,7 @@ form = "statement"
 id = "present-simple-he-she-it"
 name = "Он делает - Present Simple с -s"
 pattern = "<pronoun> + <verb-s> + <rest>"
+say = "<pronoun> <verb-s> <rest>."
 explanation = "С he/she/it к глаголу приклеивается звук -s: work становится works, live - lives. Это единственное место в настоящем времени, где глагол вообще меняется, и именно это место русскоговорящие чаще всего забывают - в русском окончания глагола зависят не от «он/она», а от лица и рода в прошедшем, поэтому рука не привыкла добавлять эту -s."
 order = 70
 
@@ -377,6 +384,7 @@ order = 70
 id = "present-simple-negation"
 name = "Я не делаю - Present Simple, отрицание"
 pattern = "<pronoun> + don't/doesn't + <verb> + <rest>"
+say = "<pronoun> <pronoun:do-not> <verb> <rest>."
 explanation = "Отрицание строится с помощью don't (я/ты/мы/они) или doesn't (он/она/оно) плюс глагол в самой простой форме - без -s, ведь -s уже «спрятана» в doesn't. Вот тут и рождается частая ошибка: говорят «he doesn't works» вместо «he doesn't work», ставя -s дважды."
 order = 80
 family = "present-simple"
@@ -405,12 +413,12 @@ form = "negation"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", do-not = "don't" },
+    { native = "ты", target = "you", do-not = "don't" },
+    { native = "он", target = "he", do-not = "doesn't" },
+    { native = "она", target = "she", do-not = "doesn't" },
+    { native = "мы", target = "we", do-not = "don't" },
+    { native = "они", target = "they", do-not = "don't" },
   ]
 
   [[formula.slot]]
@@ -438,6 +446,7 @@ form = "negation"
 id = "present-simple-question"
 name = "Ты делаешь? - Present Simple, вопрос"
 pattern = "Do/Does + <pronoun> + <verb> + <rest>?"
+say = "<pronoun:do> <pronoun> <verb> <rest>?"
 explanation = "Вопрос начинается с do (я/ты/мы/они) или does (он/она/оно), а сам смысловой глагол снова стоит в простой форме без -s - вся работа по указанию на лицо уже сделана словом does. Ошибка новичка - спросить «Does he works?» вместо «Does he work?», либо вообще забыть do/does и спросить «He works?» с одной интонацией, как в русском."
 order = 90
 family = "present-simple"
@@ -466,11 +475,11 @@ form = "question"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "ты", target = "you", do = "do" },
+    { native = "он", target = "he", do = "does" },
+    { native = "она", target = "she", do = "does" },
+    { native = "мы", target = "we", do = "do" },
+    { native = "они", target = "they", do = "do" },
   ]
 
   [[formula.slot]]
@@ -501,6 +510,7 @@ form = "question"
 id = "want-to-verb"
 name = "Я хочу - want to"
 pattern = "<pronoun> + want(s) to + <verb>"
+say = "<pronoun> want<pronoun:s> to <verb>."
 explanation = "После want всегда идёт to и глагол в простой форме - это целая склейка, want to, которую проще выучить как одно слово. Не забывайте про -s у he/she/it: he wants to go. Ошибка - сказать «I want go» без to, по аналогии с тем, как в русском «хочу пойти» не требует лишних слов между глаголами."
 order = 100
 
@@ -527,12 +537,12 @@ order = 100
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", s = "" },
+    { native = "ты", target = "you", s = "" },
+    { native = "он", target = "he", s = "s" },
+    { native = "она", target = "she", s = "s" },
+    { native = "мы", target = "we", s = "" },
+    { native = "они", target = "they", s = "" },
   ]
 
   [[formula.slot]]
@@ -550,6 +560,7 @@ order = 100
 id = "need-to-verb"
 name = "Мне нужно - need to"
 pattern = "<pronoun> + need(s) to + <verb>"
+say = "<pronoun> need<pronoun:s> to <verb>."
 explanation = "Формула та же, что и want to, только смысл ближе к необходимости: мне нужно, а не хочется. He/she/it снова получает -s: she needs to go. Разница с want to только в оттенке - выбирайте need, когда по-русски напрашивается «нужно» или «надо», а не «хочу»."
 order = 110
 
@@ -576,11 +587,11 @@ order = 110
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
+    { native = "я", target = "I", s = "" },
+    { native = "ты", target = "you", s = "" },
+    { native = "он", target = "he", s = "s" },
+    { native = "она", target = "she", s = "s" },
+    { native = "мы", target = "we", s = "" },
   ]
 
   [[formula.slot]]
@@ -597,6 +608,7 @@ order = 110
 id = "lets-verb"
 name = "Давай - Let's"
 pattern = "Let's + <verb>"
+say = "Let's <verb>."
 explanation = "Let's - готовое приглашение сделать что-то вместе, за ним сразу простая форма глагола, без to и без изменений: Let's go, Let's eat. Ошибка новичка - добавить to (Let's to go) или местоимение мы (Let's we go) - Let's уже само по себе значит «давай мы», ничего добавлять не нужно."
 order = 120
 
@@ -635,6 +647,7 @@ order = 120
 id = "how-much-many"
 name = "Сколько - How much / How many"
 pattern = "How much/many + <noun> + <rest>?"
+say = "How <noun:much> <noun> do you need?"
 explanation = "How much спрашивают про то, что не считается по штукам - деньги, время, вода; how many - про то, что можно посчитать - людей, дни, вещи. Русское «сколько» одно на всё, поэтому эта развилка обычно и путает: посмотрите на существительное - если у него есть множественное число (many books), берите many, если нет (much money) - much."
 order = 130
 
@@ -661,12 +674,12 @@ order = 130
   [[formula.slot]]
   name = "noun"
   values = [
-    { native = "деньги", target = "money" },
-    { native = "время", target = "time" },
-    { native = "вода", target = "water" },
-    { native = "братья", target = "brothers" },
-    { native = "люди", target = "people" },
-    { native = "дни", target = "days" },
+    { native = "деньги", target = "money", much = "much" },
+    { native = "время", target = "time", much = "much" },
+    { native = "вода", target = "water", much = "much" },
+    { native = "братья", target = "brothers", much = "many" },
+    { native = "люди", target = "people", much = "many" },
+    { native = "дни", target = "days", much = "many" },
   ]
 
 # ---------------------------------------------------------------------------
@@ -677,6 +690,7 @@ order = 130
 id = "modal-can"
 name = "Я могу / не могу - can / can't"
 pattern = "<pronoun> + can/can't + <verb>"
+say = "<pronoun> can <verb>."
 explanation = "Can - удобная формула для умения и возможности, и она никогда не меняется по лицам: I can, he can, they can - без -s даже с он/она/оно. Отрицание - слитно can't. Ошибка новичка - добавить to после can (I can to swim) или поставить -s у he (he cans) - can всегда идёт голым, сразу за ним простой глагол."
 order = 140
 
@@ -726,6 +740,7 @@ order = 140
 id = "modal-can-question"
 name = "Могу я...? - can, просьба"
 pattern = "Can + <pronoun> + <verb>?"
+say = "Can <pronoun> <verb>?"
 explanation = "Can выходит вперёд для вопроса и просьбы - Can you help me? звучит как обычная вежливая просьба, а не строгий вопрос про умение. Порядок тот же принцип, что и везде: сначала глагол-помощник, потом местоимение, потом смысловой глагол без всяких добавок."
 order = 150
 
@@ -771,6 +786,7 @@ order = 150
 id = "modal-must"
 name = "Я должен - must"
 pattern = "<pronoun> + must + <verb>"
+say = "<pronoun> must <verb>."
 explanation = "Must - сильная необходимость, часто с оттенком срочности или правила: I must go, we must hurry. Как и can, must не меняется по лицам и не берёт -s, а после него сразу простая форма глагола без to. В повседневной речи вместо must чаще говорят have to (см. отдельную формулу), но must остаётся для правил, инструкций и сильных советов самому себе."
 order = 160
 
@@ -818,6 +834,7 @@ order = 160
 id = "modal-should"
 name = "Тебе следует - should"
 pattern = "<pronoun> + should + <verb>"
+say = "<pronoun> should <verb>."
 explanation = "Should - это мягкий совет, «стоило бы», а не жёсткое требование: You should rest звучит как забота, а не приказ. Ведёт себя точно как can и must - не меняется по лицам, сразу за ним простой глагол без to. Русскоговорящие иногда путают should с must, но should всегда мягче - это совет, который можно и не послушать."
 order = 170
 
@@ -864,6 +881,7 @@ order = 170
 id = "would-like"
 name = "Я бы хотел - would like"
 pattern = "<pronoun> + would like + <thing/verb>"
+say = "<pronoun> would like <thing/verb>."
 explanation = "Would like - вежливая версия want, идеальна для заказа в кафе или просьбы: I'd like a coffee звучит культурнее, чем I want a coffee. Обычно сокращают would до 'd: I'd like, she'd like. После would like можно поставить и предмет (a coffee), и глагол с to (to order): I'd like to order. Ошибка - забыть 'd и сказать «I like a coffee», что меняет смысл на «мне нравится кофе вообще»."
 order = 180
 
@@ -910,6 +928,7 @@ order = 180
 id = "have-to"
 name = "Мне приходится - have to"
 pattern = "<pronoun> + have/has to + <verb>"
+say = "<pronoun> <pronoun:have> to <verb>."
 explanation = "Have to - самый разговорный способ сказать «должен, приходится», и в отличие от must он меняется по лицам, как обычный have: I have to, he has to. Ошибка новичка - смешать его с must и сказать «he must to go» (лишнее to) или забыть -s у has to с he/she/it."
 order = 190
 
@@ -936,11 +955,11 @@ order = 190
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "она", target = "she" },
-    { native = "он", target = "he" },
-    { native = "мы", target = "we" },
-    { native = "ты", target = "you" },
+    { native = "я", target = "I", have = "have" },
+    { native = "она", target = "she", have = "has" },
+    { native = "он", target = "he", have = "has" },
+    { native = "мы", target = "we", have = "have" },
+    { native = "ты", target = "you", have = "have" },
   ]
 
   [[formula.slot]]
@@ -961,6 +980,7 @@ order = 190
 id = "be-past-statement"
 name = "Я был - to be в прошлом"
 pattern = "<pronoun> + was/were + <rest>"
+say = "<pronoun> <pronoun:was> <rest>."
 explanation = "В прошлом у to be всего две формы: was для я/он/она/оно, were для ты/мы/они. Это проще, чем в настоящем, но именно поэтому русскоговорящие иногда путают было ли I was или I were - запомните: were только с you, we, they, всё остальное - was."
 order = 200
 family = "be-past"
@@ -989,12 +1009,12 @@ form = "statement"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", was = "was" },
+    { native = "ты", target = "you", was = "were" },
+    { native = "он", target = "he", was = "was" },
+    { native = "она", target = "she", was = "was" },
+    { native = "мы", target = "we", was = "were" },
+    { native = "они", target = "they", was = "were" },
   ]
 
   [[formula.slot]]
@@ -1011,6 +1031,7 @@ form = "statement"
 id = "be-past-question"
 name = "Ты был там? - to be в прошлом, вопрос"
 pattern = "Was/Were + <pronoun> + <rest>?"
+say = "<pronoun:was> <pronoun> <rest>?"
 explanation = "Как и в настоящем, was/were просто выходят вперёд местоимения: Were you there?, Was he late? Никакого do/did здесь не нужно - это касается только обычных глаголов, а to be всегда справляется сам, и в прошлом тоже."
 order = 210
 family = "be-past"
@@ -1039,10 +1060,10 @@ form = "question"
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "ты", target = "you" },
-    { native = "он", target = "he" },
-    { native = "она", target = "she" },
-    { native = "они", target = "they" },
+    { native = "ты", target = "you", was = "were" },
+    { native = "он", target = "he", was = "was" },
+    { native = "она", target = "she", was = "was" },
+    { native = "они", target = "they", was = "were" },
   ]
 
   [[formula.slot]]
@@ -1063,6 +1084,7 @@ form = "question"
 id = "past-simple-statement"
 name = "Я сделал - Past Simple"
 pattern = "<pronoun> + <verb-ed/irregular> + <rest>"
+say = "<pronoun> <verb-ed/irregular>."
 explanation = "Для завершённого действия в прошлом обычные глаголы получают окончание -ed (work - worked), а самые частые глаголы вроде go, see, have меняются полностью и их формы нужно просто запомнить (went, saw, had). Хорошая новость - эта форма одна для всех местоимений, никакого -s у he/she/it здесь уже нет, это то, что путает по инерции после present simple."
 order = 220
 family = "past-simple"
@@ -1113,6 +1135,7 @@ form = "statement"
 id = "past-simple-negation"
 name = "Я не сделал - Past Simple, отрицание"
 pattern = "<pronoun> + didn't + <verb> + <rest>"
+say = "<pronoun> didn't <verb> <rest>."
 explanation = "Отрицание в прошлом всегда через didn't - и после него глагол возвращается в самую простую форму, даже если это неправильный глагол: didn't go, а не didn't went. Именно эту ошибку - оставить прошедшую форму глагола после didn't - делают чаще всего, потому что кажется, будто прошедшее время нужно показать дважды."
 order = 230
 family = "past-simple"
@@ -1172,6 +1195,7 @@ form = "negation"
 id = "past-simple-question"
 name = "Ты сделал? - Past Simple, вопрос"
 pattern = "Did + <pronoun> + <verb> + <rest>?"
+say = "Did <pronoun> <verb>?"
 explanation = "Вопрос делается через did впереди, и глагол снова стоит в простой форме без -ed и без неправильных изменений: Did you see him?, а не Did you saw him? Did уже сам по себе показывает, что речь о прошлом - смысловому глаголу второй раз это показывать не нужно."
 order = 240
 family = "past-simple"
@@ -1224,6 +1248,7 @@ form = "question"
 id = "future-will-statement"
 name = "Я сделаю - will"
 pattern = "<pronoun> + will + <verb>"
+say = "<pronoun> will <verb>."
 explanation = "Will - самый простой способ говорить о будущем: одна форма на все местоимения, после неё глагол в простой форме без to. В речи will почти всегда сжимают до 'll: I'll call, we'll see. Ошибка новичка - добавить to после will (I will to go) по привычке от русского «буду» плюс инфинитив."
 order = 250
 family = "future-will"
@@ -1273,6 +1298,7 @@ form = "statement"
 id = "future-will-negation"
 name = "Я не сделаю - won't"
 pattern = "<pronoun> + won't + <verb>"
+say = "<pronoun> won't <verb>."
 explanation = "Отрицание will и not сливается в won't - это стоит просто запомнить как отдельное слово, потому что оно не выглядит как will плюс not на письме. После won't - опять простой глагол без to: I won't go, а не I won't to go."
 order = 260
 family = "future-will"
@@ -1322,6 +1348,7 @@ form = "negation"
 id = "future-will-question"
 name = "Ты сделаешь? - will, вопрос"
 pattern = "Will + <pronoun> + <verb>?"
+say = "Will <pronoun> <verb>?"
 explanation = "Will выходит вперёд местоимения так же, как can и должен и все остальные помощники: Will you help me? Форма глагола после него не меняется ни при каких условиях - никакого -s, никакого -ed, только простая форма."
 order = 270
 family = "future-will"
@@ -1370,6 +1397,7 @@ form = "question"
 id = "future-going-to"
 name = "Я собираюсь - going to"
 pattern = "<pronoun> + am/is/are going to + <verb>"
+say = "<pronoun> <pronoun:be> going to <verb>."
 explanation = "Going to берут для планов, о которых уже решили заранее, в отличие от will, который больше подходит для решений на ходу. Сборка идёт через to be (am/is/are), поэтому эта формула требует ту же связку, что и be-present: I'm going to, she's going to. Ошибка - забыть саму связку am/is/are и сказать просто «I going to go»."
 order = 280
 
@@ -1396,11 +1424,11 @@ order = 280
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "мы", target = "we" },
-    { native = "она", target = "she" },
-    { native = "они", target = "they" },
-    { native = "ты", target = "you" },
+    { native = "я", target = "I", be = "am" },
+    { native = "мы", target = "we", be = "are" },
+    { native = "она", target = "she", be = "is" },
+    { native = "они", target = "they", be = "are" },
+    { native = "ты", target = "you", be = "are" },
   ]
 
   [[formula.slot]]
@@ -1421,6 +1449,7 @@ order = 280
 id = "present-continuous-statement"
 name = "Я делаю сейчас - Present Continuous"
 pattern = "<pronoun> + am/is/are + <verb-ing> + <rest>"
+say = "<pronoun> <pronoun:be> <verb-ing>."
 explanation = "Эта формула - для действия прямо сейчас, в эту минуту, в отличие от Present Simple, который про обычные дела вообще. Собирается из уже знакомой связки am/is/are плюс глагол с окончанием -ing: I'm working, she's cooking. Ошибка новичка - использовать здесь Present Simple там, где по-русски «сейчас» подразумевается, но не сказано словом: «Что ты делаешь?» - это всегда Continuous, «What are you doing?», а не «What do you do?»."
 order = 290
 
@@ -1447,11 +1476,11 @@ order = 290
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
-    { native = "он", target = "he" },
-    { native = "они", target = "they" },
+    { native = "я", target = "I", be = "am" },
+    { native = "она", target = "she", be = "is" },
+    { native = "мы", target = "we", be = "are" },
+    { native = "он", target = "he", be = "is" },
+    { native = "они", target = "they", be = "are" },
   ]
 
   [[formula.slot]]
@@ -1468,6 +1497,7 @@ order = 290
 id = "present-continuous-negation-question"
 name = "Я не делаю сейчас / Ты делаешь? - Continuous"
 pattern = "<pronoun> + am not/isn't/aren't + <verb-ing> ... / Am/Is/Are + <pronoun> + <verb-ing>?"
+say = "<pronoun> <pronoun:be-not> <verb-ing>."
 explanation = "Отрицание и вопрос в Continuous устроены так же, как у обычного to be: not добавляется прямо к am/is/are (isn't working), а в вопросе am/is/are просто выходят вперёд местоимения (Is she working?). Никакого don't/does здесь нет и быть не может - это частая путаница, потому что глагол на -ing сбивает с толку и хочется добавить do."
 order = 300
 
@@ -1494,11 +1524,11 @@ order = 300
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I" },
-    { native = "он", target = "he" },
-    { native = "ты", target = "you" },
-    { native = "она", target = "she" },
-    { native = "мы", target = "we" },
+    { native = "я", target = "I", be-not = "am not" },
+    { native = "он", target = "he", be-not = "isn't" },
+    { native = "ты", target = "you", be-not = "aren't" },
+    { native = "она", target = "she", be-not = "isn't" },
+    { native = "мы", target = "we", be-not = "aren't" },
   ]
 
   [[formula.slot]]

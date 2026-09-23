@@ -8,10 +8,16 @@ export interface Sample {
   target: string
 }
 
+/** One filling for a slot, with the forms that agree with it. */
+export interface Value extends Sample {
+  /** What `say` picks from for agreement: `be` is "is" on "he". */
+  forms: Record<string, string>
+}
+
 /** A hole in a formula's pattern, with what can go in it. */
 export interface Slot {
   name: string
-  values: Sample[]
+  values: Value[]
 }
 
 /** Which of the three ways a shape can be said. */
@@ -32,6 +38,8 @@ export interface Formula {
   id: string
   name: string
   pattern: string
+  /** The sentence a substitution says, with `<slot>` and `<slot:form>` holes. */
+  say: string | null
   explanation: string
   samples: Sample[]
   slots: Slot[]

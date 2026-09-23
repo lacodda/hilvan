@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Formula } from '@/api'
-import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, seconds, substitute, tabs, whenBack } from '@/prompts'
+import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, render, seconds, substitute, tabs, whenBack } from '@/prompts'
 
 const formula: Formula = {
   id: 'be-present',
   name: 'to be',
   pattern: '<pronoun> + am/is/are + <rest>',
+  say: '<pronoun> <pronoun:be> <rest>.',
   explanation: 'explained',
   samples: [
     { native: 'prompt one', target: 'I am at home.' },
@@ -16,11 +17,11 @@ const formula: Formula = {
     {
       name: 'pronoun',
       values: [
-        { native: 'first', target: 'I' },
-        { native: 'second', target: 'you' },
+        { native: 'first', target: 'I', forms: { be: 'am' } },
+        { native: 'second', target: 'you', forms: { be: 'are' } },
       ],
     },
-    { name: 'rest', values: [{ native: 'third', target: 'at home' }] },
+    { name: 'rest', values: [{ native: 'third', target: 'at home', forms: {} }] },
   ],
   family: 'be-present',
   form: 'statement',
@@ -36,22 +37,28 @@ const first = () => 0
 const last = () => 0.999999
 
 describe('substitute', () => {
-  it('fills every hole in both languages', () => {
+  it('prompts with the scaffold and answers with the sentence', () => {
     expect(substitute(formula, first)).toEqual({
       native: 'first + am/is/are + third',
-      target: 'I + am/is/are + at home',
+      target: 'I am at home.',
       source: 'substitution',
     })
   })
 
   it('can reach the last value of a slot', () => {
     // A picker that never returns the final value silently drills half a slot.
-    expect(substitute(formula, last)?.target).toContain('you')
+    expect(substitute(formula, last)?.target).toBe('You are at home.')
   })
 
-  it('leaves the choice the formula teaches in the prompt', () => {
-    // "am/is/are" is not a hole: picking the right one is the formula.
-    expect(substitute(formula, first)?.target).toContain('am/is/are')
+  it('leaves the choice the formula teaches in the prompt, and makes it in the answer', () => {
+    // "am/is/are" is not a hole: picking the right one is the formula, so
+    // the prompt offers all three and the answer holds exactly one.
+    expect(substitute(formula, first)?.native).toContain('am/is/are')
+    expect(substitute(formula, first)?.target).not.toContain('/')
+  })
+
+  it('refuses a formula with no sentence to say', () => {
+    expect(substitute({ ...formula, say: null }, first)).toBeNull()
   })
 
   it('refuses a formula with no slots rather than showing a raw pattern', () => {
@@ -63,8 +70,34 @@ describe('substitute', () => {
   })
 
   it('refuses a slot the pattern never mentions', () => {
-    const wrong = { ...formula, slots: [{ name: 'verb', values: [{ native: 'a', target: 'b' }] }] }
+    const wrong = { ...formula, slots: [{ name: 'verb', values: [{ native: 'a', target: 'b', forms: {} }] }] }
     expect(substitute(wrong, first)).toBeNull()
+  })
+})
+
+describe('render', () => {
+  const he = { native: 'он', target: 'he', forms: { be: 'is', s: 's' } }
+  const i = { native: 'я', target: 'I', forms: { be: 'am', s: '' } }
+  const home = { native: 'дома', target: 'at home', forms: {} }
+
+  // The same cases as src/say.rs: the server checks the client's sentence
+  // against its own rendering before speaking it, so the two must agree.
+  it('agrees the form with the value chosen', () => {
+    expect(render('<pronoun> <pronoun:be> <rest>.', new Map([['pronoun', he], ['rest', home]]))).toBe('He is at home.')
+    expect(render('<pronoun> <pronoun:be> <rest>.', new Map([['pronoun', i], ['rest', home]]))).toBe('I am at home.')
+  })
+
+  it('opens a question with a capital', () => {
+    expect(render('<pronoun:be> <pronoun> <rest>?', new Map([['pronoun', he], ['rest', home]]))).toBe('Is he at home?')
+  })
+
+  it('takes a suffix and leaves no gap for an empty one', () => {
+    expect(render('<pronoun> want<pronoun:s> to go.', new Map([['pronoun', he]]))).toBe('He wants to go.')
+    expect(render('<pronoun> want<pronoun:s> to go.', new Map([['pronoun', i]]))).toBe('I want to go.')
+  })
+
+  it('renders nothing rather than half a sentence', () => {
+    expect(render('<rest:be>', new Map([['rest', home]]))).toBeNull()
   })
 })
 
@@ -138,8 +171,8 @@ describe('ask', () => {
 describe('ladder', () => {
   it('runs the formula through every person', () => {
     expect(ladder(formula)).toEqual([
-      { native: 'first', target: 'I + am/is/are + at home' },
-      { native: 'second', target: 'you + am/is/are + at home' },
+      { native: 'first', target: 'I am at home.' },
+      { native: 'second', target: 'You are at home.' },
     ])
   })
 
@@ -149,16 +182,21 @@ describe('ladder', () => {
     const roomy = {
       ...formula,
       slots: [
-        { name: 'pronoun', values: [{ native: 'first', target: 'I' }, { native: 'second', target: 'you' }] },
-        { name: 'rest', values: [{ native: 'third', target: 'at home' }, { native: 'fourth', target: 'tired' }] },
+        formula.slots[0]!,
+        {
+          name: 'rest',
+          values: [
+            { native: 'third', target: 'at home', forms: {} },
+            { native: 'fourth', target: 'tired', forms: {} },
+          ],
+        },
       ],
     }
-    const rests = new Set(ladder(roomy).map((rung) => rung.target.split(' + ')[2]))
-    expect(rests).toEqual(new Set(['at home']))
+    expect(ladder(roomy).every((rung) => rung.target.endsWith('at home.'))).toBe(true)
   })
 
   it('offers no ladder for a formula with no person to run through', () => {
-    const lets = { ...formula, pattern: "Let's + <verb>", slots: [{ name: 'verb', values: [{ native: 'идти', target: 'go' }] }] }
+    const lets = { ...formula, pattern: "Let's + <verb>", say: "Let's <verb>.", slots: [{ name: 'verb', values: [{ native: 'идти', target: 'go', forms: {} }] }] }
     expect(ladder(lets)).toEqual([])
   })
 

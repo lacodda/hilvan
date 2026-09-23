@@ -19,6 +19,7 @@ target = "en"
 id = "be-present-statement"
 name = "I am / you are"
 pattern = "<pronoun> + am/is/are + <rest>"
+say = "<pronoun> <pronoun:be> <rest>."
 explanation = "..."
 order = 10
 family = "be-present"      # optional: the shape this is one form of
@@ -31,8 +32,8 @@ form = "statement"          # optional: statement, negation or question
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "<word in the learner's own language>", target = "I" },
-    { native = "<word in the learner's own language>", target = "you" },
+    { native = "<word in the learner's own language>", target = "I", be = "am" },
+    { native = "<word in the learner's own language>", target = "you", be = "are" },
   ]
 ```
 
@@ -50,7 +51,8 @@ form = "statement"          # optional: statement, negation or question
 | --- | --- |
 | `id` | Stable across pack versions - the database keys on it, and cards and reviews stay attached to it even when the wording changes. |
 | `name` | What the learner sees as the title. |
-| `pattern` | The assembly shown compactly, with `<placeholder>` holes matching slot names. |
+| `pattern` | The assembly shown compactly, with `<placeholder>` holes matching slot names. The scaffold on the card, not a sentence. |
+| `say` | The sentence a substitution says, with `<slot>` and `<slot:form>` holes. Required when the formula has slots - see [The sentence it says](#the-sentence-it-says). |
 | `explanation` | One paragraph, in the pack's native language. |
 | `order` | The position this formula is introduced in - the pack decides the learning sequence, not the clock. |
 | `family` | Optional. The shape this formula is one form of, so the card can offer a switch between them. |
@@ -61,6 +63,27 @@ form = "statement"          # optional: statement, negation or question
 A `sample` has `native` (the prompt) and `target` (the answer). A `slot` has a `name` matching a `<placeholder>` in the pattern, and `values` - a list of `{ native, target }` pairs the drill draws substitutions from.
 
 A formula with no slot can still be recalled, just not drilled by substitution.
+
+### The sentence it says
+
+The `pattern` is a scaffold - `<pronoun> + am/is/are + <rest>` - and filled in it would read *I + am/is/are + at home*: nothing anyone says, and an "answer" that shows all three choices instead of checking the one the formula teaches. `say` is the sentence the scaffold stands for, and it is what the drill shows as the answer and what the tutor reads aloud.
+
+A hole in `say` is either a slot, filled with the value the drill picked, or a slot and a form, filled with a form **that value carries**. Agreement lives next to the word it belongs to:
+
+```toml
+say = "<pronoun:be> <pronoun> <rest>?"
+
+  [[formula.slot]]
+  name = "pronoun"
+  values = [
+    { native = "ты", target = "you", be = "are" },
+    { native = "он", target = "he", be = "is" },
+  ]
+```
+
+- A form can be a suffix: `want<pronoun:s> to <verb>.` with `s = "s"` on *he* and `s = ""` on *I* says *He wants to go* and *I want to go*.
+- The first letter is raised, so `<pronoun:be>` opens a question as *Is* and *he* opens a statement as *He*.
+- Every key on a value other than `native` and `target` is a form.
 
 ### Forms of a shape
 
@@ -95,6 +118,9 @@ The loader rejects a pack outright rather than loading it partway - a half-loade
 - A formula names a `form` but no `family`, or a `family` but no `form` - a form with nothing to belong to can never be switched to.
 - Two formulas claim the same `form` of the same `family` - the switch would show one of them at random.
 - A `family` holds a single formula - a switch with nothing to switch to, always a sister renamed or not written yet.
+- A formula has slots but no `say` - its substitutions would have nothing to answer with but the scaffold.
+- `say` names a slot the formula does not have, or leaves out a slot it does have - the answer would drop a word the prompt showed.
+- A value lacks a form `say` asks of its slot, or carries a form `say` never asks for - the second is almost always a misspelt key.
 
 ## Loading
 

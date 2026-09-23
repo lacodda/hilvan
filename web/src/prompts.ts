@@ -6,7 +6,7 @@
  * point: you learn a formula by assembling it, not by recognising it.
  */
 
-import type { Direction, Form, Formula, Pace, Sample, Slot, Stitch } from '@/api'
+import type { Direction, Form, Formula, Pace, Slot, Stitch, Value } from '@/api'
 
 /** One question: a prompt in the learner's language and the answer expected. */
 export interface Prompt {
@@ -28,35 +28,60 @@ function pick<T>(values: readonly T[], random: Random): T | undefined {
 }
 
 /**
- * Fills every `<slot>` in a pattern with one of its values.
+ * The sentence `say` makes of the values chosen.
  *
- * Returns `null` when the pattern cannot be filled - a slot with no values,
- * or a pattern with no holes at all. The caller falls back to a sample rather
- * than showing a half-substituted string.
+ * `<slot>` is the value's word, `<slot:form>` a form the value carries - the
+ * pronoun "he" carries be = "is" - and the first letter is raised, so a
+ * question opens "Is he...". The server renders the same template the same
+ * way (`src/say.rs`) and checks a sentence against it before speaking it, so
+ * the two must agree to the letter.
+ *
+ * `null` when a slot has no value chosen or a value lacks a form: the pack
+ * validator rules both out, so it can only be a database edited by hand.
+ */
+export function render(say: string, chosen: ReadonlyMap<string, Value>): string | null {
+  let missing = false
+  const filled = say.replace(/<([^>]*)>/g, (_, inside: string) => {
+    const [slot, form] = inside.split(':').map((part) => part.trim())
+    const value = chosen.get(slot ?? '')
+    const text = value === undefined ? undefined : form === undefined ? value.target : value.forms[form]
+    if (text === undefined) missing = true
+    return text ?? ''
+  })
+  if (missing) return null
+  const tidy = filled.split(' ').filter((word) => word !== '').join(' ')
+  return tidy.charAt(0).toUpperCase() + tidy.slice(1)
+}
+
+/**
+ * Picks a value for every slot and says the sentence.
+ *
+ * The prompt is the scaffold filled in the learner's own words - "я + am/is/are
+ * + дома" - so the choice between am, is and are is left to the learner; the
+ * answer is the sentence itself, "I am at home.", which is what gets checked,
+ * heard and, later, typed.
+ *
+ * Returns `null` when the formula cannot be substituted - no slots, a slot
+ * with no values, no `say` - and the caller falls back to a sample rather than
+ * showing half a sentence.
  */
 export function substitute(formula: Formula, random: Random): Prompt | null {
-  if (formula.slots.length === 0) return null
+  if (formula.slots.length === 0 || formula.say === null) return null
 
   let native = formula.pattern
-  let target = formula.pattern
-  const chosen: { slot: Slot; value: Sample }[] = []
+  const chosen = new Map<string, Value>()
 
   for (const slot of formula.slots) {
     const value = pick(slot.values, random)
     if (!value) return null
-    chosen.push({ slot, value })
-  }
-
-  for (const { slot, value } of chosen) {
+    chosen.set(slot.name, value)
     const hole = `<${slot.name}>`
     if (!native.includes(hole)) return null
     native = native.split(hole).join(value.native)
-    target = target.split(hole).join(value.target)
   }
 
-  // The pattern also carries the scaffolding a learner has to choose between
-  // ("am/is/are"), and that is deliberately left in the prompt: choosing the
-  // right one is half of what the formula teaches.
+  const target = render(formula.say, chosen)
+  if (target === null) return null
   return { native, target, source: 'substitution' }
 }
 
@@ -127,21 +152,26 @@ const LADDER_SLOTS = ['pronoun', 'subject']
  *
  * The other slots are held still at their first value: the ladder is about
  * one thing changing, and a sentence where the noun moves too teaches
- * nothing about the person.
+ * nothing about the person. Each rung is the whole sentence - "He is at
+ * home." - so the ladder is something to say and to hear, not a scaffold.
  */
 export function ladder(formula: Formula): Rung[] {
   const pronouns = LADDER_SLOTS.map((name) => formula.slots.find((slot) => slot.name === name)).find(Boolean)
-  if (!pronouns || pronouns.values.length === 0) return []
+  if (!pronouns || pronouns.values.length === 0 || formula.say === null) return []
+  const say = formula.say
 
-  const held = formula.slots.filter((slot) => slot.name !== pronouns.name)
-  return pronouns.values.map((value) => {
-    let target = formula.pattern.split(`<${pronouns.name}>`).join(value.target)
+  const held = formula.slots.filter((slot: Slot) => slot.name !== pronouns.name)
+  const rungs: Rung[] = []
+  for (const value of pronouns.values) {
+    const chosen = new Map<string, Value>([[pronouns.name, value]])
     for (const slot of held) {
       const first = slot.values[0]
-      if (first) target = target.split(`<${slot.name}>`).join(first.target)
+      if (first) chosen.set(slot.name, first)
     }
-    return { native: value.native, target }
-  })
+    const target = render(say, chosen)
+    if (target !== null) rungs.push({ native: value.native, target })
+  }
+  return rungs
 }
 
 /** One tab of the switch between the forms of a shape. */

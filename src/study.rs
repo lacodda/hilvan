@@ -5,12 +5,15 @@
 //! scheduling itself lives in [`crate::scheduling`]; this module is the part
 //! that knows about formulas, days and the size of a sitting.
 
+use std::collections::BTreeMap;
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
 use crate::pack::Form;
+use crate::say::Filling;
 use crate::scheduling::{Card, Direction, Rating, Scheduled, Scheduler, Stitch};
 
 /// How many formulas start on any one day.
@@ -26,6 +29,9 @@ pub struct Formula {
     pub id: String,
     pub name: String,
     pub pattern: String,
+    /// The sentence a substitution says, with `<slot>` and `<slot:form>`
+    /// holes (see [`crate::say`]). `None` for a formula without slots.
+    pub say: Option<String>,
     /// In the learner's native language: the pack carries it, the code does not.
     pub explanation: String,
     pub samples: Vec<Sample>,
@@ -68,7 +74,26 @@ pub struct Sample {
 #[derive(Debug, Clone, Serialize)]
 pub struct Slot {
     pub name: String,
-    pub values: Vec<Sample>,
+    pub values: Vec<Value>,
+}
+
+/// One filling for a slot, with the forms that agree with it.
+#[derive(Debug, Clone, Serialize)]
+pub struct Value {
+    pub native: String,
+    pub target: String,
+    /// What `say` picks from for agreement: `be` = "is" on "he".
+    pub forms: BTreeMap<String, String>,
+}
+
+impl Filling for Value {
+    fn word(&self) -> &str {
+        &self.target
+    }
+
+    fn form(&self, name: &str) -> Option<&str> {
+        self.forms.get(name).map(String::as_str)
+    }
 }
 
 /// One item in today's queue: a formula, a direction, and the state that
@@ -319,7 +344,7 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
 ///
 /// Fails when there is no such formula, or when the database rejects a query.
 pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
-    let row = sqlx::query("SELECT id, name, pattern, explanation, family, form FROM formula WHERE id = ?")
+    let row = sqlx::query("SELECT id, name, pattern, say, explanation, family, form FROM formula WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -344,14 +369,14 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
     let mut slots = Vec::with_capacity(slot_rows.len());
     for slot in slot_rows {
         let slot_id: i64 = slot.get("id");
-        let values = sqlx::query("SELECT native, target FROM slot_value WHERE slot_id = ? ORDER BY position")
+        let values = sqlx::query("SELECT native, target, forms FROM slot_value WHERE slot_id = ? ORDER BY position")
             .bind(slot_id)
             .fetch_all(pool)
             .await
             .context("failed to read the values of a slot")?
             .iter()
-            .map(sample)
-            .collect();
+            .map(value)
+            .collect::<Result<Vec<_>>>()?;
         slots.push(Slot {
             name: slot.get("name"),
             values,
@@ -365,6 +390,7 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
         id: row.get("id"),
         name: row.get("name"),
         pattern: row.get("pattern"),
+        say: row.get("say"),
         explanation: row.get("explanation"),
         sisters: match family.as_deref() {
             Some(family) => sisters(pool, family, id).await?,
@@ -457,6 +483,15 @@ async fn counts_for(pool: &SqlitePool, direction: Direction) -> Result<Counts> {
         }
     }
     Ok(counts)
+}
+
+fn value(row: &SqliteRow) -> Result<Value> {
+    let forms: String = row.get("forms");
+    Ok(Value {
+        native: row.get("native"),
+        target: row.get("target"),
+        forms: serde_json::from_str(&forms).with_context(|| format!("the forms of a slot value are not JSON: {forms}"))?,
+    })
 }
 
 fn sample(row: &SqliteRow) -> Sample {
@@ -631,6 +666,7 @@ form = \"{form}\"
 id = \"f{index}\"
 name = \"n{index}\"
 pattern = \"<pronoun> + x\"
+say = \"<pronoun> x.\"
                  explanation = \"e\"
 order = {}
 {family}
