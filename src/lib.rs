@@ -12,3 +12,4 @@ pub mod pack;
 pub mod say;
 pub mod scheduling;
 pub mod study;
+pub mod voice;

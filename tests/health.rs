@@ -22,7 +22,7 @@ async fn stand(password: Option<&str>) -> (Router, tempfile::TempDir, tempfile::
 
     let web = tempfile::tempdir().expect("a temporary directory");
     let hash = password.map(|password| hilvan::auth::hash(password).expect("a password should hash"));
-    let app = hilvan::app::router(pool, hash, web.path());
+    let app = hilvan::app::router(pool, hash, web.path(), hilvan::voice::Voices::none());
     (app, data, web)
 }
 
@@ -37,7 +37,7 @@ async fn taught() -> (Router, tempfile::TempDir, tempfile::TempDir) {
     hilvan::pack::load(&pool, &pack).await.expect("the shipped pack should load");
 
     let web = tempfile::tempdir().expect("a temporary directory");
-    let app = hilvan::app::router(pool, None, web.path());
+    let app = hilvan::app::router(pool, None, web.path(), hilvan::voice::Voices::none());
     (app, data, web)
 }
 
@@ -86,7 +86,7 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     assert!(!again.changed, "loading the shipped pack twice rewrote it");
 
     let web = tempfile::tempdir().unwrap();
-    let app = hilvan::app::router(pool, None, web.path());
+    let app = hilvan::app::router(pool, None, web.path(), hilvan::voice::Voices::none());
 
     let (status, today) = json(&app, Request::get("/api/today").body(Body::empty()).unwrap()).await;
     assert_eq!(status, StatusCode::OK);

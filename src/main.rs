@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use hilvan::{app, auth, config, db, pack};
+use hilvan::{app, auth, config, db, pack, voice};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -37,6 +37,15 @@ enum Command {
         /// Path to the pack file, e.g. packs/en-from-ru/pack.toml.
         path: PathBuf,
     },
+    /// Drop sounds nobody has asked for in a while.
+    ///
+    /// Explicit rather than automatic: a paid sound dropped is a sound paid
+    /// for again, and that is the learner's call, not a timer's.
+    PruneAudio {
+        /// Sounds unused for this many days go.
+        #[arg(long, default_value_t = 90)]
+        unused_days: i64,
+    },
 }
 
 #[tokio::main]
@@ -60,6 +69,7 @@ async fn main() -> Result<()> {
         // container image or a systemd unit expects.
         None | Some(Command::Serve) => serve(&config).await,
         Some(Command::LoadPack { path }) => load_pack(&config, &path).await,
+        Some(Command::PruneAudio { unused_days }) => prune_audio(&config, unused_days).await,
         Some(Command::Hash { password }) => {
             let password = match password {
                 Some(password) => password,
@@ -89,10 +99,41 @@ async fn serve(config: &config::Config) -> Result<()> {
         "hilvan listening"
     );
 
-    axum::serve(listener, app::router(pool, config.password_hash.clone(), &config.web_dir))
+    let voices = voices(config)?;
+    axum::serve(listener, app::router(pool, config.password_hash.clone(), &config.web_dir, voices))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("server error")?;
+    Ok(())
+}
+
+/// The engines this stand speaks with, said once at startup so a missing
+/// voice is a line in the log rather than a silent drill.
+fn voices(config: &config::Config) -> Result<voice::Voices> {
+    let piper = config.piper_url.as_deref().map(voice::Piper::new).transpose()?;
+    let elevenlabs = config
+        .elevenlabs_key
+        .as_deref()
+        .map(|key| voice::ElevenLabs::new(key, voice::elevenlabs::API))
+        .transpose()?;
+    match (&piper, &elevenlabs) {
+        (None, None) => tracing::warn!("no voice is configured: set HILVAN_PIPER_URL and, for the language being learnt, HILVAN_ELEVENLABS_KEY"),
+        (None, Some(_)) => tracing::warn!("HILVAN_PIPER_URL is not set: the learner's own language has no voice"),
+        (Some(_), None) => tracing::info!("HILVAN_ELEVENLABS_KEY is not set: Piper speaks every language"),
+        (Some(_), Some(_)) => {}
+    }
+    Ok(voice::Voices::new(piper, elevenlabs))
+}
+
+async fn prune_audio(config: &config::Config, unused_days: i64) -> Result<()> {
+    anyhow::ensure!(unused_days > 0, "--unused-days has to be at least one day");
+    let pool = db::connect(&config.database_url).await?;
+    let pruned = voice::cache::prune(&pool, chrono::Duration::days(unused_days), chrono::Utc::now()).await?;
+    println!(
+        "pruned {} sound(s) unused for {unused_days} days, {} KiB freed",
+        pruned.sounds,
+        pruned.bytes / 1024
+    );
     Ok(())
 }
 

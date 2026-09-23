@@ -172,6 +172,7 @@ One formula with its samples and slots.
   "id": "be-present-statement",
   "name": "I am / you are",
   "pattern": "<pronoun> + am/is/are + <rest>",
+  "say": "<pronoun> <pronoun:be> <rest>.",
   "explanation": "...",
   "samples": [
     { "native": "<prompt in the learner's own language>", "target": "I am at home." },
@@ -181,13 +182,13 @@ One formula with its samples and slots.
     {
       "name": "pronoun",
       "values": [
-        { "native": "<word in the learner's own language>", "target": "I" },
-        { "native": "<word in the learner's own language>", "target": "you" }
+        { "native": "<word in the learner's own language>", "target": "I", "forms": { "be": "am" } },
+        { "native": "<word in the learner's own language>", "target": "you", "forms": { "be": "are" } }
       ]
     },
     {
       "name": "rest",
-      "values": [{ "native": "<word in the learner's own language>", "target": "at home" }]
+      "values": [{ "native": "<word in the learner's own language>", "target": "at home", "forms": {} }]
     }
   ],
   "family": "be-present",
@@ -199,7 +200,7 @@ One formula with its samples and slots.
 }
 ```
 
-`explanation` is in the learner's native language - the pack carries it, the server does not translate. `pattern` holds `<slot-name>` placeholders matching each entry in `slots`.
+`explanation` is in the learner's native language - the pack carries it, the server does not translate. `pattern` holds `<slot-name>` placeholders matching each entry in `slots` and is the scaffold shown on the card. `say` is the sentence a substitution answers with - `<slot>` is the value's `target`, `<slot:form>` one of its `forms`, and the first letter is raised; `null` for a formula without slots. See [the pack format](/hilvan/reference/packs/#the-sentence-it-says).
 
 #### Forms of a shape
 
@@ -259,6 +260,10 @@ Only the card in the direction named is graded: answering `"recognise"` leaves t
 ```json
 { "error": "there is no formula called nonsense" }
 ```
+
+## Voice
+
+`GET /api/speech`, `GET /api/listen`, `GET /api/voices` and `PUT /api/voices/{language}` sit behind the same door as the study endpoints; they are described in [Voice](/hilvan/reference/voice/).
 
 ## Errors
 

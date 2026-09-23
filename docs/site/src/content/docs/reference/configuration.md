@@ -11,6 +11,8 @@ hilvan is configured entirely through the environment. There is no configuration
 | `HILVAN_ADDR` | no | `0.0.0.0:8086` | Socket address the HTTP server binds to. |
 | `HILVAN_WEB_DIR` | no | `web/dist` | Directory holding the built app, served for every path outside `/api`. |
 | `HILVAN_PASSWORD_HASH` | no | unset | Argon2 hash of the learner's password, from `hilvan hash`. Unset leaves the stand open. |
+| `HILVAN_PIPER_URL` | no | unset | The Piper service that speaks the learner's own language, e.g. `http://piper:5000`. The compose files set it; unset leaves that language silent. |
+| `HILVAN_ELEVENLABS_KEY` | no | unset | ElevenLabs key with the Text to Speech permission; the language being learnt is spoken with it. Unset means Piper speaks every language. |
 | `RUST_LOG` | no | `hilvan=info,tower_http=info` | Log filter, in `tracing-subscriber` `EnvFilter` syntax. |
 
 A `.env` file in the working directory is read first, so all of these can live there during development. The file is never committed; `.env.example` shows the shape.
@@ -41,6 +43,13 @@ HILVAN_PASSWORD_HASH is not set: anyone who can reach this server can use the tu
 ```
 
 That warning is deliberate rather than a nag: an open stand should be a choice, never the result of forgetting a variable in the deployment's `.env`.
+
+## The voice
+
+Both engines are optional, and the server says at startup which are missing. See [Voice](/hilvan/reference/voice/) for who speaks which language.
+
+- **Piper** is a service beside the server - the compose files run it as `piper` and point `HILVAN_PIPER_URL` at it. A URL that is not `http://` or `https://` stops the server at startup, naming the variable.
+- **ElevenLabs** needs a key: in the ElevenLabs dashboard, *Profile → API Keys*, create one with the Text to Speech permission and put it in `.env`. A blank value counts as unset.
 
 ## How it is read
 

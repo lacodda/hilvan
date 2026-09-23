@@ -35,6 +35,13 @@ pub struct Config {
     /// backups and shows up in `docker inspect`, and neither should hand
     /// anyone the password.
     pub password_hash: Option<String>,
+    /// The Piper service that speaks the learner's own language
+    /// (`HILVAN_PIPER_URL`, e.g. `http://piper:5000`). Unset leaves the
+    /// tutor without a local voice, which health and the voices screen say.
+    pub piper_url: Option<String>,
+    /// The `ElevenLabs` key the language being learnt is spoken with
+    /// (`HILVAN_ELEVENLABS_KEY`). Unset means Piper speaks it too.
+    pub elevenlabs_key: Option<String>,
 }
 
 impl Config {
@@ -59,11 +66,21 @@ impl Config {
             .filter(|path| !path.trim().is_empty())
             .map_or_else(|| PathBuf::from(DEFAULT_WEB_DIR), PathBuf::from);
         let password_hash = lookup("HILVAN_PASSWORD_HASH").filter(|hash| !hash.trim().is_empty());
+        let piper_url = lookup("HILVAN_PIPER_URL").map(|url| url.trim().to_string()).filter(|url| !url.is_empty());
+        if let Some(url) = &piper_url {
+            anyhow::ensure!(
+                url.starts_with("http://") || url.starts_with("https://"),
+                "HILVAN_PIPER_URL is not an http(s) URL: {url}"
+            );
+        }
+        let elevenlabs_key = lookup("HILVAN_ELEVENLABS_KEY").map(|key| key.trim().to_string()).filter(|key| !key.is_empty());
         Ok(Self {
             addr,
             database_url,
             web_dir,
             password_hash,
+            piper_url,
+            elevenlabs_key,
         })
     }
 }
@@ -83,6 +100,28 @@ mod tests {
         assert_eq!(config.database_url, DEFAULT_DATABASE_URL);
         assert_eq!(config.web_dir, PathBuf::from(DEFAULT_WEB_DIR));
         assert!(config.password_hash.is_none(), "an unset password should leave the stand open");
+        assert!(
+            config.piper_url.is_none() && config.elevenlabs_key.is_none(),
+            "no voice is configured by default"
+        );
+    }
+
+    #[test]
+    fn reads_the_voices() {
+        let config = Config::from_lookup(env(&[("HILVAN_PIPER_URL", " http://piper:5000 "), ("HILVAN_ELEVENLABS_KEY", "sk_test")])).unwrap();
+        assert_eq!(config.piper_url.as_deref(), Some("http://piper:5000"));
+        assert_eq!(config.elevenlabs_key.as_deref(), Some("sk_test"));
+
+        // `HILVAN_ELEVENLABS_KEY=` in an .env means no key, not an empty one
+        // sent to the API on every sentence.
+        let config = Config::from_lookup(env(&[("HILVAN_PIPER_URL", ""), ("HILVAN_ELEVENLABS_KEY", " ")])).unwrap();
+        assert!(config.piper_url.is_none() && config.elevenlabs_key.is_none());
+    }
+
+    #[test]
+    fn rejects_a_piper_address_that_is_not_a_url() {
+        let error = Config::from_lookup(env(&[("HILVAN_PIPER_URL", "piper:5000")])).unwrap_err();
+        assert!(error.to_string().contains("HILVAN_PIPER_URL"));
     }
 
     #[test]

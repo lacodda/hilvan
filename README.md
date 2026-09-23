@@ -14,6 +14,7 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 ## What you get
 
 - **Formulas, not vocabulary lists.** Grammar drilled as substitution patterns, so production practice starts on structures you can already half-manage. Thirty of them ship as a [pack](https://github.com/lacodda/hilvan/blob/main/packs/en-from-ru/README.md) for English from Russian - a file, not code.
+- **Every sentence heard.** The language you learn is spoken by a native ElevenLabs voice, your own by Piper running beside the tutor - slowly while a formula is new, at speaking speed once it holds. Each sound is made once and kept, and the paid budget shows how long it will last.
 - **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
 - **A sitting on a phone.** The formula of the day, a prompt, your own answer, and how it went.
 - **A password on the door.** The server refuses to run open and says so in its first log line if you skip it.
@@ -49,6 +50,8 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 | `HILVAN_ADDR` | no | `0.0.0.0:8086` | Socket address the HTTP server binds to. |
 | `HILVAN_WEB_DIR` | no | `web/dist` | Directory holding the built app, served for every path outside `/api`. |
 | `HILVAN_PASSWORD_HASH` | no | unset | Argon2 hash of the learner's password, from `hilvan hash`. Unset leaves the stand open to anyone who can reach it, and the server says so at startup. |
+| `HILVAN_PIPER_URL` | no | unset | The Piper voice service for your own language; the compose files run it and set this. |
+| `HILVAN_ELEVENLABS_KEY` | no | unset | ElevenLabs key the language being learnt is spoken with. Unset means Piper speaks it too. |
 | `RUST_LOG` | no | `hilvan=info,tower_http=info` | Log filter, in `tracing-subscriber` `EnvFilter` syntax. |
 
 ## Status
