@@ -206,6 +206,14 @@ fn the_voice_ships_with_the_tutor() {
     assert!(workflow.contains("hilvan-piper"), "the publish workflow does not build the Piper image");
     assert!(workflow.contains("context: piper"), "the Piper image is not built from piper/");
     assert!(repo_root().join("piper/Dockerfile").is_file(), "piper/Dockerfile is missing");
+    // One image's name is the start of the other's, so the digests have to be
+    // told apart by something a name cannot continue with. v0.3.0 shipped
+    // with `digest-hilvan-*`, which gathered the voice's digests into the
+    // tutor's manifest and failed the release.
+    assert!(
+        workflow.contains("pattern: digest.${{ matrix.image }}.*"),
+        "the manifest must gather its digests by a pattern no other image's artifacts match"
+    );
 
     // One version pins both: a voice that moved under the cached sentences
     // would sit next to sound made by the old one.
