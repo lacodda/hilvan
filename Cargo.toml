@@ -1,6 +1,6 @@
 [package]
 name = "hilvan"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.94"
 description = "A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know"
