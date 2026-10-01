@@ -1,5 +1,6 @@
 import type { Counts, Stitch, Today } from '@/api'
 import { Shell } from '@/App'
+import { Button } from '@/components/ui/button'
 
 /** The word the learner sees for each state, and what it means. */
 const stitches = [
@@ -37,7 +38,7 @@ export function TodayScreen({
     <Shell>
       <section className="flex flex-col gap-2">
         <h2 className="text-2xl font-semibold tracking-tight">Today</h2>
-        <p className="text-[1.0625rem] text-dim">
+        <p className="text-xl text-dim">
           {waiting === 0
             ? today.reviewed_today > 0
               ? `Done for today - ${today.reviewed_today} answered. Come back tomorrow.`
@@ -47,33 +48,32 @@ export function TodayScreen({
       </section>
 
       {waiting > 0 && (
-        <button
-          type="button"
+        <Button
           onClick={onStart}
-          className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
+          variant="primary" size={null} className="px-4 py-4 text-xl"
         >
           Start
-        </button>
+        </Button>
       )}
 
       {/* Listening is practice on what has been met, so it waits for the
           first formula; before that there is nothing to hear. */}
       {started && (
-        <button type="button" onClick={onListen} className="rounded-md border border-line px-4 py-3 text-left">
-          <span className="block text-[1.0625rem] font-medium">Listen</span>
-          <span className="block text-[0.8125rem] text-faint">Hear a sentence, recall what it means, then look. Nothing is graded.</span>
-        </button>
+        <Button onClick={onListen} variant="ghost" size={null} className="flex-col items-start px-4 py-3 text-left whitespace-normal text-text">
+          <span className="block text-xl font-medium">Listen</span>
+          <span className="block text-base text-faint">Hear a sentence, recall what it means, then look. Nothing is graded.</span>
+        </Button>
       )}
 
       <section className="flex flex-col gap-3">
-        <h3 className="text-[0.8125rem] font-medium tracking-caption text-dim uppercase">Your formulas</h3>
+        <h3 className="text-base font-medium tracking-caption text-dim uppercase">Your formulas</h3>
         <div className="grid grid-cols-[1fr_auto_auto] items-baseline gap-x-4 gap-y-2">
           {/* Saying it and understanding it, side by side. Recognition always
               runs ahead, and the gap between the columns is the honest
               picture one averaged number would hide. */}
           <span />
-          <span className="text-[0.6875rem] tracking-caption text-faint uppercase">say</span>
-          <span className="text-[0.6875rem] tracking-caption text-faint uppercase">know</span>
+          <span className="text-xs tracking-caption text-faint uppercase">say</span>
+          <span className="text-xs tracking-caption text-faint uppercase">know</span>
           {stitches.map(({ key, label, meaning }) => (
             <Row
               key={key}
@@ -85,22 +85,22 @@ export function TodayScreen({
           ))}
         </div>
         {behind(today.progress.produce, today.progress.recognise) && (
-          <p className="text-[0.8125rem] text-faint">
+          <p className="text-base text-faint">
             You understand more than you can say, which is how it goes. The drill asks both ways.
           </p>
         )}
         {today.reviewed_today > 0 && waiting > 0 && (
-          <p className="text-[0.8125rem] text-faint">{today.reviewed_today} answered so far today.</p>
+          <p className="text-base text-faint">{today.reviewed_today} answered so far today.</p>
         )}
       </section>
 
       <footer className="mt-auto flex gap-5 pt-6">
-        <button type="button" onClick={onVoices} className="text-[0.8125rem] text-faint underline">
+        <Button onClick={onVoices} variant="link" className="text-base text-faint underline">
           Voices
-        </button>
-        <button type="button" onClick={onSignOut} className="text-[0.8125rem] text-faint underline">
+        </Button>
+        <Button onClick={onSignOut} variant="link" className="text-base text-faint underline">
           Sign out
-        </button>
+        </Button>
       </footer>
     </Shell>
   )
@@ -119,11 +119,11 @@ function Row({
 }) {
   return (
     <>
-      <span className="text-[1.0625rem]">
-        {label} <span className="text-[0.8125rem] text-faint">- {meaning}</span>
+      <span className="text-xl">
+        {label} <span className="text-base text-faint">- {meaning}</span>
       </span>
-      <span className="text-right font-mono text-[1.0625rem] tabular-nums">{produce}</span>
-      <span className="text-right font-mono text-[1.0625rem] tabular-nums text-dim">{recognise}</span>
+      <span className="text-right font-mono text-xl tabular-nums">{produce}</span>
+      <span className="text-right font-mono text-xl tabular-nums text-dim">{recognise}</span>
     </>
   )
 }

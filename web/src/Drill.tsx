@@ -5,6 +5,7 @@ import { Shell } from '@/App'
 import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, ratings, seconds, tabs, whenBack, type Prompt } from '@/prompts'
 import { Speak } from '@/Speak'
 import { player, sides, tempoFor, urlOf, useRecorder, useStopOnLeave, usePlaying } from '@/speech'
+import { Button } from '@/components/ui/button'
 
 /** How many turns one formula gets before the learner grades it. */
 const TURNS = 4
@@ -131,9 +132,9 @@ export function Drill({
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-semibold tracking-tight">{shown.name}</h2>
-          <p className="font-mono text-[0.8125rem] text-dim">{shown.pattern}</p>
+          <p className="font-mono text-base text-dim">{shown.pattern}</p>
         </div>
-        <span className="shrink-0 font-mono text-[0.6875rem] text-faint">
+        <span className="shrink-0 font-mono text-xs text-faint">
           {position}/{total}
         </span>
       </header>
@@ -141,18 +142,18 @@ export function Drill({
       <Forms formula={shown} busy={switching} onSwitch={switchTo} />
 
       {due.direction === 'recognise' && (
-        <p className="text-[0.6875rem] tracking-caption text-faint uppercase">Understanding - what does it mean?</p>
+        <p className="text-xs tracking-caption text-faint uppercase">Understanding - what does it mean?</p>
       )}
 
       {explaining && (
         <section className="flex flex-col gap-3 rounded-md bg-raise p-4">
           <div className="flex items-start gap-3">
-            <p className="flex-1 text-[0.9375rem] leading-relaxed text-dim">{shown.explanation}</p>
+            <p className="flex-1 text-lg leading-relaxed text-dim">{shown.explanation}</p>
             <Speak url={speechUrl(shown.languages.native, shown.explanation, 'normal')} label="Read the explanation aloud" />
           </div>
           <ul className="flex flex-col gap-2">
             {shown.samples.slice(0, 3).map((sample) => (
-              <li key={sample.target} className="flex items-center gap-3 text-[0.9375rem] leading-relaxed">
+              <li key={sample.target} className="flex items-center gap-3 text-lg leading-relaxed">
                 <span className="flex-1">
                   <span className="text-dim">{sample.native}</span> <span className="text-text">{sample.target}</span>
                 </span>
@@ -160,13 +161,12 @@ export function Drill({
               </li>
             ))}
           </ul>
-          <button
-            type="button"
+          <Button
             onClick={() => setExplaining(false)}
-            className="self-start rounded-md bg-accent px-4 py-2 text-[0.9375rem] font-medium text-on-accent"
+            variant="primary" size={null} className="self-start px-4 py-2 text-lg"
           >
             Got it
-          </button>
+          </Button>
         </section>
       )}
 
@@ -186,55 +186,50 @@ export function Drill({
               {due.direction === 'produce' && answerUrl && <OwnVoice key={answerUrl} native={answerUrl} />}
               <div className="flex flex-col gap-2">
                 {phase.turn + 1 < TURNS ? (
-                  <button
-                    type="button"
+                  <Button
                     onClick={() => ask_(phase.turn + 1)}
-                    className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
+                    variant="primary" size={null} className="px-4 py-4 text-xl"
                   >
                     Next
-                  </button>
+                  </Button>
                 ) : (
-                  <button
-                    type="button"
+                  <Button
                     onClick={() => setPhase({ kind: 'grading' })}
-                    className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
+                    variant="primary" size={null} className="px-4 py-4 text-xl"
                   >
                     How did it go?
-                  </button>
+                  </Button>
                 )}
                 <div className="flex items-baseline justify-between gap-3">
                   {rungs.length > 1 ? (
-                    <button
-                      type="button"
+                    <Button
                       onClick={() => setPhase({ kind: 'laddering' })}
-                      className="text-[0.8125rem] text-faint underline"
+                      variant="link" className="text-base text-faint underline"
                     >
                       Run the ladder
-                    </button>
+                    </Button>
                   ) : (
                     <span />
                   )}
-                  <button
-                    type="button"
+                  <Button
                     onClick={() => setPhase({ kind: 'grading' })}
-                    className="text-[0.8125rem] text-faint underline"
+                    variant="link" className="text-base text-faint underline"
                   >
                     Grade it now
-                  </button>
+                  </Button>
                 </div>
               </div>
             </>
           ) : (
-            <button
-              type="button"
+            <Button
               onClick={reveal}
-              className="rounded-md border border-line px-4 py-4 text-[1.0625rem] font-medium"
+              variant="ghost" size={null} className="px-4 py-4 text-xl text-text"
             >
               {instruction(due.direction)}
-            </button>
+            </Button>
           )}
 
-          <p className="text-[0.6875rem] text-faint">
+          <p className="text-xs text-faint">
             Turn {phase.turn + 1} of {TURNS}
             {due.pace && <> · usually {seconds(due.pace.typical_ms)}</>}
           </p>
@@ -243,70 +238,68 @@ export function Drill({
 
       {!explaining && phase.kind === 'laddering' && (
         <section className="flex flex-col gap-4">
-          <p className="text-[1.0625rem] text-dim">Every person, straight through. Say them out loud without stopping.</p>
+          <p className="text-xl text-dim">Every person, straight through. Say them out loud without stopping.</p>
           <ul className="flex flex-col gap-1">
             {rungs.map((rung) => (
               <li key={rung.target} className="flex items-center gap-3 rounded-md bg-raise px-3 py-2">
-                <span className="w-16 shrink-0 text-[0.8125rem] text-faint">{rung.native}</span>
-                <span className="flex-1 text-[1.0625rem]">{rung.target}</span>
+                <span className="w-16 shrink-0 text-base text-faint">{rung.native}</span>
+                <span className="flex-1 text-xl">{rung.target}</span>
                 <Speak url={speechUrl(shown.languages.target, rung.target, tempo)} label={`Hear "${rung.target}"`} />
               </li>
             ))}
           </ul>
-          <button
-            type="button"
+          <Button
             onClick={() => void player.playAll(rungs.map((rung) => speechUrl(shown.languages.target, rung.target, tempo)))}
-            className="self-start text-[0.8125rem] text-dim underline"
+            variant="link" className="self-start text-base text-dim underline"
           >
             Hear them all
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={() => setPhase({ kind: 'grading' })}
-            className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
+            variant="primary" size={null} className="px-4 py-4 text-xl"
           >
             Done - how did it go?
-          </button>
+          </Button>
         </section>
       )}
 
       {!explaining && phase.kind === 'grading' && (
         <section className="flex flex-col gap-3">
-          <p className="text-[1.0625rem] text-dim">How did that go?</p>
+          <p className="text-xl text-dim">How did that go?</p>
           {ratings.map(({ rating, label, hint }) => (
-            <button
+            <Button
               key={rating}
-              type="button"
               onClick={() => grade(rating)}
-              className="flex items-baseline justify-between rounded-md border border-line px-4 py-4 text-left"
+              variant="ghost"
+              size={null}
+              className="items-baseline justify-between px-4 py-4 text-left text-text"
             >
-              <span className="text-[1.0625rem] font-medium">{label}</span>
-              <span className="text-[0.8125rem] text-faint">{hint}</span>
-            </button>
+              <span className="text-xl font-medium">{label}</span>
+              <span className="text-base text-faint">{hint}</span>
+            </Button>
           ))}
         </section>
       )}
 
       {phase.kind === 'graded' && (
         <section className="flex flex-col gap-4">
-          <p className="text-[1.0625rem]">
+          <p className="text-xl">
             {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
           </p>
-          {paceLine(phase.reviewed.pace) && <p className="text-[0.8125rem] text-faint">{paceLine(phase.reviewed.pace)}</p>}
-          <button
-            type="button"
+          {paceLine(phase.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.reviewed.pace)}</p>}
+          <Button
             onClick={onAnswered}
-            className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
+            variant="primary" size={null} className="px-4 py-4 text-xl"
           >
             {position < total ? 'Next formula' : 'Finish'}
-          </button>
+          </Button>
         </section>
       )}
 
       <footer className="mt-auto pt-6">
-        <button type="button" onClick={onLeave} className="text-[0.8125rem] text-faint underline">
+        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
           Stop for now
-        </button>
+        </Button>
       </footer>
     </Shell>
   )
@@ -325,32 +318,33 @@ function OwnVoice({ native }: { native: string }) {
   const playing = usePlaying()
 
   if (!recorder.available) {
-    return <p className="text-[0.75rem] text-faint">Recording your voice needs the https:// address of the tutor.</p>
+    return <p className="text-sm text-faint">Recording your voice needs the https:// address of the tutor.</p>
   }
 
-  const button = 'rounded-md border border-line px-3 py-2 text-[0.8125rem] font-medium'
+  const button = 'px-3 py-2 text-base'
   return (
     <div className="flex flex-wrap items-center gap-2">
       {recorder.state === 'recording' ? (
-        <button type="button" onClick={recorder.stop} className={`${button} border-accent text-accent`}>
+        <Button onClick={recorder.stop} variant="ghost" size={null} className={`${button} border-accent text-accent`}>
           Stop recording
-        </button>
+        </Button>
       ) : (
-        <button type="button" onClick={recorder.start} className={button}>
+        <Button onClick={recorder.start} variant="ghost" size={null} className={button}>
           {recorder.state === 'recorded' ? 'Record again' : 'Record yourself'}
-        </button>
+        </Button>
       )}
       {recorder.state === 'recorded' && recorder.url && (
-        <button
-          type="button"
+        <Button
           disabled={playing !== null}
           onClick={() => recorder.url && void player.playAll([recorder.url, native], 600)}
-          className={`${button} disabled:opacity-50`}
+          variant="ghost"
+          size={null}
+          className={button}
         >
           You, then the voice
-        </button>
+        </Button>
       )}
-      {recorder.state === 'refused' && <span className="text-[0.75rem] text-faint">The microphone was not allowed.</span>}
+      {recorder.state === 'refused' && <span className="text-sm text-faint">The microphone was not allowed.</span>}
     </div>
   )
 }
@@ -381,19 +375,22 @@ function Forms({
       {switches.map((tab) => {
         const current = tab.current
         return (
-          <button
+          <Button
             key={tab.id}
-            type="button"
-            disabled={busy || current}
+            // The current form is not disabled but inert: a disabled tab
+            // would fade, and the one being drilled is the one to look at.
+            disabled={busy}
             onClick={() => onSwitch(tab.id)}
             aria-current={current ? 'true' : undefined}
-            className={`flex flex-1 flex-col items-center gap-1 rounded-md px-2 py-2 text-[0.8125rem] ${
+            variant={null}
+            size={null}
+            className={`flex-1 flex-col gap-1 rounded-md px-2 py-2 text-base ${
               current ? 'bg-accent text-on-accent' : 'bg-raise text-dim'
             }`}
           >
             <span className="font-medium">{formLabels[tab.form]}</span>
             <span className={`h-1 w-6 rounded-full ${stitchBar(tab.stitch, current)}`} />
-          </button>
+          </Button>
         )
       })}
     </nav>

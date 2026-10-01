@@ -7,6 +7,7 @@ import { Mark } from '@/Mark'
 import { SignIn } from '@/SignIn'
 import { TodayScreen } from '@/TodayScreen'
 import { VoicesScreen } from '@/VoicesScreen'
+import { Button } from '@/components/ui/button'
 
 /**
  * What is on screen once the queue has been read. The screens that read
@@ -146,9 +147,9 @@ class Boundary extends Component<
     return (
       <Shell>
         <p className="text-bad">{error.message}</p>
-        <button type="button" className="self-start text-[0.9375rem] underline" onClick={this.props.reload}>
+        <Button variant="link" className="self-start text-lg text-text underline" onClick={this.props.reload}>
           Try again
-        </button>
+        </Button>
       </Shell>
     )
   }
@@ -160,11 +161,11 @@ export function Shell({ children }: { children: ReactNode }) {
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col gap-6 px-5 py-8 text-text">
       {/* The mark and the name, the way every app in the line wears them. */}
       <header className="flex items-center justify-between">
-        <h1 className="flex items-center gap-2 font-mono text-[0.9375rem] font-semibold tracking-tight">
+        <h1 className="flex items-center gap-2 font-mono text-lg font-semibold tracking-tight">
           <Mark />
           hilvan
         </h1>
-        <span className="font-mono text-[0.6875rem] text-faint">v{__APP_VERSION__}</span>
+        <span className="font-mono text-xs text-faint">v{__APP_VERSION__}</span>
       </header>
       {children}
     </main>

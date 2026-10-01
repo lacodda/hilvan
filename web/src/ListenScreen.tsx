@@ -4,6 +4,7 @@ import { speechUrl, type Heard } from '@/api'
 import { Shell } from '@/App'
 import { Speak } from '@/Speak'
 import { player, useStopOnLeave } from '@/speech'
+import { Button } from '@/components/ui/button'
 
 /**
  * Listening: hear a sentence, recall what it means, then look.
@@ -32,14 +33,14 @@ export function ListenScreen({ sentences, onLeave }: { sentences: Promise<Heard[
     return (
       <Shell>
         <h2 className="text-2xl font-semibold tracking-tight">Listen</h2>
-        <p className="text-[1.0625rem] text-dim">
+        <p className="text-xl text-dim">
           {order.length === 0
             ? 'Nothing to listen to yet. Start a formula first - listening draws on what you have met.'
             : `That was all ${order.length}. Come back after the next formula.`}
         </p>
-        <button type="button" onClick={onLeave} className="self-start rounded-md bg-accent px-4 py-3 text-[0.9375rem] font-medium text-on-accent">
+        <Button onClick={onLeave} variant="primary" size={null} className="self-start px-4 py-3 text-lg">
           Back to today
-        </button>
+        </Button>
       </Shell>
     )
   }
@@ -48,11 +49,11 @@ export function ListenScreen({ sentences, onLeave }: { sentences: Promise<Heard[
     <Shell>
       <header className="flex items-baseline justify-between gap-3">
         <h2 className="text-xl font-semibold tracking-tight">Listen</h2>
-        <span className="font-mono text-[0.6875rem] text-faint">
+        <span className="font-mono text-xs text-faint">
           {index + 1}/{order.length}
         </span>
       </header>
-      <p className="text-[0.6875rem] tracking-caption text-faint uppercase">Hear it, recall what it means, then look</p>
+      <p className="text-xs tracking-caption text-faint uppercase">Hear it, recall what it means, then look</p>
 
       <section className="flex flex-col items-center gap-6 py-6">
         <Speak url={url} label="Hear it again" className="size-16" />
@@ -61,28 +62,27 @@ export function ListenScreen({ sentences, onLeave }: { sentences: Promise<Heard[
       {shown ? (
         <section className="flex flex-col gap-3">
           <p className="text-2xl leading-snug text-accent">{heard.target}</p>
-          <p className="border-t border-line pt-3 text-[1.0625rem] text-dim">{heard.native}</p>
-          <button
-            type="button"
+          <p className="border-t border-line pt-3 text-xl text-dim">{heard.native}</p>
+          <Button
             onClick={() => {
               setShown(false)
               setIndex(index + 1)
             }}
-            className="rounded-md bg-accent px-4 py-4 text-[1.0625rem] font-medium text-on-accent"
+            variant="primary" size={null} className="px-4 py-4 text-xl"
           >
             Next
-          </button>
+          </Button>
         </section>
       ) : (
-        <button type="button" onClick={() => setShown(true)} className="rounded-md border border-line px-4 py-4 text-[1.0625rem] font-medium">
+        <Button onClick={() => setShown(true)} variant="ghost" size={null} className="px-4 py-4 text-xl text-text">
           Show what it was
-        </button>
+        </Button>
       )}
 
       <footer className="mt-auto pt-6">
-        <button type="button" onClick={onLeave} className="text-[0.8125rem] text-faint underline">
+        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
           Stop for now
-        </button>
+        </Button>
       </footer>
     </Shell>
   )

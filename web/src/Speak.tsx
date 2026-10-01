@@ -1,4 +1,5 @@
 import { player, usePlaying } from '@/speech'
+import { Button } from '@/components/ui/button'
 
 /**
  * The button that says a sentence.
@@ -15,24 +16,25 @@ export function Speak({ url, label, className = '' }: { url: string | null; labe
   const failed = !now && player.hasFailed(url)
 
   return (
-    <button
-      type="button"
+    <Button
       onClick={() => (now ? player.stop() : void player.play(url))}
       aria-label={now ? 'Stop' : label}
       title={failed ? 'No voice answered for this sentence' : label}
       aria-pressed={now}
-      className={`inline-flex size-9 shrink-0 items-center justify-center rounded-full ${
+      variant="icon"
+      size={null}
+      className={`size-9 rounded-full ${
         now ? 'bg-accent text-on-accent' : failed ? 'bg-raise text-faint' : 'bg-raise text-dim'
       } ${className}`}
     >
       <SpeakerIcon state={now ? 'playing' : failed ? 'failed' : 'idle'} />
-    </button>
+    </Button>
   )
 }
 
 function SpeakerIcon({ state }: { state: 'idle' | 'playing' | 'failed' }) {
   return (
-    <svg viewBox="0 0 24 24" className="size-1/2 max-w-7 min-w-[18px]" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="size-1/2 max-w-7 min-w-4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" stroke="none" />
       {state === 'failed' ? (
         <path d="m16 9 5 6m0-6-5 6" />

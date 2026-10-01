@@ -5,6 +5,7 @@ import { Shell } from '@/App'
 import { engineLine, forecastLine, languageName, remainingLine } from '@/budget'
 import { Speak } from '@/Speak'
 import { player, useStopOnLeave } from '@/speech'
+import { Button } from '@/components/ui/button'
 
 /**
  * Who speaks each language, and what is left of the budget.
@@ -20,35 +21,35 @@ export function VoicesScreen({ screen, onChanged, onLeave }: { screen: Promise<S
     <Shell>
       <h2 className="text-2xl font-semibold tracking-tight">Voices</h2>
 
-      {voices.languages.length === 0 && <p className="text-[1.0625rem] text-dim">Load a pack first - the voices follow its languages.</p>}
+      {voices.languages.length === 0 && <p className="text-xl text-dim">Load a pack first - the voices follow its languages.</p>}
 
       {voices.languages.map((language) => (
         <Language key={language.code} language={language} onChanged={onChanged} />
       ))}
 
       <section className="flex flex-col gap-2 rounded-md bg-raise p-4">
-        <h3 className="text-[0.8125rem] font-medium tracking-caption text-dim uppercase">ElevenLabs budget</h3>
+        <h3 className="text-base font-medium tracking-caption text-dim uppercase">ElevenLabs budget</h3>
         {voices.budget ? (
           <>
-            <p className="text-[1.0625rem]">{remainingLine(voices.budget)}</p>
-            <p className={`text-[0.9375rem] ${voices.budget.lasts ? 'text-dim' : 'text-bad'}`}>{forecastLine(voices.budget)}</p>
+            <p className="text-xl">{remainingLine(voices.budget)}</p>
+            <p className={`text-lg ${voices.budget.lasts ? 'text-dim' : 'text-bad'}`}>{forecastLine(voices.budget)}</p>
           </>
         ) : (
-          <p className="text-[0.9375rem] text-dim">
+          <p className="text-lg text-dim">
             {voices.elevenlabs === 'off'
               ? 'No ElevenLabs key: the language you learn is spoken by Piper. Add HILVAN_ELEVENLABS_KEY to the stand to give it a native voice.'
               : 'The account did not answer; the budget shows when it does.'}
           </p>
         )}
-        <p className="text-[0.8125rem] text-faint">
+        <p className="text-base text-faint">
           {engineLine('Piper', voices.piper)} {engineLine('ElevenLabs', voices.elevenlabs)}
         </p>
       </section>
 
       <footer className="mt-auto pt-6">
-        <button type="button" onClick={onLeave} className="text-[0.8125rem] text-faint underline">
+        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
           Back to today
-        </button>
+        </Button>
       </footer>
     </Shell>
   )
@@ -78,40 +79,41 @@ function Language({ language, onChanged }: { language: LanguageVoices; onChanged
   return (
     <section className="flex flex-col gap-3">
       <header className="flex items-center justify-between gap-3">
-        <h3 className="text-[1.0625rem] font-medium">
+        <h3 className="text-xl font-medium">
           {languageName(language.code)}{' '}
-          <span className="text-[0.8125rem] font-normal text-faint">{language.role === 'native' ? 'your language' : 'learning'}</span>
+          <span className="text-base font-normal text-faint">{language.role === 'native' ? 'your language' : 'learning'}</span>
         </h3>
         <Speak url={sample} label={`Hear ${current?.name ?? 'the voice'}`} />
       </header>
       {language.options.length === 0 ? (
-        <p className="text-[0.9375rem] text-dim">No voice speaks it right now.</p>
+        <p className="text-lg text-dim">No voice speaks it right now.</p>
       ) : (
         <ul className="flex flex-col gap-1" role="radiogroup" aria-label={`Voice for ${languageName(language.code)}`}>
           {language.options.map((voice) => {
             const chosen = current?.engine === voice.engine && current.id === voice.id
             return (
               <li key={`${voice.engine}:${voice.id}`}>
-                <button
-                  type="button"
+                <Button
                   role="radio"
                   aria-checked={chosen}
                   disabled={saving !== null}
                   onClick={() => !chosen && choose(voice)}
-                  className={`flex w-full items-center justify-between rounded-md px-3 py-3 text-left ${chosen ? 'bg-accent text-on-accent' : 'bg-raise'}`}
+                  variant={null}
+                  size={null}
+                  className={`w-full justify-between rounded-md px-3 py-3 text-left ${chosen ? 'bg-accent text-on-accent' : 'bg-raise'}`}
                 >
-                  <span className="text-[0.9375rem] font-medium">{voice.name}</span>
-                  <span className={`text-[0.75rem] ${chosen ? 'text-on-accent/80' : 'text-faint'}`}>
+                  <span className="text-lg font-medium">{voice.name}</span>
+                  <span className={`text-sm ${chosen ? 'text-on-accent/80' : 'text-faint'}`}>
                     {saving === voice.id ? 'saving…' : voice.engine === 'elevenlabs' ? 'ElevenLabs' : 'Piper'}
                   </span>
-                </button>
+                </Button>
               </li>
             )
           })}
         </ul>
       )}
-      {language.spoken && !language.spoken.chosen && <p className="text-[0.8125rem] text-faint">Not chosen yet - {language.spoken.voice.name} speaks it by default.</p>}
-      {failed && <p className="text-[0.8125rem] text-bad">That voice could not be chosen.</p>}
+      {language.spoken && !language.spoken.chosen && <p className="text-base text-faint">Not chosen yet - {language.spoken.voice.name} speaks it by default.</p>}
+      {failed && <p className="text-base text-bad">That voice could not be chosen.</p>}
     </section>
   )
 }
