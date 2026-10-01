@@ -7,7 +7,7 @@ All endpoints are under `/api` and speak JSON. A path outside `/api` that does n
 
 ## Sessions
 
-Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}`, `/api/formulas/{id}/review`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
+Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}`, `/api/words/{id}` and their `/review`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
 
 ```json
 { "error": "sign in first" }
@@ -88,7 +88,7 @@ Everything below requires a valid session when `HILVAN_PASSWORD_HASH` is set.
 
 ### `GET /api/today`
 
-Today's queue: everything due for review, then at most one new formula if the day has room. Reviews are never crowded out by new material.
+Today's queue: formulas, then words. In each, everything due for review comes first, then the new ones the day has room for - at most one formula and ten words. Reviews are never crowded out by new material.
 
 **Response** `200`:
 
@@ -96,6 +96,7 @@ Today's queue: everything due for review, then at most one new formula if the da
 {
   "queue": [
     {
+      "kind": "formula",
       "formula": {
         "id": "be-present-statement",
         "name": "I am / you are",
@@ -119,6 +120,14 @@ Today's queue: everything due for review, then at most one new formula if the da
       "is_new": false,
       "due": "2026-09-03T09:00:00Z",
       "pace": { "typical_ms": 3800, "last_ms": 9100, "answers": 6 }
+    },
+    {
+      "kind": "word",
+      "word": { "id": "en:home", "lemma": "home", "gloss": "...", "ipa": "hoʊm", "rank": 150, "level": 1000, "contexts": ["..."] },
+      "stitch": "new",
+      "is_new": true,
+      "due": "2026-09-03T09:00:00Z",
+      "pace": null
     }
   ],
   "reviewed_today": 1,
@@ -126,22 +135,40 @@ Today's queue: everything due for review, then at most one new formula if the da
   "progress": {
     "produce": { "new": 24, "basted": 3, "sewn": 2 },
     "recognise": { "new": 27, "basted": 2, "sewn": 0 }
+  },
+  "words": {
+    "counts": { "new": 120, "basted": 5, "sewn": 1 },
+    "levels": [
+      { "size": 1000, "basted": 5, "sewn": 1 },
+      { "size": 2000, "basted": 5, "sewn": 1 },
+      { "size": 5000, "basted": 5, "sewn": 1 }
+    ],
+    "waiting": 3
   }
 }
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `queue` | array | Due items, then at most one new one. Empty once nothing is due and no new formula is left in the pack. |
+| `queue` | array | Formulas due, then at most one new one; words due, then the new ones the day has room for. Empty once nothing is due and nothing new can open. |
+| `queue[].kind` | `"formula"` \| `"word"` | What the item asks. A formula item carries `formula` and `direction`, a word item `word`. |
 | `queue[].formula` | object | The full formula - see `GET /api/formulas/{id}` below. |
 | `queue[].direction` | `"produce"` \| `"recognise"` | Which way round this item asks the formula. |
-| `queue[].stitch` | `"new"` \| `"basted"` \| `"sewn"` | Where this formula stands **in this direction** right now. |
-| `queue[].is_new` | boolean | Whether this formula has never been answered in this direction. |
+| `queue[].word` | object | The full word - see `GET /api/words/{id}` below. |
+| `queue[].stitch` | `"new"` \| `"basted"` \| `"sewn"` | Where this item stands right now - a formula **in this direction**. |
+| `queue[].is_new` | boolean | Whether this has never been answered - a formula in this direction, or a word. |
 | `queue[].due` | string (RFC 3339) | When this item became due; for a new item, the time of the request. |
 | `queue[].pace` | object \| null | How fast this card usually comes; `null` until three timed answers. |
-| `reviewed_today` | integer | Reviews recorded since midnight UTC, both directions. |
+| `reviewed_today` | integer | Answers recorded since midnight UTC, formulas both ways and words. |
 | `counts.new` \| `counts.basted` \| `counts.sewn` | integer | How many formulas stand in each state, producing side. |
 | `progress.produce` \| `progress.recognise` | object | The same counts, one per direction. |
+| `words.counts` | object | Every word of the loaded packs, by state. |
+| `words.levels[]` | array | The [levels](/hilvan/reference/lexicon/#levels): `size` lemmas of the language, and how many of the learner's words in it are basted and sewn. Cumulative. |
+| `words.waiting` | integer | Words met in a sentence, not started, and not in today's queue: what later days will open. |
+
+#### Words in the queue
+
+A word opens only once a sentence that holds it has been met - once the formula that sentence belongs to has been answered. Of the words that have, the commonest open first, at most ten a day; a word started earlier the same day uses up a place.
 
 #### Directions
 
@@ -175,8 +202,18 @@ One formula with its samples and slots.
   "say": "<pronoun> <pronoun:be> <rest>.",
   "explanation": "...",
   "samples": [
-    { "native": "<prompt in the learner's own language>", "target": "I am at home." },
-    { "native": "<prompt in the learner's own language>", "target": "He is a doctor." }
+    {
+      "sentence": 1,
+      "native": "<prompt in the learner's own language>",
+      "target": "I am at home.",
+      "words": [{ "word": "en:home", "lemma": "home", "form": "home", "start": 8 }]
+    },
+    {
+      "sentence": 2,
+      "native": "<prompt in the learner's own language>",
+      "target": "He is a doctor.",
+      "words": [{ "word": "en:doctor", "lemma": "doctor", "form": "doctor", "start": 8 }]
+    }
   ],
   "slots": [
     {
@@ -204,6 +241,8 @@ One formula with its samples and slots.
 `explanation` is in the learner's native language - the pack carries it, the server does not translate. `pattern` holds `<slot-name>` placeholders matching each entry in `slots` and is the scaffold shown on the card. `say` is the sentence a substitution answers with - `<slot>` is the value's `target`, `<slot:form>` one of its `forms`, and the first letter is raised; `null` for a formula without slots. See [the pack format](/hilvan/reference/packs/#the-sentence-it-says).
 
 `languages` names the language of each side, ISO 639-1: what the app asks [the voice](/hilvan/reference/voice/) for.
+
+Each sample is a sentence: `sentence` is its id, the same for every formula that shows it, and `words` marks the [words](/hilvan/reference/packs/#words) it teaches - `form` as spelt in `target`, `start` the character it starts at, counted in Unicode code points.
 
 #### Forms of a shape
 
@@ -263,6 +302,70 @@ Only the card in the direction named is graded: answering `"recognise"` leaves t
 ```json
 { "error": "there is no formula called nonsense" }
 ```
+
+### `GET /api/words/{id}`
+
+One word, with the sentences it has been met in. `{id}` is the language and the lowercase lemma, `en:doctor`.
+
+**Response** `200`:
+
+```json
+{
+  "id": "en:doctor",
+  "lemma": "doctor",
+  "gloss": "<what it means, in the learner's own language>",
+  "ipa": "ˈdɑktɚ",
+  "rank": 957,
+  "level": 1000,
+  "contexts": [
+    {
+      "sentence": 2,
+      "text": "He is a doctor.",
+      "translation": "<its meaning>",
+      "form": "doctor",
+      "start": 8,
+      "formula": "be-present-statement",
+      "anchor": true
+    },
+    {
+      "sentence": 14,
+      "text": "Is she a doctor?",
+      "translation": "<its meaning>",
+      "form": "doctor",
+      "start": 9,
+      "formula": "be-present-question",
+      "anchor": false
+    }
+  ],
+  "languages": { "native": "ru", "target": "en" }
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `lemma` | string | As written: `doctor`, `I`, `Monday`. |
+| `gloss` | string | What it means, from the pack, in the learner's own language. |
+| `ipa` | string \| null | How it sounds, from the [lexicon](/hilvan/reference/lexicon/#transcription). |
+| `rank` | integer \| null | Its place among the lemmas of the language, 1 the commonest; `null` past the end of the lexicon. |
+| `level` | `1000` \| `2000` \| `5000` \| null | The smallest level that holds it; `null` past the last. |
+| `contexts` | array | The sentences it has been met in - those of formulas already answered - its anchor first. A word not met anywhere yet shows every sentence that holds it. A sentence two formulas share is one context. |
+| `contexts[].anchor` | boolean | Whether this is the sentence the word is heard in. It is fixed by the word's first answer and kept. |
+
+**Response** `404` when `{id}` names no word.
+
+### `POST /api/words/{id}/review`
+
+Records an answer to a word and reschedules it through FSRS. A word has one card, so there is no direction.
+
+**Request:**
+
+```json
+{ "rating": "good", "duration_ms": 2400 }
+```
+
+**Response** `200`: the same shape as a formula's review - `stitch`, `due`, `interval_days`, `pace`. The first answer fixes the word's anchor.
+
+**Response** `404` when `{id}` names no word.
 
 ## Voice
 

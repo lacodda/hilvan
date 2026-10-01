@@ -50,3 +50,29 @@ schedules - the negation with `don't` really is a separate thing to
 remember - and `family` is what lets the drill show them on one card behind a
 switch. Both fields go together, and a formula that is nobody's negation
 leaves them out.
+
+## Words
+
+The worked examples also teach vocabulary. A sample marks the lemmas it
+carries, and each lemma is declared once at the end of the file with its
+gloss:
+
+```toml
+  [[formula.sample]]
+  native = "Она пошла к врачу."
+  target = "She went to the doctor."
+  words = ["go", "doctor"]        # lemmas: "went" is found as a form of go
+
+[[word]]
+lemma = "doctor"
+gloss = "врач"
+```
+
+Mark the words a learner should come away with - nouns, verbs, adjectives,
+adverbs - and leave the formula's own words unmarked: the pronoun and the
+*am* are what the formula drills. A phrase (*make it*, *get up*) is not
+marked word by word; collocations come in a later version. How common a
+word is and how it sounds are not written here - the lexicon of the language
+says them (`lexicons/en`).
+
+This pack marks 126 words across its 150 sentences.

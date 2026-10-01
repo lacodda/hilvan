@@ -16,9 +16,10 @@ Without an ElevenLabs key the language being learnt is spoken by a Piper voice t
 
 The speech endpoint takes text, because the drill assembles its sentences on the client. It is not a free text-to-speech service: every request is checked against what the loaded packs can actually say before any engine hears it -
 
-- a sample, in either language;
+- a worked example, in either language;
 - a formula's explanation, in the learner's own language;
-- a sentence a formula's [`say`](/hilvan/reference/packs/#the-sentence-it-says) makes of its slot values, in the language being learnt.
+- a sentence a formula's [`say`](/hilvan/reference/packs/#the-sentence-it-says) makes of its slot values, in the language being learnt;
+- a [word](/hilvan/reference/packs/#words) the packs teach, said on its own in the language being learnt - the word card asks for it `slow`.
 
 Anything else is refused with `422`.
 
@@ -30,7 +31,7 @@ One sentence, spoken. A GET so the app can hand the URL straight to an `<audio>`
 | --- | --- | --- |
 | `language` | yes | ISO 639-1 code of the language the text is in. |
 | `text` | yes | The sentence. Surrounding whitespace is ignored. |
-| `tempo` | no | `normal` (default) or `slow`. The app asks for `slow` while a formula is new. |
+| `tempo` | no | `normal` (default) or `slow`. The app asks for `slow` while a formula or a word is new, and for a word said on its own. |
 
 **Response** `200` with the sound: `audio/mpeg` from ElevenLabs, `audio/wav` from Piper. The `ETag` is the cache key and `Cache-Control` is `private, no-cache`: the browser keeps the sound and asks each time, an unchanged one costs an empty `304`, and a voice changed on the voices screen is a different key, so the old voice is never served.
 
@@ -42,7 +43,7 @@ One sentence, spoken. A GET so the app can hand the URL straight to an `<audio>`
 
 ## `GET /api/listen`
 
-The sentences of the listening mode: every sample of every formula the learner has started, in either direction.
+The sentences of the listening mode: every worked example of every formula the learner has started, in either direction.
 
 ```json
 {

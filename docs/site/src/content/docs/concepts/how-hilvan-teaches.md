@@ -25,6 +25,12 @@ Understanding a sentence and producing one are different skills, and recognition
 
 The recognising side of a shape opens only after the shape has been produced at least once, and never eats the day's one new formula.
 
+### Words, inside the sentences they were met in - built
+
+From v0.4.0 the vocabulary grows out of the formulas rather than from a list. Every worked example marks the words it teaches, and a word enters the deck only once its sentence has been met - once the formula it belongs to has been drilled. It is then asked where it was met: the sentence is played, the word is marked in it, and the question is what it means there. One word met in three sentences is one card with three contexts, and the sentence it was first met in - its anchor - is the one it is heard in every time it comes back, so a word arrives with the same melody each time.
+
+Words are ranked by how common they are in the language, and the commonest open first. The levels - the commonest 1,000, 2,000 and 5,000 lemmas - are what a learner aims at, and the Today screen counts the words in hand against them. See [Lexicon and levels](/hilvan/reference/lexicon/).
+
 ### How fast it comes, not only whether it comes
 
 A formula answered right, after eight seconds of assembling it, is not the same as one that simply arrives - and a memory model cannot see the difference, because both are "good". hilvan times answers and shows the median of the recent ones on the card. It is shown and never scheduled on: a home-made correction over FSRS would move every interval with no way to tell what moved it ([ADR 0005](https://github.com/lacodda/hilvan/blob/main/docs/adr/0005-forms-directions-and-pace.md)).
@@ -39,4 +45,4 @@ The plan is for an LLM to assemble sentences and audio lessons from your learner
 
 ## Coverage as the honest progress metric - coming
 
-Once the reader exists, it will measure how much of a real text you already know, word by word and structure by structure, and report that coverage rather than a score. A text you cover at ninety percent is close to comprehensible input; a text you cover at forty percent is not yet worth your time. Coverage is meant to answer "am I ready for this" with a number instead of a guess, and to be the same number that tells you what to learn next in order to raise it. Today, the closest thing to a progress number is the count of formulas in each state on [`/api/today`](/hilvan/reference/api/#get-apitoday), told once per direction.
+Once the reader exists, it will measure how much of a real text you already know, word by word and structure by structure, and report that coverage rather than a score. A text you cover at ninety percent is close to comprehensible input; a text you cover at forty percent is not yet worth your time. Coverage is meant to answer "am I ready for this" with a number instead of a guess, and to be the same number that tells you what to learn next in order to raise it. Today, the closest things to a progress number are the count of formulas in each state on [`/api/today`](/hilvan/reference/api/#get-apitoday), told once per direction, and the words in hand against the 1k, 2k and 5k levels - the same lexicon the reader will measure coverage with.

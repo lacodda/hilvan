@@ -14,6 +14,7 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 ## What you get
 
 - **Formulas, not vocabulary lists.** Grammar drilled as substitution patterns, so production practice starts on structures you can already half-manage. Thirty of them ship as a [pack](https://github.com/lacodda/hilvan/blob/main/packs/en-from-ru/README.md) for English from Russian - a file, not code.
+- **Words from the sentences you meet.** Each worked example marks the words it teaches; a word opens once you have met its sentence, is asked in that sentence by ear, and counts toward the commonest 1,000, 2,000 and 5,000 words of English.
 - **Every sentence heard.** The language you learn is spoken by a native ElevenLabs voice, your own by Piper running beside the tutor - slowly while a formula is new, at speaking speed once it holds. Each sound is made once and kept, and the paid budget shows how long it will last.
 - **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
 - **A sitting on a phone.** The formula of the day, a prompt, your own answer, and how it went.
@@ -65,3 +66,5 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 ## License
 
 MIT (c) [Kirill Lakhtachev](https://lacodda.com)
+
+The English lexicon in [`lexicons/en`](https://github.com/lacodda/hilvan/tree/main/lexicons/en) is data under CC BY-SA 4.0, with its sources credited there.

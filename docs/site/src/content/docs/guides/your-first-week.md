@@ -52,6 +52,16 @@ From the second day on, some cards come the other way round: the English is the 
 
 A formula is only ever asked backwards after you have been shown it forwards, and the reverse card never uses up the day's one new formula.
 
+### Words
+
+After the formulas come the words. Every worked example of a formula carries a word or two - *home*, *doctor*, *ready* - and once you have drilled the formula, its words are yours to start: the next time Today is read, they wait after the formulas, the commonest first, at most ten new ones a day.
+
+A new word is met before it is asked: the card says the word slowly, then the sentence you met it in, with the word marked, its transcription and its meaning. **Got it - ask me** takes the meaning away, plays the sentence again, and asks what the word means there. Show it, and grade it with the same four buttons.
+
+The sentence it was first met in stays its sentence - you will hear the word in it every time it comes back. When the same word turns up in another formula's example, it is not a second card: the card lists that sentence under **Also met in**.
+
+Under **Your words** on Today, three bars show the levels - the commonest 1,000, 2,000 and 5,000 words of English - and how many of yours are sewn in each. They start near zero and fill slowly; they are measured against the language, not against the pack.
+
 ### How long it took
 
 Under the turn counter, a card that has been drilled a few times says how fast it usually comes - "usually 3.8s" - and after you grade it, whether this answer was quicker or slower than that. It is there to be noticed, nothing more: the schedule is not affected by how long you took. A formula that arrives after eight seconds of assembly is still on its way to being yours, and the number is how you watch that happen.
@@ -72,4 +82,4 @@ Day one is one formula: the first shape in the pack, with no reviews yet because
 
 By the end of the week you will have somewhere around seven formulas started, most still basted, a few possibly sewn if you answered them well and their intervals happened to fall due again already. Do not expect "sewn" to dominate this early - stability builds over weeks, not days. What to watch instead is whether a sitting stays short: five to ten cards a day is the target shape, not fifty.
 
-Because each formula is asked both ways, a sitting has roughly twice the cards it would otherwise - but the reverse ones are quicker, since recognising is the easier half. If sittings start feeling long, that is worth saying out loud rather than pushing through: the pace is a product decision, and it can change.
+Because each formula is asked both ways, a sitting has roughly twice the cards it would otherwise - but the reverse ones are quicker, since recognising is the easier half. Words add five or six cards on the day their formula is drilled, and the reviews of them after; a word card is the quickest card there is. If sittings start feeling long, that is worth saying out loud rather than pushing through: the pace is a product decision, and it can change.

@@ -1,9 +1,9 @@
 ---
 title: Formula packs
-description: The pack.toml format - what a pack is, its shape, the rules the loader enforces, and what loading does.
+description: The pack.toml format - what a pack is, its shape, the words its sentences teach, the rules the loader enforces, and what loading does.
 ---
 
-A pack is the material a learner starts from: grammar formulas, each with worked examples and the words to substitute into it. A pack is **data, not code** - `pack.toml` is loaded into the database with `hilvan load-pack`, and the server itself never reads a pack file.
+A pack is the material a learner starts from: grammar formulas, each with worked examples and the words to substitute into it, and the vocabulary those examples teach. A pack is **data, not code** - `pack.toml` is loaded into the database with `hilvan load-pack`, and the server itself never reads a pack file.
 
 The native language of the learner is a property of the pack, not of hilvan. `packs/en-from-ru/pack.toml` teaches English to a Russian speaker; a later pack teaching Spanish to that same learner, or English to a speaker of some other language, is another file next to it - not a branch in the code. Adding a language is adding a file; see [How hilvan teaches](/hilvan/concepts/how-hilvan-teaches/) for why the product is built this way.
 
@@ -28,6 +28,7 @@ form = "statement"          # optional: statement, negation or question
   [[formula.sample]]
   native = "<prompt in the learner's own language>"
   target = "I am at home."
+  words = ["home"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -35,6 +36,10 @@ form = "statement"          # optional: statement, negation or question
     { native = "<word in the learner's own language>", target = "I", be = "am" },
     { native = "<word in the learner's own language>", target = "you", be = "are" },
   ]
+
+[[word]]
+lemma = "home"
+gloss = "<what it means, in the learner's own language>"
 ```
 
 | Field | Meaning |
@@ -44,6 +49,7 @@ form = "statement"          # optional: statement, negation or question
 | `native` | The language prompts and explanations are written in (ISO 639-1, e.g. `ru`). |
 | `target` | The language being learnt (ISO 639-1, e.g. `en`). |
 | `[[formula]]` | One assembly pattern the learner builds sentences from. Repeated once per formula. |
+| `[[word]]` | A word the worked examples teach - see [Words](#words). Repeated once per word. |
 
 ### A formula
 
@@ -60,9 +66,20 @@ form = "statement"          # optional: statement, negation or question
 | `[[formula.sample]]` | A worked example: what a correct answer looks like. At least one per formula. |
 | `[[formula.slot]]` | A hole in the pattern the drill substitutes into. Optional. |
 
-A `sample` has `native` (the prompt) and `target` (the answer). A `slot` has a `name` matching a `<placeholder>` in the pattern, and `values` - a list of `{ native, target }` pairs the drill draws substitutions from.
+A `sample` has `native` (the prompt), `target` (the answer) and optionally `words` - the lemmas of `target` it teaches. A `slot` has a `name` matching a `<placeholder>` in the pattern, and `values` - a list of `{ native, target }` pairs the drill draws substitutions from.
 
 A formula with no slot can still be recalled, just not drilled by substitution.
+
+### Words
+
+A word is never learnt alone: it enters the learner's deck only inside a sentence, once the formula that sentence belongs to has been drilled. So the pack says two things about words.
+
+- **`words` on a sample** marks the lemmas the sentence teaches: `words = ["go", "doctor"]` on *She went to the doctor.* A mark is the lemma, not the spelling - *went* is found as a form of *go* through the [lexicon](/hilvan/reference/lexicon/) of the language. The words the formula itself is about - the pronoun, the *am* - are the formula's, and are left unmarked.
+- **`[[word]]`** declares each word once, with its `gloss` in the pack's native language. How common the word is and how it sounds are not here: they belong to the language, and its lexicon says them.
+
+A word marked in several sentences is one word with several contexts: one card, and the sentence it was first met in is the one it is heard in.
+
+The same `target` in two formulas is one sentence. It has one translation and one set of words, and the loader holds the two formulas to that.
 
 ### The sentence it says
 
@@ -121,6 +138,9 @@ The loader rejects a pack outright rather than loading it partway - a half-loade
 - A formula has slots but no `say` - its substitutions would have nothing to answer with but the scaffold.
 - `say` names a slot the formula does not have, or leaves out a slot it does have - the answer would drop a word the prompt showed.
 - A value lacks a form `say` asks of its slot, or carries a form `say` never asks for - the second is almost always a misspelt key.
+- A sample marks a word the pack declares no `[[word]]` for, marks the same word twice, or marks a word its sentence does not hold in any form.
+- A `[[word]]` is in no sentence - it could never enter the deck - has no gloss, is more than one word, or shares its lemma with another, whatever the case.
+- The same sentence is translated two ways, or marked with different words, in two formulas.
 
 ## Loading
 
@@ -131,13 +151,14 @@ hilvan load-pack packs/en-from-ru/pack.toml
 Safe to run on every start of the container, or by hand whenever the file changes:
 
 - **The same version loaded twice is a no-op.** Nothing is written, and the command says so.
-- **A changed version (a bumped `version`) replaces the pack's formulas, samples and slots**, but every card and review history stays - a card is keyed on the formula's `id` in `card.subject_id`, not on the pack's version, so correcting a formula's wording does not reset a month of drilling it.
-- **A formula removed from the pack is not deleted.** Its card is kept, and the command reports it as an orphan so the removal can be confirmed as intentional rather than silently losing the learner's history:
+- **A changed version (a bumped `version`) replaces the pack's formulas, slots and words**, but every card and review history stays - a card is keyed on the formula's `id` or the word's lemma, not on the pack's version, so correcting a formula's wording or a word's gloss does not reset a month of learning it.
+- **A sentence is kept by what it says.** A corrected translation leaves it the same sentence, and a word goes on being heard in it. A sentence no formula shows any more is dropped, and a word that was heard in it is heard in the first sentence it is met in until it is answered again.
+- **A formula or a word removed from the pack is not deleted.** Its card is kept, and the command reports it as an orphan so the removal can be confirmed as intentional rather than silently losing the learner's history:
 
   ```
-  note: 1 card(s) belong to formulas no pack holds any more, and were kept: have-got
+  note: 1 card(s) belong to formulas or words no pack holds any more, and were kept: have-got
   ```
 
-- One card is created per formula the first time it is seen; existing cards are never touched by a reload.
+- One card is created per formula per direction, and per word, the first time it is seen; existing cards are never touched by a reload.
 
 Loading is a separate command rather than something the server does at startup on its own: the learner decides when their material changes, and a server that silently rewrites the pack on every restart makes an editing mistake in the pack invisible.
