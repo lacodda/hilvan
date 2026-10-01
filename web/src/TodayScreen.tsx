@@ -1,6 +1,9 @@
-import type { Counts, Stitch, Today } from '@/api'
+import type { Counts, Stitch, Today, Words } from '@/api'
 import { Shell } from '@/App'
 import { Button } from '@/components/ui/button'
+import { Progress } from '@/components/ui/progress'
+import { describeQueue } from '@/today'
+import { levelLine, levelName } from '@/words'
 
 /** The word the learner sees for each state, and what it means. */
 const stitches = [
@@ -12,9 +15,10 @@ const stitches = [
 /**
  * What is waiting today.
  *
- * The queue is reviews first and at most one new formula, which is the whole
- * of the product's promise about pace: nothing new while something old is
- * still slipping.
+ * The queue is reviews first and at most one new formula, then the words -
+ * theirs first again, then the new ones the day has room for - which is the
+ * whole of the product's promise about pace: nothing new while something
+ * old is still slipping.
  */
 export function TodayScreen({
   today,
@@ -31,8 +35,6 @@ export function TodayScreen({
 }) {
   const started = today.progress.produce.basted + today.progress.produce.sewn + today.progress.recognise.basted + today.progress.recognise.sewn > 0
   const waiting = today.queue.length
-  const fresh = today.queue.filter((due) => due.is_new).length
-  const backwards = today.queue.filter((due) => due.direction === 'recognise').length
 
   return (
     <Shell>
@@ -43,7 +45,7 @@ export function TodayScreen({
             ? today.reviewed_today > 0
               ? `Done for today - ${today.reviewed_today} answered. Come back tomorrow.`
               : 'Nothing is waiting. Load a pack to start.'
-            : describeQueue(waiting, fresh, backwards)}
+            : describeQueue(today.queue)}
         </p>
       </section>
 
@@ -94,6 +96,8 @@ export function TodayScreen({
         )}
       </section>
 
+      <YourWords words={today.words} />
+
       <footer className="mt-auto flex gap-5 pt-6">
         <Button onClick={onVoices} variant="link" className="text-base text-faint underline">
           Voices
@@ -133,12 +137,40 @@ function behind(produce: Counts, recognise: Counts): boolean {
   return recognise.sewn > produce.sewn
 }
 
-function describeQueue(waiting: number, fresh: number, backwards: number): string {
-  const reviews = waiting - fresh
-  const tail = backwards > 0 ? ` ${backwards} of them asked backwards.` : ''
-  if (reviews === 0) return `One new formula to start.${tail}`
-  const plural = reviews === 1 ? 'formula' : 'formulas'
-  return fresh === 0
-    ? `${reviews} ${plural} to come back to.${tail}`
-    : `${reviews} ${plural} to come back to, then one new one.${tail}`
+/**
+ * The words in hand, against the levels a learner aims at.
+ *
+ * The bar is what is sewn - held over long intervals - out of the whole
+ * level, the commonest thousand words of the language rather than the words
+ * of the pack: a level is the language's, and the number that grows toward
+ * it is the honest one even while it is small.
+ */
+function YourWords({ words }: { words: Words }) {
+  const total = words.counts.new + words.counts.basted + words.counts.sewn
+  if (total === 0) return null
+  const started = words.counts.basted + words.counts.sewn
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-base font-medium tracking-caption text-dim uppercase">Your words</h3>
+      <p className="text-xl">
+        {started === 0 ? 'None started yet' : `${words.counts.sewn} sewn, ${words.counts.basted} basted`}
+        <span className="text-base text-faint"> - {total} in your formulas' sentences</span>
+      </p>
+      <div className="flex flex-col gap-3">
+        {words.levels.map((level) => (
+          <Progress key={level.size} value={level.sewn} max={level.size} size="sm" label={`The ${levelName(level.size)} level`}>
+            <span>
+              <span className="font-mono font-semibold text-text">{levelName(level.size)}</span> {levelLine(level)}
+            </span>
+          </Progress>
+        ))}
+      </div>
+      {words.waiting > 0 && (
+        <p className="text-base text-faint">
+          {words.waiting} met in a sentence and waiting their turn - a few open each day.
+        </p>
+      )}
+    </section>
+  )
 }

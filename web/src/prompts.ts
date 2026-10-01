@@ -252,3 +252,15 @@ export function paceLine(pace: Pace | null): string | null {
   if (ratio < 0.75) return `${seconds(pace.last_ms)} - quicker than your usual ${seconds(pace.typical_ms)}`
   return `${seconds(pace.last_ms)}, about your usual`
 }
+
+/** Where a card stands after an answer, in a phrase. */
+export function stitchLine(stitch: Stitch): string {
+  switch (stitch) {
+    case 'new':
+      return 'Still new.'
+    case 'basted':
+      return 'Basted - tacked in place.'
+    case 'sewn':
+      return 'Sewn.'
+  }
+}

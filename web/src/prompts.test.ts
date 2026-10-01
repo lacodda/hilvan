@@ -10,8 +10,8 @@ const formula: Formula = {
   say: '<pronoun> <pronoun:be> <rest>.',
   explanation: 'explained',
   samples: [
-    { native: 'prompt one', target: 'I am at home.' },
-    { native: 'prompt two', target: 'He is a doctor.' },
+    { sentence: 1, native: 'prompt one', target: 'I am at home.', words: [] },
+    { sentence: 2, native: 'prompt two', target: 'He is a doctor.', words: [] },
   ],
   slots: [
     {

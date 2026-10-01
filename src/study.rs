@@ -291,12 +291,18 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
     let mut queue = formulas_today(pool, now).await?;
     queue.extend(words_today(pool, now).await?);
 
+    // Waiting means waiting for a later day: the new words already in
+    // today's queue are not waiting, they are next.
+    let mut words = words::standing(pool).await?;
+    let opened = queue.iter().filter(|due| due.is_new && matches!(due.subject, Subject::Word { .. })).count();
+    words.waiting -= i64::try_from(opened).unwrap_or(0);
+
     Ok(Today {
         queue,
         reviewed_today: reviewed_since(pool, start_of_day(now)).await?,
         counts,
         progress,
-        words: words::standing(pool).await?,
+        words,
     })
 }
 
@@ -1350,7 +1356,7 @@ gloss = "зонт"
             vec!["en:doctor", "en:home"],
             "the words of the formula just drilled should open, and only those"
         );
-        assert_eq!(after.words.waiting, 2);
+        assert_eq!(after.words.waiting, 0, "both words are in today's queue: nothing waits for a later day");
     }
 
     #[tokio::test]
@@ -1480,7 +1486,8 @@ gloss = "зонт"
         let after = today(&pool, at(0)).await.unwrap();
         let fresh = after.queue.iter().filter(|due| due.is_new && due.word_id().is_some()).count();
         assert_eq!(fresh, NEW_WORDS_PER_DAY - 4);
-        assert_eq!(after.words.waiting, i64::try_from(nouns.len()).unwrap() - 4);
+        // Twelve met, four started, six in today's queue: two wait for tomorrow.
+        assert_eq!(after.words.waiting, 2);
     }
 
     #[tokio::test]

@@ -1,15 +1,32 @@
 /** What the server answers with, and the calls that ask it. */
 
-/** A worked example, or one value that can go in a slot. */
-export interface Sample {
+/** A pair: the learner's own language and the language being learnt. */
+export interface Pair {
   /** The prompt, in the learner's own language. */
   native: string
   /** The answer, in the language being learnt. */
   target: string
 }
 
+/** A word marked in a sentence: where it stands, and how it is spelt there. */
+export interface Mark {
+  /** The word's id, `en:doctor`. */
+  word: string
+  lemma: string
+  /** As spelt in the sentence: "went" for go. */
+  form: string
+  /** The character it starts at. */
+  start: number
+}
+
+/** A worked example of a formula: a sentence, what it means, and its words. */
+export interface Sample extends Pair {
+  sentence: number
+  words: Mark[]
+}
+
 /** One filling for a slot, with the forms that agree with it. */
-export interface Value extends Sample {
+export interface Value extends Pair {
   /** What `say` picks from for agreement: `be` is "is" on "he". */
   forms: Record<string, string>
 }
@@ -80,17 +97,60 @@ export interface Pace {
   answers: number
 }
 
-/** One item in today's queue. */
-export interface Due {
-  formula: Formula
-  direction: Direction
+/** One sentence a word stands in. */
+export interface Context {
+  sentence: number
+  /** The sentence, in the language being learnt. */
+  text: string
+  /** What it means, in the learner's own. */
+  translation: string
+  /** How the word is spelt here. */
+  form: string
+  /** The character the word starts at. */
+  start: number
+  /** The formula whose example this is. */
+  formula: string
+  /** Whether this is the sentence the word is heard in. */
+  anchor: boolean
+}
+
+/** A word: a lemma met inside sentences. */
+export interface Word {
+  /** `en:doctor`. */
+  id: string
+  /** As written: "doctor", "I", "Monday". */
+  lemma: string
+  /** What it means, in the learner's own language. */
+  gloss: string
+  /** How it sounds, IPA. */
+  ipa: string | null
+  /** Its place among the commonest words of the language, 1 the commonest. */
+  rank: number | null
+  /** The smallest level that holds it - 1000, 2000 or 5000 - or null past it. */
+  level: number | null
+  /** The sentences it has been met in, its anchor first. */
+  contexts: Context[]
+  languages: { native: string; target: string }
+}
+
+/** What every item in today's queue carries, whatever it is about. */
+interface DueCommon {
   stitch: Stitch
   is_new: boolean
   due: string
   pace: Pace | null
 }
 
-/** How many formulas stand in each state. */
+/** A formula, asked one way round. */
+export type FormulaDue = DueCommon & { kind: 'formula'; formula: Formula; direction: Direction }
+
+/** A word, asked in its sentence. */
+export type WordDue = DueCommon & { kind: 'word'; word: Word }
+
+/** One item in today's queue. */
+export type Due = FormulaDue | WordDue
+
+/** How many formulas or words stand in each state. */
 export interface Counts {
   new: number
   basted: number
@@ -103,12 +163,28 @@ export interface Progress {
   recognise: Counts
 }
 
+/** One level - the commonest 1000, 2000 or 5000 words - and the learner's words in it. */
+export interface Level {
+  size: number
+  basted: number
+  sewn: number
+}
+
+/** Where the learner stands with words. */
+export interface Words {
+  counts: Counts
+  levels: Level[]
+  /** Met in a sentence and not started yet. */
+  waiting: number
+}
+
 /** Everything the Today screen shows. */
 export interface Today {
   queue: Due[]
   reviewed_today: number
   counts: Counts
   progress: Progress
+  words: Words
 }
 
 /** How the answer went. The four the drill offers. */
@@ -217,6 +293,12 @@ export const api = {
     call<Reviewed>(`/formulas/${encodeURIComponent(id)}/review`, {
       method: 'POST',
       body: JSON.stringify({ rating, direction, duration_ms: durationMs }),
+    }),
+  word: (id: string) => call<Word>(`/words/${encodeURIComponent(id)}`),
+  reviewWord: (id: string, rating: Rating, durationMs: number | null) =>
+    call<Reviewed>(`/words/${encodeURIComponent(id)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, duration_ms: durationMs }),
     }),
   voices: () => call<VoicesScreen>('/voices'),
   chooseVoice: (language: string, voice: Voice) =>

@@ -71,8 +71,9 @@ pub struct Standing {
     /// The levels a learner aims at - the commonest 1000, 2000 and 5000
     /// lemmas of the language - and how many of each are in hand.
     pub levels: Vec<Level>,
-    /// Words met in a sentence and not started yet: what the coming days
-    /// will open, at most [`crate::study::NEW_WORDS_PER_DAY`] a day.
+    /// Words met in a sentence and not started yet. Told on Today without
+    /// those already in the day's queue: what later days will open, at most
+    /// [`crate::study::NEW_WORDS_PER_DAY`] a day.
     pub waiting: i64,
 }
 

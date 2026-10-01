@@ -7,6 +7,7 @@ import { Mark } from '@/Mark'
 import { SignIn } from '@/SignIn'
 import { TodayScreen } from '@/TodayScreen'
 import { VoicesScreen } from '@/VoicesScreen'
+import { WordCard } from '@/WordCard'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -23,8 +24,9 @@ type View =
 /**
  * The tutor.
  *
- * Three screens and one loop: what is waiting today, the drill that works
- * through it, and the door when there is a password on it.
+ * One loop and the screens around it: what is waiting today, the drill and
+ * the word card that work through it, and the door when there is a password
+ * on it.
  */
 export function App() {
   // The queue is a promise held in state rather than a fetch inside an
@@ -87,20 +89,20 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
       reload()
       return <Shell>Saving…</Shell>
     }
-    return (
-      <Drill
-        // A new formula is a new drill, not the same one reset: the key does
-        // what an effect full of setState would otherwise have to. The
-        // direction is part of it, because the same formula asked backwards
-        // is a different question and must not inherit the state of the one
-        // before it.
-        key={`${due.formula.id}:${due.direction}`}
-        due={due}
-        position={view.index + 1}
-        total={today.queue.length}
-        onAnswered={() => setView({ kind: 'drilling', index: view.index + 1 })}
-        onLeave={backToToday}
-      />
+    const turn = {
+      position: view.index + 1,
+      total: today.queue.length,
+      onAnswered: () => setView({ kind: 'drilling', index: view.index + 1 }),
+      onLeave: backToToday,
+    }
+    // A new item is a new card, not the same one reset: the key does what an
+    // effect full of setState would otherwise have to. The direction is part
+    // of a formula's, because the same formula asked backwards is a
+    // different question and must not inherit the state of the one before.
+    return due.kind === 'formula' ? (
+      <Drill key={`formula:${due.formula.id}:${due.direction}`} due={due} {...turn} />
+    ) : (
+      <WordCard key={`word:${due.word.id}`} due={due} {...turn} />
     )
   }
 

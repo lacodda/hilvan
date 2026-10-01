@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { api, speechUrl, type Due, type Formula, type Rating, type Reviewed, type Stitch } from '@/api'
+import { api, speechUrl, type Formula, type FormulaDue, type Rating, type Reviewed, type Stitch } from '@/api'
 import { Shell } from '@/App'
-import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, ratings, seconds, tabs, whenBack, type Prompt } from '@/prompts'
+import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, ratings, seconds, stitchLine, tabs, whenBack, type Prompt } from '@/prompts'
 import { Speak } from '@/Speak'
 import { player, sides, tempoFor, urlOf, useRecorder, useStopOnLeave, usePlaying } from '@/speech'
 import { Button } from '@/components/ui/button'
@@ -34,7 +34,7 @@ export function Drill({
   onAnswered,
   onLeave,
 }: {
-  due: Due
+  due: FormulaDue
   position: number
   total: number
   onAnswered: () => void
@@ -412,16 +412,5 @@ function stitchBar(stitch: Stitch | null, current: boolean): string {
       return 'bg-accent/50'
     case 'sewn':
       return 'bg-accent'
-  }
-}
-
-function stitchLine(stitch: Reviewed['stitch']): string {
-  switch (stitch) {
-    case 'new':
-      return 'Still new.'
-    case 'basted':
-      return 'Basted - tacked in place.'
-    case 'sewn':
-      return 'Sewn.'
   }
 }
