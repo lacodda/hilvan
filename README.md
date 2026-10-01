@@ -57,7 +57,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.3.1**: the tutor speaks. Every sentence of the drill is heard - the language being learnt in a native ElevenLabs voice, your own in a Piper voice running beside the tutor - with the answer said the moment it is shown, a listening mode that asks by ear, and your own recorded answer played next to the voice. Thirty English grammar formulas for a Russian speaker ship as a pack, FSRS drills each in both directions, and a sitting runs end to end on a phone, behind a password. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
+**v0.4.0**: words, inside the sentences they are met in. The pack's 150 worked examples mark 126 words; a word opens once its sentence is met, is asked there by ear with its transcription, and counts toward the commonest 1,000, 2,000 and 5,000 words of English, ranked by a lexicon built from open data. Thirty grammar formulas for a Russian speaker are drilled both ways, every sentence is heard, and a sitting runs end to end on a phone, behind a password. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
 
 ## Documentation
 

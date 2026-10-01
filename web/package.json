@@ -1,6 +1,6 @@
 {
   "name": "hilvan-web",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know",
   "license": "MIT",
   "private": true,
