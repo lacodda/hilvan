@@ -25,8 +25,10 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs && ca
 
 COPY src/ src/
 COPY migrations/ migrations/
-# Migrations are embedded at compile time, so a new one has to invalidate the
-# build. Touching the entry points is what tells cargo the stub is stale.
+COPY lexicons/ lexicons/
+# Migrations and the lexicon are embedded at compile time, so a change to
+# either has to invalidate the build. Touching the entry points is what tells
+# cargo the stub is stale.
 RUN touch src/main.rs src/lib.rs && cargo build --release
 
 # ------------------------------------------------------------- the runtime

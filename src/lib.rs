@@ -8,6 +8,7 @@ pub mod app;
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod lexicon;
 pub mod pack;
 pub mod say;
 pub mod scheduling;

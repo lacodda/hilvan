@@ -24,3 +24,7 @@ Thumbs.db
 
 # Staging directory assembled by tools/stage-deploy.sh for a stand upload.
 /deploy/
+
+# Sources the lexicon builder downloads: fetched again at their pinned commits.
+/tools/lexicon/.cache/
+__pycache__/

@@ -24,6 +24,7 @@ exclude = [
     "assets/logo-512.png",
     "assets/apple-touch-icon.png",
     "assets/favicon-32.png",
+    "tools/",
 ]
 
 [dependencies]
