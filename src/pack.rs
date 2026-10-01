@@ -6,11 +6,18 @@
 //! property of the pack (ADR 0002), which is why Russian appears in this
 //! product only inside a pack and never as a string in the code.
 //!
+//! A pack also names the words its sentences teach, with what each means in
+//! the learner's own language. A word enters the deck only inside a
+//! sentence: the pack marks which words a worked example carries, and the
+//! loader checks each mark against the sentence - "went" is a form of "go" -
+//! with the lexicon of the language (see [`crate::lexicon`]).
+//!
 //! Loading is idempotent: the same pack loaded twice leaves the database as
-//! it was, and a pack whose contents changed replaces its own formulas
-//! without touching what the learner has learnt about them.
+//! it was, and a pack whose contents changed replaces its own formulas and
+//! words without touching what the learner has learnt about them.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -18,8 +25,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
+use crate::lexicon;
 use crate::say::{Filling, Template};
-use crate::scheduling::Direction;
+use crate::scheduling::{Direction, Kind};
 
 /// A pack as it is written on disk. See `packs/en-from-ru/README.md` for the
 /// shape and what each field is for.
@@ -36,6 +44,29 @@ pub struct Pack {
     /// The formulas, in no particular order: `order` decides the sequence.
     #[serde(default, rename = "formula")]
     pub formulas: Vec<Formula>,
+    /// The words the formulas' sentences teach.
+    #[serde(default, rename = "word")]
+    pub words: Vec<Word>,
+}
+
+/// A word a pack teaches: a lemma of the language being learnt, and what it
+/// means in the learner's own.
+///
+/// How common the word is and how it sounds are not here: they belong to the
+/// language, and its lexicon says them.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Word {
+    /// As written: "doctor", "I", "Monday". One word - a phrase is a
+    /// collocation, and those are a later version's.
+    pub lemma: String,
+    /// What it means, in the pack's native language.
+    pub gloss: String,
+}
+
+/// The id a word's card keys on: the language and the lowercase lemma.
+#[must_use]
+pub fn word_id(language: &str, lemma: &str) -> String {
+    format!("{language}:{}", lemma.to_lowercase())
 }
 
 /// Which of the three ways a shape can be said.
@@ -116,11 +147,17 @@ pub struct Formula {
     pub slots: Vec<Slot>,
 }
 
-/// A worked example: what a correct answer looks like.
+/// A worked example: what a correct answer looks like, and the words it
+/// teaches.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Sample {
     pub native: String,
     pub target: String,
+    /// Lemmas of `target` the learner meets here, each declared once in the
+    /// pack's `[[word]]` list. The words the formula itself is about - the
+    /// pronoun, the "am" - are the formula's, and are left out.
+    #[serde(default)]
+    pub words: Vec<String>,
 }
 
 /// A hole in the pattern the drill substitutes into.
@@ -181,8 +218,9 @@ impl Pack {
     /// Fails on an empty pack, a duplicate formula id, a formula with no
     /// sample, a slot with no values, a duplicate slot name within a formula,
     /// a slot whose name has no matching `<placeholder>` in the pattern, a
-    /// form without a family, or two formulas claiming the same form of the
-    /// same family.
+    /// form without a family, two formulas claiming the same form of the
+    /// same family, or a word that is not where the pack says it is (see
+    /// `validate_words`).
     pub fn validate(&self) -> Result<()> {
         if self.id.trim().is_empty() {
             bail!("the pack has no id");
@@ -225,7 +263,92 @@ impl Pack {
             validate_say(formula)?;
         }
 
-        self.validate_families()
+        self.validate_families()?;
+        self.validate_words()
+    }
+
+    /// The rules that hold the words to their sentences.
+    ///
+    /// Every word marked in a sentence is declared, with a gloss; every
+    /// declared word is in some sentence, or it could never enter the deck;
+    /// and every mark is found in its sentence - the lemma or one of its
+    /// forms, by the lexicon of the language. A sentence two formulas share
+    /// is one sentence, so it has one translation and one set of words.
+    fn validate_words(&self) -> Result<()> {
+        let mut declared: HashSet<String> = HashSet::new();
+        for word in &self.words {
+            if word.lemma.trim().is_empty() {
+                bail!("a word has no lemma");
+            }
+            if word.lemma.contains(char::is_whitespace) {
+                bail!(
+                    "word {:?} is not one word: a lemma is a single word, and phrases arrive with collocations",
+                    word.lemma
+                );
+            }
+            if word.gloss.trim().is_empty() {
+                bail!("word {:?} has no gloss", word.lemma);
+            }
+            if !declared.insert(word.lemma.to_lowercase()) {
+                bail!("two words share the lemma {:?}", word.lemma);
+            }
+        }
+
+        let lexicon = lexicon::of(&self.target);
+        let mut used: HashSet<String> = HashSet::new();
+        let mut sentences: HashMap<&str, (&str, BTreeSet<String>)> = HashMap::new();
+        for formula in &self.formulas {
+            for sample in &formula.samples {
+                let mut marked = BTreeSet::new();
+                for lemma in &sample.words {
+                    let key = lemma.to_lowercase();
+                    if !declared.contains(&key) {
+                        bail!(
+                            "formula {:?} marks {lemma:?} in {:?}, but the pack declares no [[word]] for it: a word without a gloss",
+                            formula.id,
+                            sample.target
+                        );
+                    }
+                    if lexicon::find(lexicon, &sample.target, lemma).is_none() {
+                        bail!(
+                            "formula {:?} marks {lemma:?} in {:?}, which holds neither it nor any form of it",
+                            formula.id,
+                            sample.target
+                        );
+                    }
+                    if !marked.insert(key.clone()) {
+                        bail!("formula {:?} marks {lemma:?} twice in {:?}", formula.id, sample.target);
+                    }
+                    used.insert(key);
+                }
+                match sentences.entry(sample.target.as_str()) {
+                    Entry::Vacant(vacant) => {
+                        vacant.insert((sample.native.as_str(), marked));
+                    }
+                    Entry::Occupied(occupied) => {
+                        let (native, words) = occupied.get();
+                        if *native != sample.native {
+                            bail!(
+                                "{:?} is translated two ways, {native:?} and {:?}: a sentence has one meaning",
+                                sample.target,
+                                sample.native
+                            );
+                        }
+                        if *words != marked {
+                            bail!("{:?} is marked with different words in two formulas", sample.target);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(word) = self.words.iter().find(|word| !used.contains(&word.lemma.to_lowercase())) {
+            bail!(
+                "word {:?} is in no sentence: a word enters the deck only inside a sentence, so this one never would",
+                word.lemma
+            );
+        }
+        Ok(())
     }
 
     /// The rules that hold a family of forms together.
@@ -332,8 +455,10 @@ fn validate_say(formula: &Formula) -> Result<()> {
 pub struct Loaded {
     /// Formulas the pack holds.
     pub formulas: usize,
-    /// Cards created for formulas that had none, counting both directions -
-    /// what is genuinely new to the learner.
+    /// Words the pack teaches.
+    pub words: usize,
+    /// Cards created for formulas and words that had none, counting both
+    /// directions of a formula - what is genuinely new to the learner.
     pub new_cards: usize,
     /// Whether anything was written at all.
     pub changed: bool,
@@ -342,9 +467,11 @@ pub struct Loaded {
 /// Loads a pack into the database, or confirms it is already there.
 ///
 /// Reloading the same version is a no-op. Reloading a changed version
-/// replaces the pack's formulas, samples and slots, and keeps every card and
-/// review: what the learner has learnt belongs to the formula id, not to the
-/// version of the file it arrived in.
+/// replaces the pack's formulas, slots and words, and keeps every card,
+/// review and anchor: what the learner has learnt belongs to the formula id
+/// and the word id, not to the version of the file it arrived in. Sentences
+/// are kept by what they say, so a corrected translation leaves a sentence
+/// the same sentence, and a word goes on being heard in it.
 ///
 /// # Errors
 ///
@@ -359,6 +486,7 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
     if existing == Some(pack.version) {
         return Ok(Loaded {
             formulas: pack.formulas.len(),
+            words: pack.words.len(),
             new_cards: 0,
             changed: false,
         });
@@ -393,51 +521,81 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
     .await
     .context("failed to record the pack")?;
 
-    // The formulas of this pack are replaced wholesale. Samples and slots go
-    // with them by cascade; cards and reviews do not, because they key on the
-    // formula id in `card.subject_id` rather than on the row.
-    sqlx::query("DELETE FROM formula WHERE pack_id = ?")
-        .bind(&pack.id)
-        .execute(&mut *tx)
-        .await
-        .context("failed to clear the previous version of the pack")?;
-
-    for formula in &pack.formulas {
-        insert_formula(&mut tx, &pack.id, &pack.target, formula).await?;
-    }
-
-    // A card per formula per direction, created once. `ON CONFLICT DO
-    // NOTHING` is what makes a reload keep the learner's history: a formula
-    // that has been drilled for a month keeps its schedule when its wording
-    // is corrected.
-    let mut new_cards = 0;
-    for formula in &pack.formulas {
-        for direction in Direction::ALL {
-            let result = sqlx::query(
-                "INSERT INTO card (kind, subject_id, state, stability, difficulty, due, reps, lapses)
-                 VALUES (?, ?, 'new', 0.0, 0.0, ?, 0, 0)
-                 ON CONFLICT (kind, subject_id) DO NOTHING",
-            )
-            .bind(direction.kind())
-            .bind(&formula.id)
-            .bind(&now)
+    // The formulas and words of this pack are replaced wholesale. Slots,
+    // links to sentences and marks of words go with them by cascade; cards,
+    // reviews and anchors do not, because they key on the formula id and the
+    // word id rather than on the row.
+    for statement in ["DELETE FROM formula WHERE pack_id = ?", "DELETE FROM word WHERE pack_id = ?"] {
+        sqlx::query(statement)
+            .bind(&pack.id)
             .execute(&mut *tx)
             .await
-            .with_context(|| format!("failed to create a card for formula {}", formula.id))?;
-            new_cards += usize::try_from(result.rows_affected()).unwrap_or(0);
-        }
+            .context("failed to clear the previous version of the pack")?;
+    }
+
+    for word in &pack.words {
+        sqlx::query("INSERT INTO word (id, pack_id, language, lemma, gloss) VALUES (?, ?, ?, ?, ?)")
+            .bind(word_id(&pack.target, &word.lemma))
+            .bind(&pack.id)
+            .bind(&pack.target)
+            .bind(&word.lemma)
+            .bind(&word.gloss)
+            .execute(&mut *tx)
+            .await
+            .with_context(|| format!("failed to insert word {}", word.lemma))?;
+    }
+
+    for formula in &pack.formulas {
+        insert_formula(&mut tx, pack, formula).await?;
+    }
+
+    // A sentence no formula shows any more is gone, and an anchor in it with
+    // it: the word is heard in the first sentence it is met in until it is
+    // answered again. Formulas are the only thing that shows sentences
+    // today; a text in the reader will be the second, and has to be counted
+    // here when it comes.
+    sqlx::query("DELETE FROM sentence WHERE id NOT IN (SELECT sentence_id FROM formula_sentence)")
+        .execute(&mut *tx)
+        .await
+        .context("failed to drop the sentences no formula shows any more")?;
+
+    // A card per formula per direction and per word, created once. `ON
+    // CONFLICT DO NOTHING` is what makes a reload keep the learner's history:
+    // a formula drilled for a month keeps its schedule when its wording is
+    // corrected, and a word keeps its own when its gloss is.
+    let subjects = pack
+        .formulas
+        .iter()
+        .flat_map(|formula| Direction::ALL.map(|direction| (Kind::Formula(direction), formula.id.clone())))
+        .chain(pack.words.iter().map(|word| (Kind::Word, word_id(&pack.target, &word.lemma))));
+    let mut new_cards = 0;
+    for (kind, subject) in subjects {
+        let result = sqlx::query(
+            "INSERT INTO card (kind, subject_id, state, stability, difficulty, due, reps, lapses)
+             VALUES (?, ?, 'new', 0.0, 0.0, ?, 0, 0)
+             ON CONFLICT (kind, subject_id) DO NOTHING",
+        )
+        .bind(kind.as_str())
+        .bind(&subject)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await
+        .with_context(|| format!("failed to create a card for {subject}"))?;
+        new_cards += usize::try_from(result.rows_affected()).unwrap_or(0);
     }
 
     tx.commit().await.context("failed to commit the pack")?;
     Ok(Loaded {
         formulas: pack.formulas.len(),
+        words: pack.words.len(),
         new_cards,
         changed: true,
     })
 }
 
-/// Writes one formula with its samples, slots and slot values.
-async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &str, target: &str, formula: &Formula) -> Result<()> {
+/// Writes one formula with its sentences, slots and slot values.
+async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack, formula: &Formula) -> Result<()> {
+    let (pack_id, target) = (pack.id.as_str(), pack.target.as_str());
     sqlx::query(
         "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position, family, form, say)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -457,14 +615,7 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
     .with_context(|| format!("failed to insert formula {}", formula.id))?;
 
     for (position, sample) in formula.samples.iter().enumerate() {
-        sqlx::query("INSERT INTO sample (formula_id, native, target, position) VALUES (?, ?, ?, ?)")
-            .bind(&formula.id)
-            .bind(&sample.native)
-            .bind(&sample.target)
-            .bind(i64::try_from(position).unwrap_or(i64::MAX))
-            .execute(&mut **tx)
-            .await
-            .with_context(|| format!("failed to insert a sample of formula {}", formula.id))?;
+        insert_sample(tx, pack, formula, i64::try_from(position).unwrap_or(i64::MAX), sample).await?;
     }
 
     for (position, slot) in formula.slots.iter().enumerate() {
@@ -491,11 +642,65 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
     Ok(())
 }
 
-/// Cards whose formula no longer exists in any pack.
+/// Writes one worked example: the sentence, kept by what it says, its
+/// translation, its place among the formula's examples, and its words.
+async fn insert_sample(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack, formula: &Formula, position: i64, sample: &Sample) -> Result<()> {
+    // `DO UPDATE` rather than `DO NOTHING`, because only an update hands back
+    // the id of the row that was already there.
+    let sentence: i64 = sqlx::query_scalar(
+        "INSERT INTO sentence (language, text) VALUES (?, ?)
+         ON CONFLICT (language, text) DO UPDATE SET text = excluded.text
+         RETURNING id",
+    )
+    .bind(&pack.target)
+    .bind(&sample.target)
+    .fetch_one(&mut **tx)
+    .await
+    .with_context(|| format!("failed to insert the sentence {:?}", sample.target))?;
+
+    sqlx::query(
+        "INSERT INTO sentence_translation (sentence_id, language, text) VALUES (?, ?, ?)
+         ON CONFLICT (sentence_id, language) DO UPDATE SET text = excluded.text",
+    )
+    .bind(sentence)
+    .bind(&pack.native)
+    .bind(&sample.native)
+    .execute(&mut **tx)
+    .await
+    .with_context(|| format!("failed to translate the sentence {:?}", sample.target))?;
+
+    sqlx::query("INSERT INTO formula_sentence (formula_id, sentence_id, position) VALUES (?, ?, ?)")
+        .bind(&formula.id)
+        .bind(sentence)
+        .bind(position)
+        .execute(&mut **tx)
+        .await
+        .with_context(|| format!("failed to attach a sentence to formula {}", formula.id))?;
+
+    let lexicon = lexicon::of(&pack.target);
+    for lemma in &sample.words {
+        // The validator has found every mark already; a miss here is a pack
+        // loaded without being read through `Pack::read`.
+        let token = lexicon::find(lexicon, &sample.target, lemma).with_context(|| format!("{lemma:?} is not in {:?}", sample.target))?;
+        // `OR IGNORE`: a sentence two formulas share is marked once, and the
+        // validator has made sure the two marks agree.
+        sqlx::query("INSERT OR IGNORE INTO sentence_word (sentence_id, word_id, form, start) VALUES (?, ?, ?, ?)")
+            .bind(sentence)
+            .bind(word_id(&pack.target, lemma))
+            .bind(token.text)
+            .bind(i64::try_from(token.start).unwrap_or(i64::MAX))
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("failed to mark {lemma:?} in {:?}", sample.target))?;
+    }
+    Ok(())
+}
+
+/// Cards whose formula or word no longer exists in any pack.
 ///
-/// Not deleted automatically: a formula that disappears from a pack is
-/// usually an editing mistake, and the learner's history is worth more than
-/// the tidiness. Reported so a later version can offer the choice.
+/// Not deleted automatically: a formula or a word that disappears from a
+/// pack is usually an editing mistake, and the learner's history is worth
+/// more than the tidiness. Reported so a later version can offer the choice.
 ///
 /// # Errors
 ///
@@ -503,7 +708,8 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack_id: &
 pub async fn orphaned_cards(pool: &SqlitePool) -> Result<Vec<String>> {
     let rows = sqlx::query(
         "SELECT DISTINCT subject_id FROM card
-         WHERE kind IN ('formula', 'formula-recognise') AND subject_id NOT IN (SELECT id FROM formula)
+         WHERE (kind IN ('formula', 'formula-recognise') AND subject_id NOT IN (SELECT id FROM formula))
+            OR (kind = 'word' AND subject_id NOT IN (SELECT id FROM word))
          ORDER BY subject_id",
     )
     .fetch_all(pool)
@@ -986,7 +1192,7 @@ order = 2
         assert!(loaded.changed);
 
         let formulas: i64 = sqlx::query_scalar("SELECT count(*) FROM formula").fetch_one(&pool).await.unwrap();
-        let samples: i64 = sqlx::query_scalar("SELECT count(*) FROM sample").fetch_one(&pool).await.unwrap();
+        let samples: i64 = sqlx::query_scalar("SELECT count(*) FROM formula_sentence").fetch_one(&pool).await.unwrap();
         let values: i64 = sqlx::query_scalar("SELECT count(*) FROM slot_value").fetch_one(&pool).await.unwrap();
         assert_eq!((formulas, samples, values), (2, 2, 3));
     }
@@ -1035,7 +1241,7 @@ order = 2
             .unwrap();
         assert_eq!((state.as_str(), reps), ("sewn", 9), "the reload wiped the learner's progress");
 
-        let samples: i64 = sqlx::query_scalar("SELECT count(*) FROM sample").fetch_one(&pool).await.unwrap();
+        let samples: i64 = sqlx::query_scalar("SELECT count(*) FROM formula_sentence").fetch_one(&pool).await.unwrap();
         assert_eq!(samples, 2, "the previous version's samples were left behind");
     }
 
@@ -1055,5 +1261,253 @@ order = 2
         );
         let cards: i64 = sqlx::query_scalar("SELECT count(*) FROM card").fetch_one(&pool).await.unwrap();
         assert_eq!(cards, 4, "a card was deleted along with its formula");
+    }
+
+    /// A pack of two formulas whose examples teach words: "doctor" in three
+    /// sentences across both, "go" by its past.
+    fn worded(version: i64, doctor_gloss: &str, translation: &str) -> Pack {
+        parse(&format!(
+            r#"
+id = "w"
+version = {version}
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "be"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 10
+
+  [[formula.sample]]
+  native = "{translation}"
+  target = "He is a doctor."
+  words = ["doctor"]
+
+  [[formula.sample]]
+  native = "Она пошла к врачу."
+  target = "She went to the doctor."
+  words = ["go", "doctor"]
+
+[[formula]]
+id = "past"
+name = "n"
+pattern = "y"
+explanation = "e"
+order = 20
+
+  [[formula.sample]]
+  native = "Врачи заняты."
+  target = "The doctors are busy."
+  words = ["doctor"]
+
+[[word]]
+lemma = "doctor"
+gloss = "{doctor_gloss}"
+
+[[word]]
+lemma = "go"
+gloss = "идти"
+"#
+        ))
+    }
+
+    fn with_words(words: &str, marks: &str) -> Pack {
+        parse(&format!(
+            r#"
+id = "w"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "be"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 10
+
+  [[formula.sample]]
+  native = "Он врач."
+  target = "He is a doctor."
+  words = [{marks}]
+
+{words}
+"#
+        ))
+    }
+
+    const DOCTOR: &str = "[[word]]\nlemma = \"doctor\"\ngloss = \"врач\"\n";
+
+    #[test]
+    fn the_shipped_pack_teaches_words_its_language_knows() {
+        // The typo guard: a lemma the lexicon has never heard of is almost
+        // always misspelt, and it would sit in the deck with no level and no
+        // transcription.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
+        let pack = Pack::read(&path).expect("the shipped pack should load");
+        let english = lexicon::of("en").unwrap();
+        for word in &pack.words {
+            assert!(english.entry(&word.lemma).is_some(), "{:?} is not a word the lexicon knows", word.lemma);
+        }
+        assert!(
+            pack.words.len() >= 120,
+            "the formulas' sentences should carry a vocabulary, the pack marks {} words",
+            pack.words.len()
+        );
+    }
+
+    #[test]
+    fn a_word_marked_by_one_of_its_forms_is_accepted() {
+        worded(1, "врач", "Он врач.").validate().expect("went is a form of go, doctors of doctor");
+    }
+
+    #[test]
+    fn a_mark_without_a_declared_word_is_rejected() {
+        let error = with_words("", "\"doctor\"").validate().unwrap_err();
+        assert!(format!("{error:#}").contains("declares no [[word]]"), "{error:#}");
+    }
+
+    #[test]
+    fn a_mark_the_sentence_does_not_hold_is_rejected() {
+        let words = format!("{DOCTOR}[[word]]\nlemma = \"nurse\"\ngloss = \"медсестра\"\n");
+        let error = with_words(&words, "\"doctor\", \"nurse\"").validate().unwrap_err();
+        assert!(format!("{error:#}").contains("holds neither it nor any form of it"), "{error:#}");
+    }
+
+    #[test]
+    fn a_word_in_no_sentence_is_rejected() {
+        // It could never enter the deck: words come in only inside a sentence.
+        let words = format!("{DOCTOR}[[word]]\nlemma = \"nurse\"\ngloss = \"медсестра\"\n");
+        let error = with_words(&words, "\"doctor\"").validate().unwrap_err();
+        assert!(format!("{error:#}").contains("\"nurse\" is in no sentence"), "{error:#}");
+    }
+
+    #[test]
+    fn a_word_without_a_gloss_or_of_two_words_is_rejected() {
+        let error = with_words("[[word]]\nlemma = \"doctor\"\ngloss = \" \"\n", "\"doctor\"")
+            .validate()
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("no gloss"), "{error:#}");
+        let error = with_words("[[word]]\nlemma = \"a doctor\"\ngloss = \"врач\"\n", "\"a doctor\"")
+            .validate()
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("not one word"), "{error:#}");
+        let error = with_words(&format!("{DOCTOR}[[word]]\nlemma = \"Doctor\"\ngloss = \"доктор\"\n"), "\"doctor\"")
+            .validate()
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("share the lemma"), "{error:#}");
+    }
+
+    #[test]
+    fn a_sentence_translated_two_ways_is_rejected() {
+        // Two formulas showing one sentence show one sentence: it cannot mean
+        // two things.
+        let mut pack = worded(1, "врач", "Он врач.");
+        let mut copy = pack.formulas[0].samples[0].clone();
+        copy.native = "Он доктор.".to_string();
+        pack.formulas[1].samples.push(copy);
+        let error = pack.validate().unwrap_err();
+        assert!(format!("{error:#}").contains("translated two ways"), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn a_word_in_three_sentences_is_one_card_with_three_contexts() {
+        // Duplicates merge by what the word is, not by where it was met.
+        let pool = pool().await;
+        let loaded = load(&pool, &worded(1, "врач", "Он врач.")).await.unwrap();
+        assert_eq!(loaded.words, 2);
+        assert_eq!(loaded.new_cards, 2 * 2 + 2, "two formulas both ways, and two words");
+
+        let cards: i64 = sqlx::query_scalar("SELECT count(*) FROM card WHERE kind = 'word' AND subject_id = 'en:doctor'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let contexts: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence_word WHERE word_id = 'en:doctor'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!((cards, contexts), (1, 3));
+
+        let (form, start): (String, i64) = sqlx::query_as("SELECT form, start FROM sentence_word WHERE word_id = 'en:go'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            (form.as_str(), start),
+            ("went", 4),
+            "the word should be marked where it stands, as it is spelt there"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reload_keeps_a_sentence_and_its_anchor_when_only_the_wording_around_it_changes() {
+        // A corrected gloss or translation must not move the sentence a word
+        // is heard in.
+        let pool = pool().await;
+        load(&pool, &worded(1, "врач", "Он врач.")).await.unwrap();
+        let sentence: i64 = sqlx::query_scalar("SELECT id FROM sentence WHERE text = 'He is a doctor.'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO anchor (word_id, sentence_id) VALUES ('en:doctor', ?)")
+            .bind(sentence)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        load(&pool, &worded(2, "врач, доктор", "Он - врач.")).await.unwrap();
+        let (anchor, translation): (i64, String) = sqlx::query_as(
+            "SELECT a.sentence_id, t.text FROM anchor a JOIN sentence_translation t ON t.sentence_id = a.sentence_id WHERE a.word_id = 'en:doctor'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(anchor, sentence, "the anchor moved to another sentence");
+        assert_eq!(translation, "Он - врач.", "the corrected translation should have replaced the old one");
+        let gloss: String = sqlx::query_scalar("SELECT gloss FROM word WHERE id = 'en:doctor'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(gloss, "врач, доктор");
+        let marks: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence_word").fetch_one(&pool).await.unwrap();
+        assert_eq!(marks, 4, "a reload duplicated or lost the marks of words");
+    }
+
+    #[tokio::test]
+    async fn a_sentence_the_pack_drops_takes_its_anchor_with_it() {
+        let pool = pool().await;
+        load(&pool, &worded(1, "врач", "Он врач.")).await.unwrap();
+        sqlx::query("INSERT INTO anchor (word_id, sentence_id) SELECT 'en:doctor', id FROM sentence WHERE text = 'The doctors are busy.'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut shrunk = worded(2, "врач", "Он врач.");
+        shrunk.formulas[1].samples[0] = Sample {
+            native: "Они заняты.".to_string(),
+            target: "They are busy.".to_string(),
+            words: Vec::new(),
+        };
+        load(&pool, &shrunk).await.unwrap();
+
+        let gone: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence WHERE text = 'The doctors are busy.'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let anchors: i64 = sqlx::query_scalar("SELECT count(*) FROM anchor").fetch_one(&pool).await.unwrap();
+        assert_eq!((gone, anchors), (0, 0), "a sentence nobody shows, or an anchor in it, was left behind");
+    }
+
+    #[tokio::test]
+    async fn a_word_dropped_from_a_pack_is_reported_not_deleted() {
+        let pool = pool().await;
+        load(&pool, &worded(1, "врач", "Он врач.")).await.unwrap();
+        let mut shrunk = worded(2, "врач", "Он врач.");
+        shrunk.words.retain(|word| word.lemma != "go");
+        shrunk.formulas[0].samples[1].words.retain(|word| word != "go");
+        load(&pool, &shrunk).await.unwrap();
+        assert_eq!(orphaned_cards(&pool).await.unwrap(), vec!["en:go".to_string()]);
     }
 }

@@ -20,8 +20,9 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::auth;
-use crate::study::{self, Answer};
+use crate::study::{self, Answer, Graded};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
+use crate::words;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -52,6 +53,8 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
         .route("/today", get(today))
         .route("/formulas/{id}", get(formula))
         .route("/formulas/{id}/review", post(review))
+        .route("/words/{id}", get(word))
+        .route("/words/{id}/review", post(review_word))
         .route("/speech", get(speech))
         .route("/listen", get(listen))
         .route("/voices", get(voices_screen))
@@ -303,6 +306,21 @@ async fn review(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Jso
     }
 }
 
+async fn word(State(state): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+    match words::word(&state.pool, &id).await {
+        Ok(word) => Json(word).into_response(),
+        // A word that is not there is a client asking for the wrong id.
+        Err(error) => (StatusCode::NOT_FOUND, Json(json!({ "error": error.to_string() }))).into_response(),
+    }
+}
+
+async fn review_word(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(graded): Json<Graded>) -> Response {
+    match study::review_word(&state.pool, &id, graded, Utc::now()).await {
+        Ok(reviewed) => Json(reviewed).into_response(),
+        Err(error) => (StatusCode::NOT_FOUND, Json(json!({ "error": error.to_string() }))).into_response(),
+    }
+}
+
 /// What `GET /api/speech` is asked.
 #[derive(Deserialize)]
 struct Say {
@@ -480,10 +498,15 @@ order = 10
   [[formula.sample]]
   native = "a"
   target = "I am at home."
+  words = ["home"]
 
   [[formula.slot]]
   name = "pronoun"
   values = [{ native = "one", target = "I" }]
+
+[[word]]
+lemma = "home"
+gloss = "дом"
 "#;
         pack::load(&pool, &toml::from_str(toml).unwrap()).await.unwrap();
         pool
@@ -631,7 +654,7 @@ order = 10
         // The one thing the password is actually for.
         let dir = web_root();
         let app = locked(taught().await, &dir);
-        for uri in ["/api/today", "/api/formulas/be-present"] {
+        for uri in ["/api/today", "/api/formulas/be-present", "/api/words/en:home"] {
             let response = app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri} was readable without signing in");
         }
@@ -642,6 +665,72 @@ order = 10
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "a stranger could grade the learner's formulas");
+
+        let response = app
+            .clone()
+            .oneshot(json_request("POST", "/api/words/en:home/review", r#"{"rating":"good"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "a stranger could grade the learner's words");
+    }
+
+    #[tokio::test]
+    async fn a_word_comes_back_with_its_sentence_and_answering_it_schedules_it() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let response = app
+            .clone()
+            .oneshot(Request::get("/api/words/en:home").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["lemma"], "home");
+        assert_eq!(body["gloss"], "дом");
+        assert_eq!(body["level"], 1000);
+        assert_eq!(body["contexts"][0]["text"], "I am at home.");
+        assert_eq!(body["contexts"][0]["start"], 8);
+
+        let response = app
+            .clone()
+            .oneshot(json_request("POST", "/api/words/en:home/review", r#"{"rating":"good","duration_ms":2100}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_ne!(body_json(response).await["stitch"], "new");
+
+        for (method, uri) in [("GET", "/api/words/en:nonsense"), ("POST", "/api/words/en:nonsense/review")] {
+            let response = app.clone().oneshot(json_request(method, uri, r#"{"rating":"good"}"#)).await.unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_queue_says_what_each_item_is() {
+        // The app tells a formula from a word by `kind`; a queue item without
+        // it would be drawn as the wrong card.
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let response = app.clone().oneshot(Request::get("/api/today").body(Body::empty()).unwrap()).await.unwrap();
+        let body = body_json(response).await;
+        assert_eq!(body["queue"][0]["kind"], "formula");
+        assert_eq!(body["queue"][0]["direction"], "produce");
+        assert_eq!(body["words"]["levels"][0]["size"], 1000);
+
+        app.clone()
+            .oneshot(json_request("POST", "/api/formulas/be-present/review", r#"{"rating":"good"}"#))
+            .await
+            .unwrap();
+        let response = app.oneshot(Request::get("/api/today").body(Body::empty()).unwrap()).await.unwrap();
+        let body = body_json(response).await;
+        let word = body["queue"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|due| due["kind"] == "word")
+            .expect("the word of the drilled formula should be waiting");
+        assert_eq!(word["word"]["id"], "en:home");
+        assert_eq!(word["is_new"], true);
     }
 
     #[tokio::test]

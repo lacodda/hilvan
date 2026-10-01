@@ -1,9 +1,10 @@
 //! What the learner does today.
 //!
-//! Two questions, and the whole of v0.1.0 is the honest answer to them: what
-//! is waiting to be reviewed, and what one new thing is worth starting. The
+//! Two questions, and the whole of the product is the honest answer to them:
+//! what is waiting to be reviewed, and what new thing is worth starting. The
 //! scheduling itself lives in [`crate::scheduling`]; this module is the part
-//! that knows about formulas, days and the size of a sitting.
+//! that knows about formulas, days and the size of a sitting, and
+//! [`crate::words`] the part that knows about words.
 
 use std::collections::BTreeMap;
 
@@ -14,7 +15,8 @@ use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
 use crate::pack::Form;
 use crate::say::Filling;
-use crate::scheduling::{Card, Direction, Rating, Scheduled, Scheduler, Stitch};
+use crate::scheduling::{Card, Direction, Kind, Rating, Scheduled, Scheduler, Stitch};
+use crate::words::{self, Standing, Word};
 
 /// How many formulas start on any one day.
 ///
@@ -22,6 +24,15 @@ use crate::scheduling::{Card, Direction, Rating, Scheduled, Scheduler, Stitch};
 /// until it stops needing thought, and two new ones in a day means neither
 /// gets that. This is a product decision, not a tuning knob.
 pub const NEW_FORMULAS_PER_DAY: usize = 1;
+
+/// How many words start on any one day.
+///
+/// Ten: a formula of the day brings five or six worked examples and a word
+/// or two in each, so ten is enough that the words of today's formula are
+/// rarely held back, and few enough that a pack with a long list cannot
+/// bury a sitting in vocabulary. A product decision, like the formula's one;
+/// the queue opens the commonest first.
+pub const NEW_WORDS_PER_DAY: usize = 10;
 
 /// A formula with everything the drill needs to run it.
 #[derive(Debug, Clone, Serialize)]
@@ -71,13 +82,30 @@ pub struct Sister {
     pub stitch: Stitch,
 }
 
-/// A worked example of a formula.
+/// A worked example of a formula: a sentence, and what it means.
 #[derive(Debug, Clone, Serialize)]
 pub struct Sample {
+    /// The sentence's id: the same sentence shown by another formula, or
+    /// heard as a word's anchor, is the same id.
+    pub sentence: i64,
     /// The prompt, in the learner's native language.
     pub native: String,
     /// The answer, in the language being learnt.
     pub target: String,
+    /// The words the sentence teaches, where they stand in `target`.
+    pub words: Vec<Mark>,
+}
+
+/// A word marked in a sentence.
+#[derive(Debug, Clone, Serialize)]
+pub struct Mark {
+    /// The word's id, `en:doctor`.
+    pub word: String,
+    pub lemma: String,
+    /// How it is spelt here: "went" for go.
+    pub form: String,
+    /// The character it starts at.
+    pub start: i64,
 }
 
 /// A hole in the pattern, with what can go in it.
@@ -106,16 +134,29 @@ impl Filling for Value {
     }
 }
 
-/// One item in today's queue: a formula, a direction, and the state that
-/// pair is in.
+/// What one item of the queue is about.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Subject {
+    /// A formula, asked one way round.
+    Formula {
+        formula: Formula,
+        /// Which way round this turn asks it.
+        direction: Direction,
+    },
+    /// A word, asked in its sentence.
+    Word { word: Word },
+}
+
+/// One item in today's queue: a formula in a direction, or a word, and the
+/// state it is in.
 #[derive(Debug, Clone, Serialize)]
 pub struct Due {
-    pub formula: Formula,
-    /// Which way round this turn asks it.
-    pub direction: Direction,
+    #[serde(flatten)]
+    pub subject: Subject,
     pub stitch: Stitch,
-    /// True when this formula is being seen in this direction for the first
-    /// time.
+    /// True when this is being seen for the first time - a formula in this
+    /// direction, or a word.
     pub is_new: bool,
     pub due: DateTime<Utc>,
     /// How fast this card usually comes, when it has come often enough to
@@ -152,7 +193,7 @@ const PACE_MIN_ANSWERS: usize = 3;
 /// How many recent answers the typical pace is taken over.
 const PACE_WINDOW: i64 = 8;
 
-/// How many formulas stand in each state.
+/// How many formulas, or words, stand in each state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct Counts {
     pub new: i64,
@@ -176,13 +217,17 @@ pub struct Progress {
 /// The answer to "what am I doing today".
 #[derive(Debug, Clone, Serialize)]
 pub struct Today {
-    /// Formulas waiting to come back, plus at most one new one.
+    /// Formulas waiting to come back and at most one new one, then words
+    /// waiting to come back and the new ones the day has room for.
     pub queue: Vec<Due>,
-    /// Formulas already reviewed since midnight UTC.
+    /// Answers given since midnight UTC, formulas and words.
     pub reviewed_today: i64,
+    /// Formulas by state, producing side.
     pub counts: Counts,
     /// The same standing, split by direction.
     pub progress: Progress,
+    /// Where the learner stands with words.
+    pub words: Standing,
 }
 
 /// What the learner sends back after answering.
@@ -203,19 +248,29 @@ const fn produce() -> Direction {
     Direction::Produce
 }
 
+/// What the learner sends back after answering a word: how it went, and
+/// how long it took. A word has one card, so there is no direction to say.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct Graded {
+    pub rating: Rating,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+}
+
 /// What an answer changed.
 #[derive(Debug, Clone, Serialize)]
 pub struct Reviewed {
     pub stitch: Stitch,
     pub due: DateTime<Utc>,
-    /// Days until this formula comes back.
+    /// Days until it comes back.
     pub interval_days: i64,
     /// How this answer compared with the usual pace of this card, when there
     /// is a usual pace to compare with.
     pub pace: Option<Pace>,
 }
 
-/// Today's queue: everything due, then one new formula if the day has room.
+/// Today's queue: formulas, then words; in each, everything due and then
+/// the new ones the day has room for.
 ///
 /// Reviews come first and are never crowded out by new material - a day where
 /// the learner starts something new while forgetting yesterday's is the
@@ -224,7 +279,8 @@ pub struct Reviewed {
 /// Both directions of a formula queue independently: understanding a shape
 /// and producing it come back on their own schedules, and the recognising
 /// card of a formula the learner has never produced is not offered - you
-/// cannot be asked to understand what you were never shown.
+/// cannot be asked to understand what you were never shown. A word opens
+/// the same way: only once a sentence that holds it has been met.
 ///
 /// # Errors
 ///
@@ -232,6 +288,20 @@ pub struct Reviewed {
 pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
     let counts = counts(pool).await?;
     let progress = progress(pool).await?;
+    let mut queue = formulas_today(pool, now).await?;
+    queue.extend(words_today(pool, now).await?);
+
+    Ok(Today {
+        queue,
+        reviewed_today: reviewed_since(pool, start_of_day(now)).await?,
+        counts,
+        progress,
+        words: words::standing(pool).await?,
+    })
+}
+
+/// The formulas of today's queue.
+async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due>> {
     let mut queue = Vec::new();
 
     let due_rows = sqlx::query(
@@ -258,7 +328,7 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
         queue.push(due(pool, &id, Direction::Recognise, true, now).await?);
     }
 
-    let started_today = introduced_since(pool, start_of_day(now)).await?;
+    let started_today = introduced_since(pool, Kind::Formula(Direction::Produce), start_of_day(now)).await?;
     if usize::try_from(started_today).unwrap_or(usize::MAX) < NEW_FORMULAS_PER_DAY {
         // The next formula is the first one in the pack's own sequence that
         // has never been answered: the pack decides the order, not the clock.
@@ -266,24 +336,49 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
             queue.push(due(pool, &id, Direction::Produce, true, now).await?);
         }
     }
+    Ok(queue)
+}
 
-    Ok(Today {
-        queue,
-        reviewed_today: reviewed_since(pool, start_of_day(now)).await?,
-        counts,
-        progress,
-    })
+/// The words of today's queue: those due, then as many met words as the
+/// day's budget of new ones has room for.
+async fn words_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due>> {
+    let mut queue = Vec::new();
+    for id in words::due(pool, now).await? {
+        queue.push(word_due(pool, &id, false, now).await?);
+    }
+    let started_today = usize::try_from(introduced_since(pool, Kind::Word, start_of_day(now)).await?).unwrap_or(usize::MAX);
+    let room = NEW_WORDS_PER_DAY.saturating_sub(started_today);
+    for id in words::waiting(pool).await?.into_iter().take(room) {
+        queue.push(word_due(pool, &id, true, now).await?);
+    }
+    Ok(queue)
 }
 
 /// One queue entry, with the formula, its sisters and its pace.
 async fn due(pool: &SqlitePool, id: &str, direction: Direction, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
+    let kind = Kind::Formula(direction);
     Ok(Due {
-        formula: formula(pool, id).await?,
-        direction,
-        stitch: card(pool, id, direction).await?.map_or(Stitch::New, |card| card.stitch),
+        subject: Subject::Formula {
+            formula: formula(pool, id).await?,
+            direction,
+        },
+        stitch: card(pool, kind, id).await?.map_or(Stitch::New, |card| card.stitch),
         is_new,
         due: now,
-        pace: pace(pool, id, direction).await?,
+        pace: pace(pool, kind, id).await?,
+    })
+}
+
+/// One queue entry for a word, with its contexts and its pace.
+async fn word_due(pool: &SqlitePool, id: &str, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
+    Ok(Due {
+        subject: Subject::Word {
+            word: words::word(pool, id).await?,
+        },
+        stitch: card(pool, Kind::Word, id).await?.map_or(Stitch::New, |card| card.stitch),
+        is_new,
+        due: now,
+        pace: pace(pool, Kind::Word, id).await?,
     })
 }
 
@@ -294,12 +389,36 @@ async fn due(pool: &SqlitePool, id: &str, direction: Direction, is_new: bool, no
 /// Fails when the formula has no card in that direction - which means it is
 /// not in any loaded pack - or when the database rejects a statement.
 pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: DateTime<Utc>) -> Result<Reviewed> {
-    let direction = answer.direction;
-    let card = card(pool, formula_id, direction)
+    record(pool, Kind::Formula(answer.direction), formula_id, answer.rating, answer.duration_ms, now)
         .await?
-        .with_context(|| format!("there is no formula called {formula_id}"))?;
+        .with_context(|| format!("there is no formula called {formula_id}"))
+}
 
-    let Scheduled { card: next, elapsed_days } = Scheduler::new().review(&card, answer.rating, now);
+/// Records an answer to a word and reschedules it.
+///
+/// The first answer fixes the word's anchor: the sentence it was shown in is
+/// the one it is heard in from then on.
+///
+/// # Errors
+///
+/// Fails when there is no such word in any loaded pack, or when the
+/// database rejects a statement.
+pub async fn review_word(pool: &SqlitePool, word_id: &str, graded: Graded, now: DateTime<Utc>) -> Result<Reviewed> {
+    let reviewed = record(pool, Kind::Word, word_id, graded.rating, graded.duration_ms, now)
+        .await?
+        .with_context(|| format!("there is no word called {word_id}"))?;
+    words::anchor(pool, word_id).await?;
+    Ok(reviewed)
+}
+
+/// Applies an answer to a card: the new schedule, and the review kept
+/// whole. `None` when there is no such card.
+async fn record(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, duration_ms: Option<i64>, now: DateTime<Utc>) -> Result<Option<Reviewed>> {
+    let Some(card) = card(pool, kind, subject).await? else {
+        return Ok(None);
+    };
+
+    let Scheduled { card: next, elapsed_days } = Scheduler::new().review(&card, rating, now);
 
     let mut tx = pool.begin().await.context("failed to open a transaction")?;
     sqlx::query(
@@ -315,8 +434,8 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
     .bind(next.lapses)
     .bind(now.to_rfc3339())
     .bind(now.to_rfc3339())
-    .bind(direction.kind())
-    .bind(formula_id)
+    .bind(kind.as_str())
+    .bind(subject)
     .execute(&mut *tx)
     .await
     .context("failed to save the card")?;
@@ -327,25 +446,25 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
         "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms)
          SELECT id, ?, ?, ?, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?",
     )
-    .bind(answer.rating.as_i64())
+    .bind(rating.as_i64())
     .bind(now.to_rfc3339())
     .bind(elapsed_days)
     .bind(next.stability)
     .bind(next.difficulty)
-    .bind(answer.duration_ms)
-    .bind(direction.kind())
-    .bind(formula_id)
+    .bind(duration_ms)
+    .bind(kind.as_str())
+    .bind(subject)
     .execute(&mut *tx)
     .await
     .context("failed to record the review")?;
     tx.commit().await.context("failed to commit the review")?;
 
-    Ok(Reviewed {
+    Ok(Some(Reviewed {
         stitch: next.stitch,
         due: next.due,
         interval_days: (next.due - now).num_days(),
-        pace: pace(pool, formula_id, direction).await?,
-    })
+        pace: pace(pool, kind, subject).await?,
+    }))
 }
 
 /// One formula with its samples and slots.
@@ -364,14 +483,8 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
     .context("failed to read a formula")?
     .with_context(|| format!("there is no formula called {id}"))?;
 
-    let samples = sqlx::query("SELECT native, target FROM sample WHERE formula_id = ? ORDER BY position")
-        .bind(id)
-        .fetch_all(pool)
-        .await
-        .context("failed to read the samples of a formula")?
-        .iter()
-        .map(sample)
-        .collect();
+    let native: String = row.get("native");
+    let samples = samples(pool, id, &native).await?;
 
     let slot_rows = sqlx::query("SELECT id, name FROM slot WHERE formula_id = ? ORDER BY position")
         .bind(id)
@@ -463,7 +576,7 @@ async fn sisters(pool: &SqlitePool, family: &str, without: &str) -> Result<Vec<S
 ///
 /// Fails when the database rejects the query.
 pub async fn counts(pool: &SqlitePool) -> Result<Counts> {
-    counts_for(pool, Direction::Produce).await
+    counts_for(pool, Kind::Formula(Direction::Produce)).await
 }
 
 /// The same standing told once per direction.
@@ -473,14 +586,14 @@ pub async fn counts(pool: &SqlitePool) -> Result<Counts> {
 /// Fails when the database rejects a query.
 pub async fn progress(pool: &SqlitePool) -> Result<Progress> {
     Ok(Progress {
-        produce: counts_for(pool, Direction::Produce).await?,
-        recognise: counts_for(pool, Direction::Recognise).await?,
+        produce: counts_for(pool, Kind::Formula(Direction::Produce)).await?,
+        recognise: counts_for(pool, Kind::Formula(Direction::Recognise)).await?,
     })
 }
 
-async fn counts_for(pool: &SqlitePool, direction: Direction) -> Result<Counts> {
+async fn counts_for(pool: &SqlitePool, kind: Kind) -> Result<Counts> {
     let rows = sqlx::query("SELECT state, count(*) AS n FROM card WHERE kind = ? GROUP BY state")
-        .bind(direction.kind())
+        .bind(kind.as_str())
         .fetch_all(pool)
         .await
         .context("failed to count the formulas")?;
@@ -511,11 +624,53 @@ fn value(row: &SqliteRow) -> Result<Value> {
     })
 }
 
-fn sample(row: &SqliteRow) -> Sample {
-    Sample {
-        native: row.get("native"),
-        target: row.get("target"),
+/// The worked examples of a formula, with the words marked in them.
+async fn samples(pool: &SqlitePool, formula_id: &str, native: &str) -> Result<Vec<Sample>> {
+    let rows = sqlx::query(
+        "SELECT s.id, s.text, COALESCE(t.text, '') AS translation FROM formula_sentence fs
+         JOIN sentence s ON s.id = fs.sentence_id
+         LEFT JOIN sentence_translation t ON t.sentence_id = s.id AND t.language = ?
+         WHERE fs.formula_id = ?
+         ORDER BY fs.position",
+    )
+    .bind(native)
+    .bind(formula_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to read the samples of a formula")?;
+
+    let marks = sqlx::query(
+        "SELECT sw.sentence_id, sw.word_id, w.lemma, sw.form, sw.start FROM sentence_word sw
+         JOIN word w ON w.id = sw.word_id
+         WHERE sw.sentence_id IN (SELECT sentence_id FROM formula_sentence WHERE formula_id = ?)
+         ORDER BY sw.sentence_id, sw.start",
+    )
+    .bind(formula_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to read the words of a formula's samples")?;
+    let mut by_sentence: BTreeMap<i64, Vec<Mark>> = BTreeMap::new();
+    for row in marks {
+        by_sentence.entry(row.get("sentence_id")).or_default().push(Mark {
+            word: row.get("word_id"),
+            lemma: row.get("lemma"),
+            form: row.get("form"),
+            start: row.get("start"),
+        });
     }
+
+    Ok(rows
+        .iter()
+        .map(|row| {
+            let sentence: i64 = row.get("id");
+            Sample {
+                sentence,
+                native: row.get("translation"),
+                target: row.get("text"),
+                words: by_sentence.get(&sentence).cloned().unwrap_or_default(),
+            }
+        })
+        .collect())
 }
 
 /// Midnight UTC of the day `now` falls in.
@@ -528,13 +683,13 @@ fn start_of_day(now: DateTime<Utc>) -> DateTime<Utc> {
     now.date_naive().and_hms_opt(0, 0, 0).map_or(now, |naive| naive.and_utc())
 }
 
-async fn card(pool: &SqlitePool, formula_id: &str, direction: Direction) -> Result<Option<Card>> {
+async fn card(pool: &SqlitePool, kind: Kind, subject: &str) -> Result<Option<Card>> {
     let row = sqlx::query(
         "SELECT state, stability, difficulty, due, reps, lapses, last_reviewed
          FROM card WHERE kind = ? AND subject_id = ?",
     )
-    .bind(direction.kind())
-    .bind(formula_id)
+    .bind(kind.as_str())
+    .bind(subject)
     .fetch_optional(pool)
     .await
     .context("failed to read a card")?;
@@ -574,17 +729,18 @@ async fn next_new(pool: &SqlitePool) -> Result<Option<String>> {
     .context("failed to look for the next new formula")
 }
 
-/// How many formulas were started today.
+/// How many cards of a kind were started since `since`.
 ///
-/// The producing side only: the day's budget of one new formula is about new
-/// shapes, and the recognising card of a shape already being drilled is not a
-/// new shape.
-async fn introduced_since(pool: &SqlitePool, since: DateTime<Utc>) -> Result<i64> {
-    sqlx::query_scalar("SELECT count(*) FROM card WHERE kind = 'formula' AND introduced_at >= ?")
+/// Formulas are counted on the producing side only: the day's budget of one
+/// new formula is about new shapes, and the recognising card of a shape
+/// already being drilled is not a new shape.
+async fn introduced_since(pool: &SqlitePool, kind: Kind, since: DateTime<Utc>) -> Result<i64> {
+    sqlx::query_scalar("SELECT count(*) FROM card WHERE kind = ? AND introduced_at >= ?")
+        .bind(kind.as_str())
         .bind(since.to_rfc3339())
         .fetch_one(pool)
         .await
-        .context("failed to count the formulas started today")
+        .context("failed to count what was started today")
 }
 
 async fn reviewed_since(pool: &SqlitePool, since: DateTime<Utc>) -> Result<i64> {
@@ -619,7 +775,7 @@ async fn unopened_recognitions(pool: &SqlitePool) -> Result<Vec<String>> {
 /// weeks, and the number is there to be trusted at a glance.
 ///
 /// `None` until there are enough answers to have a middle worth showing.
-async fn pace(pool: &SqlitePool, formula_id: &str, direction: Direction) -> Result<Option<Pace>> {
+async fn pace(pool: &SqlitePool, kind: Kind, subject: &str) -> Result<Option<Pace>> {
     let mut recent: Vec<i64> = sqlx::query_scalar(
         "SELECT r.duration_ms FROM review r
          JOIN card c ON c.id = r.card_id
@@ -627,12 +783,12 @@ async fn pace(pool: &SqlitePool, formula_id: &str, direction: Direction) -> Resu
          ORDER BY r.reviewed_at DESC, r.id DESC
          LIMIT ?",
     )
-    .bind(direction.kind())
-    .bind(formula_id)
+    .bind(kind.as_str())
+    .bind(subject)
     .bind(PACE_WINDOW)
     .fetch_all(pool)
     .await
-    .context("failed to read how long a formula usually takes")?;
+    .context("failed to read how long a card usually takes")?;
 
     if recent.len() < PACE_MIN_ANSWERS {
         return Ok(None);
@@ -650,6 +806,32 @@ async fn pace(pool: &SqlitePool, formula_id: &str, direction: Direction) -> Resu
 mod tests {
     use super::*;
     use crate::pack;
+
+    impl Due {
+        /// The formula this item asks, or an empty id for a word: most of
+        /// these tests are about formulas, and say so by asking for one.
+        fn formula_id(&self) -> &String {
+            static NONE: String = String::new();
+            match &self.subject {
+                Subject::Formula { formula, .. } => &formula.id,
+                Subject::Word { .. } => &NONE,
+            }
+        }
+
+        fn direction(&self) -> Option<Direction> {
+            match &self.subject {
+                Subject::Formula { direction, .. } => Some(*direction),
+                Subject::Word { .. } => None,
+            }
+        }
+
+        fn word_id(&self) -> Option<&str> {
+            match &self.subject {
+                Subject::Word { word } => Some(&word.id),
+                Subject::Formula { .. } => None,
+            }
+        }
+    }
 
     /// The first three fixture formulas are the three forms of one shape, so
     /// the switch has something to switch between; the rest stand alone.
@@ -750,7 +932,7 @@ order = {}
 
         assert_eq!(today.queue.len(), 1);
         assert!(today.queue[0].is_new);
-        assert_eq!(today.queue[0].formula.id, "f0", "the pack's own order should decide what comes first");
+        assert_eq!(today.queue[0].formula_id(), "f0", "the pack's own order should decide what comes first");
         assert_eq!(today.counts, Counts { new: 5, basted: 0, sewn: 0 });
     }
 
@@ -761,9 +943,9 @@ order = {}
 
         let today = today(&pool, at(0)).await.unwrap();
         assert!(
-            today.queue.iter().all(|due| !(due.is_new && due.direction == Direction::Produce)),
+            today.queue.iter().all(|due| !(due.is_new && due.direction() == Some(Direction::Produce))),
             "a second new formula was offered on the same day: {:?}",
-            today.queue.iter().map(|due| &due.formula.id).collect::<Vec<_>>()
+            today.queue.iter().map(Due::formula_id).collect::<Vec<_>>()
         );
         assert_eq!(today.reviewed_today, 1);
     }
@@ -777,8 +959,8 @@ order = {}
         let new: Vec<_> = tomorrow
             .queue
             .iter()
-            .filter(|due| due.is_new && due.direction == Direction::Produce)
-            .map(|due| due.formula.id.as_str())
+            .filter(|due| due.is_new && due.direction() == Some(Direction::Produce))
+            .map(|due| due.formula_id().as_str())
             .collect();
         assert_eq!(new, vec!["f1"], "a new day should open exactly the next formula in the pack");
     }
@@ -815,7 +997,7 @@ order = {}
         review(&pool, "f0", said(Rating::Again), at(0)).await.unwrap();
 
         let later = today(&pool, at(2)).await.unwrap();
-        assert_eq!(later.queue.first().map(|due| due.formula.id.as_str()), Some("f0"));
+        assert_eq!(later.queue.first().map(|due| due.formula_id().as_str()), Some("f0"));
         assert!(!later.queue[0].is_new);
     }
 
@@ -830,7 +1012,7 @@ order = {}
             same_day
                 .queue
                 .iter()
-                .all(|due| !(due.formula.id == "f0" && due.direction == Direction::Produce)),
+                .all(|due| !(due.formula_id() == "f0" && due.direction() == Some(Direction::Produce))),
             "an answered formula came back the same day"
         );
     }
@@ -929,7 +1111,7 @@ order = {}
         let pool = loaded(4).await;
         let first = today(&pool, at(0)).await.unwrap();
         assert!(
-            first.queue.iter().all(|due| due.direction == Direction::Produce),
+            first.queue.iter().all(|due| due.direction() == Some(Direction::Produce)),
             "a fresh learner was asked to recognise something never shown"
         );
 
@@ -938,8 +1120,8 @@ order = {}
         let backwards: Vec<_> = after
             .queue
             .iter()
-            .filter(|due| due.direction == Direction::Recognise)
-            .map(|due| due.formula.id.as_str())
+            .filter(|due| due.direction() == Some(Direction::Recognise))
+            .map(|due| due.formula_id().as_str())
             .collect();
         assert_eq!(backwards, vec!["f0"], "the formula just shown should open its recognising side");
     }
@@ -959,14 +1141,18 @@ order = {}
         // cannot show the difference and this is the only place it is
         // visible.
         assert_eq!(
-            introduced_since(&pool, start_of_day(at(0))).await.unwrap(),
+            introduced_since(&pool, Kind::Formula(Direction::Produce), start_of_day(at(0))).await.unwrap(),
             1,
             "the reverse card was counted as a new shape"
         );
 
         let same_day = today(&pool, at(0)).await.unwrap();
         assert_eq!(
-            same_day.queue.iter().filter(|due| due.is_new && due.direction == Direction::Produce).count(),
+            same_day
+                .queue
+                .iter()
+                .filter(|due| due.is_new && due.direction() == Some(Direction::Produce))
+                .count(),
             0,
             "the formula of the day was already answered, so no second one is due"
         );
@@ -975,8 +1161,8 @@ order = {}
         let fresh: Vec<_> = tomorrow
             .queue
             .iter()
-            .filter(|due| due.is_new && due.direction == Direction::Produce)
-            .map(|due| due.formula.id.as_str())
+            .filter(|due| due.is_new && due.direction() == Some(Direction::Produce))
+            .map(|due| due.formula_id().as_str())
             .collect();
         assert_eq!(fresh, vec!["f1"], "the reverse drill of yesterday ate the new formula of today");
 
@@ -988,8 +1174,8 @@ order = {}
         let fresh: Vec<_> = later
             .queue
             .iter()
-            .filter(|due| due.is_new && due.direction == Direction::Produce)
-            .map(|due| due.formula.id.as_str())
+            .filter(|due| due.is_new && due.direction() == Some(Direction::Produce))
+            .map(|due| due.formula_id().as_str())
             .collect();
         assert_eq!(fresh, vec!["f2"], "a reverse card counted against the budget of new shapes");
     }
@@ -1055,7 +1241,7 @@ order = {}
             .unwrap()
             .queue
             .into_iter()
-            .find(|due| due.formula.id == "f0" && due.direction == Direction::Produce)
+            .find(|due| due.formula_id() == "f0" && due.direction() == Some(Direction::Produce))
             .expect("the formula should be waiting on the day it is due");
         assert_eq!(due.pace.expect("a drilled card should carry its pace").typical_ms, 3500);
     }
@@ -1068,5 +1254,248 @@ order = {}
         let counts = counts(&pool).await.unwrap();
         assert_eq!(counts.new, 3, "the formula answered should have left the new pile");
         assert_eq!(counts.basted + counts.sewn, 1);
+    }
+
+    /// Two formulas whose examples teach four words: "doctor" in a sentence
+    /// of each, "umbrella" past the 5k level.
+    const WORDED: &str = r#"
+id = "w"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "f0"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 10
+
+  [[formula.sample]]
+  native = "Он врач."
+  target = "He is a doctor."
+  words = ["doctor"]
+
+  [[formula.sample]]
+  native = "Я дома."
+  target = "I am at home."
+  words = ["home"]
+
+[[formula]]
+id = "f1"
+name = "n"
+pattern = "y"
+explanation = "e"
+order = 20
+
+  [[formula.sample]]
+  native = "Мой друг врач."
+  target = "My friend is a doctor."
+  words = ["friend", "doctor"]
+
+  [[formula.sample]]
+  native = "Где мой зонт?"
+  target = "Where is my umbrella?"
+  words = ["umbrella"]
+
+[[word]]
+lemma = "doctor"
+gloss = "врач"
+
+[[word]]
+lemma = "home"
+gloss = "дом"
+
+[[word]]
+lemma = "friend"
+gloss = "друг"
+
+[[word]]
+lemma = "umbrella"
+gloss = "зонт"
+"#;
+
+    async fn worded() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let pack: pack::Pack = toml::from_str(WORDED).unwrap();
+        pack.validate().unwrap();
+        pack::load(&pool, &pack).await.unwrap();
+        pool
+    }
+
+    fn words_in(today: &Today) -> Vec<&str> {
+        today.queue.iter().filter_map(Due::word_id).collect()
+    }
+
+    const fn graded(rating: Rating) -> Graded {
+        Graded { rating, duration_ms: None }
+    }
+
+    #[tokio::test]
+    async fn a_word_waits_until_a_sentence_that_holds_it_has_been_met() {
+        // The whole of "a word enters the deck only inside a sentence".
+        let pool = worded().await;
+        assert!(
+            words_in(&today(&pool, at(0)).await.unwrap()).is_empty(),
+            "a word was offered before any sentence was met"
+        );
+
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let after = today(&pool, at(0)).await.unwrap();
+        let mut offered = words_in(&after);
+        offered.sort_unstable();
+        assert_eq!(
+            offered,
+            vec!["en:doctor", "en:home"],
+            "the words of the formula just drilled should open, and only those"
+        );
+        assert_eq!(after.words.waiting, 2);
+    }
+
+    #[tokio::test]
+    async fn words_come_after_the_formulas_and_the_commonest_first() {
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let queue = today(&pool, at(0)).await.unwrap().queue;
+        let first_word = queue.iter().position(|due| due.word_id().is_some()).unwrap();
+        assert!(queue[..first_word].iter().all(|due| due.direction().is_some()));
+        assert!(queue[first_word..].iter().all(|due| due.word_id().is_some()), "a formula came after a word");
+        // home is far commoner than doctor.
+        assert_eq!(queue[first_word].word_id(), Some("en:home"));
+    }
+
+    #[tokio::test]
+    async fn a_word_met_in_two_sentences_shows_both_and_only_those_met() {
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let doctor = words::word(&pool, "en:doctor").await.unwrap();
+        assert_eq!(doctor.contexts.len(), 1, "the sentence of a formula not yet drilled was shown");
+        assert_eq!(doctor.contexts[0].text, "He is a doctor.");
+        assert!(doctor.contexts[0].anchor);
+        assert_eq!((doctor.contexts[0].form.as_str(), doctor.contexts[0].start), ("doctor", 8));
+        assert_eq!(doctor.level, Some(1000));
+        assert!(doctor.ipa.is_some(), "the lexicon says how doctor sounds");
+
+        review(&pool, "f1", said(Rating::Good), at(1)).await.unwrap();
+        let doctor = words::word(&pool, "en:doctor").await.unwrap();
+        let texts: Vec<_> = doctor.contexts.iter().map(|context| context.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            vec!["He is a doctor.", "My friend is a doctor."],
+            "one word, two contexts, the first met first"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sentence_two_formulas_share_is_one_context() {
+        // The same example in two formulas is one sentence: the word is met
+        // in it once, however many formulas show it.
+        let shared = WORDED.replace(
+            "  native = \"Где мой зонт?\"\n  target = \"Where is my umbrella?\"\n  words = [\"umbrella\"]",
+            "  native = \"Он врач.\"\n  target = \"He is a doctor.\"\n  words = [\"doctor\"]",
+        );
+        let shared = shared.replace("[[word]]\nlemma = \"umbrella\"\ngloss = \"зонт\"\n", "");
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let pack: pack::Pack = toml::from_str(&shared).unwrap();
+        pack.validate().unwrap();
+        pack::load(&pool, &pack).await.unwrap();
+        review(&pool, "f1", said(Rating::Good), at(0)).await.unwrap();
+
+        let doctor = words::word(&pool, "en:doctor").await.unwrap();
+        let texts: Vec<_> = doctor.contexts.iter().map(|context| context.text.as_str()).collect();
+        assert_eq!(texts, vec!["He is a doctor.", "My friend is a doctor."]);
+        assert_eq!(doctor.contexts[0].formula, "f0", "a shared sentence stands where it is first shown");
+    }
+
+    #[tokio::test]
+    async fn the_first_answer_fixes_the_sentence_a_word_is_heard_in() {
+        let pool = worded().await;
+        review(&pool, "f1", said(Rating::Good), at(0)).await.unwrap();
+        review_word(&pool, "en:doctor", graded(Rating::Good), at(0)).await.unwrap();
+
+        // Drilling the earlier formula later brings a sentence that comes
+        // first in the pack; the word is still heard where it was learnt.
+        review(&pool, "f0", said(Rating::Good), at(1)).await.unwrap();
+        let doctor = words::word(&pool, "en:doctor").await.unwrap();
+        assert_eq!(doctor.contexts.len(), 2);
+        assert_eq!(doctor.contexts[0].text, "My friend is a doctor.", "the anchor moved");
+        assert!(doctor.contexts[0].anchor && !doctor.contexts[1].anchor);
+    }
+
+    #[tokio::test]
+    async fn an_answered_word_comes_back_on_its_own_schedule() {
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let reviewed = review_word(&pool, "en:home", graded(Rating::Again), at(0)).await.unwrap();
+        assert_eq!(reviewed.stitch, Stitch::Basted);
+
+        let later = today(&pool, reviewed.due).await.unwrap();
+        let due = later
+            .queue
+            .iter()
+            .find(|due| due.word_id() == Some("en:home"))
+            .expect("the word should be back");
+        assert!(!due.is_new);
+        assert!(review_word(&pool, "en:nothing", graded(Rating::Good), at(0)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_day_opens_no_more_than_its_budget_of_words() {
+        use std::fmt::Write as _;
+        let nouns = [
+            "cat", "dog", "house", "car", "book", "tree", "water", "city", "door", "table", "chair", "window",
+        ];
+        let mut toml = String::from(
+            "id = \"many\"\nversion = 1\nnative = \"ru\"\ntarget = \"en\"\n\n[[formula]]\nid = \"f0\"\nname = \"n\"\npattern = \"x\"\nexplanation = \"e\"\norder = 10\n",
+        );
+        for noun in nouns {
+            let _ = write!(
+                toml,
+                "\n  [[formula.sample]]\n  native = \"{noun}\"\n  target = \"I see the {noun}.\"\n  words = [\"{noun}\"]\n"
+            );
+        }
+        for noun in nouns {
+            let _ = write!(toml, "\n[[word]]\nlemma = \"{noun}\"\ngloss = \"x\"\n");
+        }
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        pack::load(&pool, &toml::from_str(&toml).unwrap()).await.unwrap();
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+
+        let offered = words_in(&today(&pool, at(0)).await.unwrap())
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        assert_eq!(offered.len(), NEW_WORDS_PER_DAY);
+        let english = crate::lexicon::of("en").unwrap();
+        let ranks: Vec<u32> = offered.iter().map(|id| english.entry(&id[3..]).unwrap().rank).collect();
+        assert!(ranks.windows(2).all(|pair| pair[0] < pair[1]), "the commonest should open first: {offered:?}");
+
+        // Each word started today takes one place of today's budget.
+        for id in offered.iter().take(4) {
+            review_word(&pool, id, graded(Rating::Easy), at(0)).await.unwrap();
+        }
+        let after = today(&pool, at(0)).await.unwrap();
+        let fresh = after.queue.iter().filter(|due| due.is_new && due.word_id().is_some()).count();
+        assert_eq!(fresh, NEW_WORDS_PER_DAY - 4);
+        assert_eq!(after.words.waiting, i64::try_from(nouns.len()).unwrap() - 4);
+    }
+
+    #[tokio::test]
+    async fn the_levels_count_the_words_in_hand_by_how_common_they_are() {
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        review(&pool, "f1", said(Rating::Good), at(0)).await.unwrap();
+        for id in ["en:home", "en:doctor", "en:umbrella"] {
+            review_word(&pool, id, graded(Rating::Good), at(0)).await.unwrap();
+        }
+        let standing = words::standing(&pool).await.unwrap();
+        assert_eq!(standing.counts.new, 1, "friend was not answered");
+        let held: Vec<(u32, i64)> = standing.levels.iter().map(|level| (level.size, level.basted + level.sewn)).collect();
+        // home and doctor are in the first thousand; umbrella is past 5k and
+        // counted in no level.
+        assert_eq!(held, vec![(1000, 2), (2000, 2), (5000, 2)]);
     }
 }

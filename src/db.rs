@@ -73,6 +73,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_worked_examples_of_a_stand_survive_the_move_into_sentences() {
+        // A stand is upgraded before its pack is reloaded: between the two,
+        // the drill has to keep its examples. The schema as v0.3 left it,
+        // filled the way v0.3 filled it, then the migrations that came after.
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let mut before = sqlx::migrate!();
+        before.migrations = before.migrations.iter().filter(|migration| migration.version <= 5).cloned().collect();
+        before.run(&pool).await.unwrap();
+        for statement in [
+            "INSERT INTO language (code, name, is_native) VALUES ('ru', 'ru', 1), ('en', 'en', 0)",
+            "INSERT INTO pack (id, version, native, target, loaded_at) VALUES ('p', 3, 'ru', 'en', '2026-09-23T00:00:00Z')",
+            "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position) VALUES
+                 ('be', 'p', 'en', 'n', 'x', 'e', 10), ('have', 'p', 'en', 'n', 'y', 'e', 20)",
+            "INSERT INTO sample (formula_id, native, target, position) VALUES
+                 ('be', 'Я дома.', 'I am at home.', 0), ('be', 'Он врач.', 'He is a doctor.', 1),
+                 ('have', 'Я дома.', 'I am at home.', 0)",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        sqlx::migrate!().run(&pool).await.expect("the move into sentences should apply over v0.3 data");
+
+        let sentences: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence").fetch_one(&pool).await.unwrap();
+        assert_eq!(sentences, 2, "a sentence two formulas showed should be one sentence");
+        let shown: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT fs.formula_id, s.text, t.text FROM formula_sentence fs
+             JOIN sentence s ON s.id = fs.sentence_id
+             JOIN sentence_translation t ON t.sentence_id = s.id AND t.language = 'ru'
+             ORDER BY fs.formula_id, fs.position",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            shown,
+            vec![
+                ("be".into(), "I am at home.".into(), "Я дома.".into()),
+                ("be".into(), "He is a doctor.".into(), "Он врач.".into()),
+                ("have".into(), "I am at home.".into(), "Я дома.".into()),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn rejects_a_url_that_is_not_sqlite() {
         let error = connect("postgres://nobody@localhost/hilvan").await.unwrap_err();
         assert!(error.to_string().contains("HILVAN_DATABASE_URL"), "{error:#}");

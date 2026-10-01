@@ -3,8 +3,9 @@
 //! The speech endpoint takes text, because the drill builds its sentences on
 //! the client. Taken at its word it would be a free text-to-speech service
 //! with a paid engine behind it, so every sentence is checked against what
-//! the loaded packs can actually say: a sample in either language, an
-//! explanation, or a sentence a formula's `say` makes of its slot values.
+//! the loaded packs can actually say: a sentence in either language, an
+//! explanation, a sentence a formula's `say` makes of its slot values, or a
+//! word the packs teach, said on its own.
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -29,12 +30,14 @@ pub async fn speakable(pool: &SqlitePool, language: &str, text: &str) -> Result<
         return Ok(false);
     }
 
-    // Samples and explanations are stored as they are said.
+    // Sentences, their translations, explanations and words are stored as
+    // they are said.
     let stored: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM formula f JOIN pack p ON p.id = f.pack_id
-         WHERE (p.native = ?1 AND f.explanation = ?2)
-            OR EXISTS (SELECT 1 FROM sample s WHERE s.formula_id = f.id
-                       AND ((p.native = ?1 AND s.native = ?2) OR (p.target = ?1 AND s.target = ?2)))",
+        "SELECT (SELECT count(*) FROM sentence WHERE language = ?1 AND text = ?2)
+              + (SELECT count(*) FROM sentence_translation WHERE language = ?1 AND text = ?2)
+              + (SELECT count(*) FROM word WHERE language = ?1 AND lemma = ?2)
+              + (SELECT count(*) FROM formula f JOIN pack p ON p.id = f.pack_id
+                 WHERE p.native = ?1 AND f.explanation = ?2)",
     )
     .bind(language)
     .bind(text)
@@ -75,11 +78,13 @@ pub async fn speakable(pool: &SqlitePool, language: &str, text: &str) -> Result<
 /// Fails when the database rejects the query.
 pub async fn sample_in(pool: &SqlitePool, language: &str) -> Result<Option<String>> {
     sqlx::query_scalar(
-        "SELECT CASE WHEN p.target = ?1 THEN s.target ELSE s.native END FROM sample s
-         JOIN formula f ON f.id = s.formula_id
+        "SELECT CASE WHEN p.target = ?1 THEN s.text ELSE t.text END FROM formula_sentence fs
+         JOIN sentence s ON s.id = fs.sentence_id
+         JOIN formula f ON f.id = fs.formula_id
          JOIN pack p ON p.id = f.pack_id
-         WHERE p.target = ?1 OR p.native = ?1
-         ORDER BY f.position, s.position LIMIT 1",
+         LEFT JOIN sentence_translation t ON t.sentence_id = s.id AND t.language = p.native
+         WHERE p.target = ?1 OR (p.native = ?1 AND t.text IS NOT NULL)
+         ORDER BY f.position, fs.position LIMIT 1",
     )
     .bind(language)
     .fetch_optional(pool)
@@ -113,11 +118,13 @@ pub struct Heard {
 /// Fails when the database rejects the query.
 pub async fn listening(pool: &SqlitePool) -> Result<Vec<Heard>> {
     let rows = sqlx::query(
-        "SELECT f.id, s.target, s.native, p.target AS language FROM sample s
-         JOIN formula f ON f.id = s.formula_id
+        "SELECT f.id, s.text AS target, COALESCE(t.text, '') AS native, p.target AS language FROM formula_sentence fs
+         JOIN sentence s ON s.id = fs.sentence_id
+         JOIN formula f ON f.id = fs.formula_id
          JOIN pack p ON p.id = f.pack_id
-         WHERE EXISTS (SELECT 1 FROM card c WHERE c.subject_id = f.id AND c.state != 'new')
-         ORDER BY f.position, s.position",
+         LEFT JOIN sentence_translation t ON t.sentence_id = s.id AND t.language = p.native
+         WHERE EXISTS (SELECT 1 FROM card c WHERE c.kind IN ('formula', 'formula-recognise') AND c.subject_id = f.id AND c.state != 'new')
+         ORDER BY f.position, fs.position",
     )
     .fetch_all(pool)
     .await
@@ -162,6 +169,7 @@ order = 10
   [[formula.sample]]
   native = "Я дома."
   target = "I am at home."
+  words = ["home"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -181,6 +189,10 @@ order = 20
   [[formula.sample]]
   native = "Пойдём."
   target = "Let's go."
+
+[[word]]
+lemma = "home"
+gloss = "дом"
 "#;
         pack::load(&pool, &toml::from_str(toml).unwrap()).await.unwrap();
         pool
@@ -193,6 +205,9 @@ order = 20
         assert!(speakable(&pool, "ru", "Я дома.").await.unwrap(), "a sample's prompt");
         assert!(speakable(&pool, "ru", "Связка обязательна.").await.unwrap(), "an explanation");
         assert!(speakable(&pool, "en", "He is tired.").await.unwrap(), "a sentence the formula says");
+        assert!(speakable(&pool, "en", "home").await.unwrap(), "a word, said on its own and slowly");
+        assert!(!speakable(&pool, "ru", "home").await.unwrap(), "the word in the wrong language");
+        assert!(!speakable(&pool, "en", "house").await.unwrap(), "a word no pack teaches");
         assert!(
             speakable(&pool, "en", "  I am tired.  ").await.unwrap(),
             "surrounding space is not a different sentence"

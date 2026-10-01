@@ -148,18 +148,24 @@ async fn load_pack(config: &config::Config, path: &PathBuf) -> Result<()> {
     let loaded = pack::load(&pool, &pack).await?;
 
     if loaded.changed {
-        println!("loaded {} v{}: {} formulas, {} new", pack.id, pack.version, loaded.formulas, loaded.new_cards);
+        println!(
+            "loaded {} v{}: {} formulas, {} words, {} new cards",
+            pack.id, pack.version, loaded.formulas, loaded.words, loaded.new_cards
+        );
     } else {
-        println!("{} v{} is already loaded: {} formulas, nothing to do", pack.id, pack.version, loaded.formulas);
+        println!(
+            "{} v{} is already loaded: {} formulas, {} words, nothing to do",
+            pack.id, pack.version, loaded.formulas, loaded.words
+        );
     }
 
-    // A formula that vanished from a pack is usually an editing mistake, and
-    // the learner's history for it is worth more than tidiness (see
-    // `pack::orphaned_cards`).
+    // A formula or a word that vanished from a pack is usually an editing
+    // mistake, and the learner's history for it is worth more than tidiness
+    // (see `pack::orphaned_cards`).
     let orphans = pack::orphaned_cards(&pool).await?;
     if !orphans.is_empty() {
         println!(
-            "note: {} card(s) belong to formulas no pack holds any more, and were kept: {}",
+            "note: {} card(s) belong to formulas or words no pack holds any more, and were kept: {}",
             orphans.len(),
             orphans.join(", ")
         );

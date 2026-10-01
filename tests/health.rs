@@ -76,8 +76,8 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     let loaded = hilvan::pack::load(&pool, &pack).await.expect("the shipped pack should load");
     assert_eq!(
         loaded.new_cards,
-        loaded.formulas * 2,
-        "every formula should arrive with a card in each direction"
+        loaded.formulas * 2 + loaded.words,
+        "every formula should arrive with a card in each direction, and every word with one"
     );
 
     // The container runs the load command on every start; the second run must
@@ -115,14 +115,23 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     assert_eq!(status, StatusCode::OK);
     assert_ne!(reviewed["stitch"], "new");
 
-    // Producing it once opens the other direction: the same shape, asked
-    // backwards. It is the only thing left in the queue - the day's one new
-    // formula has been used up.
+    // Producing it once opens the other direction - the same shape, asked
+    // backwards - and the words of its sentences, which have now been met.
+    // The day's one new formula has been used up.
     let (_, today) = json(&app, Request::get("/api/today").body(Body::empty()).unwrap()).await;
     let queue = today["queue"].as_array().expect("a queue");
-    assert_eq!(queue.len(), 1, "the reverse side of the formula just shown should be waiting: {today}");
+    assert_eq!(queue[0]["kind"], "formula", "the formulas come first: {today}");
     assert_eq!(queue[0]["direction"], "recognise");
     assert_eq!(queue[0]["formula"]["id"], first.as_str());
+    let words: Vec<&str> = queue[1..].iter().map(|due| due["word"]["id"].as_str().expect("then only words")).collect();
+    let mut sorted = words.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        vec!["en:doctor", "en:friend", "en:home", "en:ready", "en:work"],
+        "the words of the first formula's sentences should open, and no others"
+    );
+    assert_eq!(words[0], "en:work", "the commonest word should open first");
     assert_eq!(today["reviewed_today"], 1);
 
     // The two directions are counted apart, which is the whole point of
@@ -143,9 +152,34 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     assert_eq!(status, StatusCode::OK);
     assert_ne!(backwards["stitch"], "new");
 
+    for word in &words {
+        let (status, reviewed) = json(
+            &app,
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/words/{word}/review"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"rating":"good","duration_ms":2400}"#))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{word}");
+        assert_ne!(reviewed["stitch"], "new");
+    }
+
     let (_, today) = json(&app, Request::get("/api/today").body(Body::empty()).unwrap()).await;
     assert!(today["queue"].as_array().unwrap().is_empty(), "the sitting did not end: {today}");
-    assert_eq!(today["reviewed_today"], 2);
+    assert_eq!(today["reviewed_today"], 2 + words.len());
+    assert_eq!(
+        today["words"]["levels"][0]["basted"].as_i64().unwrap() + today["words"]["levels"][0]["sewn"].as_i64().unwrap(),
+        i64::try_from(words.len()).unwrap(),
+        "the five words are all among the commonest thousand"
+    );
+
+    // The word is heard in the sentence it was met in.
+    let (_, doctor) = json(&app, Request::get("/api/words/en:doctor").body(Body::empty()).unwrap()).await;
+    assert_eq!(doctor["contexts"][0]["text"], "He is a doctor.");
+    assert_eq!(doctor["contexts"][0]["anchor"], true);
 }
 
 #[tokio::test]

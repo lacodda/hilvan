@@ -169,6 +169,41 @@ impl Direction {
 #[error("{0:?} is not a direction: expected formula or formula-recognise")]
 pub struct UnknownDirection(String);
 
+/// What a card schedules: one direction of a formula, or a word.
+///
+/// A word has one card, not two: it is met inside a sentence and asked
+/// there, heard and understood. Producing words is what the formulas drill -
+/// a word is said every time a formula is - so a second, producing card per
+/// word would schedule the same skill twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Formula(Direction),
+    Word,
+}
+
+impl Kind {
+    /// The `card.kind` it schedules under.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Formula(direction) => direction.kind(),
+            Self::Word => "word",
+        }
+    }
+
+    /// Reads a kind back from a card row.
+    ///
+    /// # Errors
+    ///
+    /// Fails on a kind this module does not write.
+    pub fn parse(kind: &str) -> Result<Self, UnknownDirection> {
+        match kind {
+            "word" => Ok(Self::Word),
+            other => Direction::parse(other).map(Self::Formula),
+        }
+    }
+}
+
 /// The schedulable state of one thing being learnt.
 ///
 /// A formula today; a word from v0.4.0. The card does not know what it is
@@ -378,6 +413,14 @@ mod tests {
             assert_eq!(Direction::parse(direction.kind()).unwrap(), direction);
         }
         assert!(Direction::parse("word").is_err(), "a word's card is not a direction of a formula");
+    }
+
+    #[test]
+    fn kinds_survive_the_round_trip_through_the_database() {
+        for kind in [Kind::Formula(Direction::Produce), Kind::Formula(Direction::Recognise), Kind::Word] {
+            assert_eq!(Kind::parse(kind.as_str()).unwrap(), kind);
+        }
+        assert!(Kind::parse("sentence").is_err());
     }
 
     #[test]

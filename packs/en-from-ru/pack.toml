@@ -20,22 +20,27 @@ form = "statement"
   [[formula.sample]]
   native = "Я дома."
   target = "I am at home."
+  words = ["home"]
 
   [[formula.sample]]
   native = "Он врач."
   target = "He is a doctor."
+  words = ["doctor"]
 
   [[formula.sample]]
   native = "Мы готовы."
   target = "We are ready."
+  words = ["ready"]
 
   [[formula.sample]]
   native = "Она на работе."
   target = "She is at work."
+  words = ["work"]
 
   [[formula.sample]]
   native = "Они друзья."
   target = "They are friends."
+  words = ["friend"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -74,22 +79,27 @@ form = "negation"
   [[formula.sample]]
   native = "Я не голоден."
   target = "I'm not hungry."
+  words = ["hungry"]
 
   [[formula.sample]]
   native = "Он не дома."
   target = "He isn't at home."
+  words = ["home"]
 
   [[formula.sample]]
   native = "Мы не готовы."
   target = "We aren't ready."
+  words = ["ready"]
 
   [[formula.sample]]
   native = "Она не занята."
   target = "She isn't busy."
+  words = ["busy"]
 
   [[formula.sample]]
   native = "Они не здесь."
   target = "They aren't here."
+  words = ["here"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -126,22 +136,27 @@ form = "question"
   [[formula.sample]]
   native = "Ты готов?"
   target = "Are you ready?"
+  words = ["ready"]
 
   [[formula.sample]]
   native = "Он дома?"
   target = "Is he at home?"
+  words = ["home"]
 
   [[formula.sample]]
   native = "Вы заняты?"
   target = "Are you busy?"
+  words = ["busy"]
 
   [[formula.sample]]
   native = "Она врач?"
   target = "Is she a doctor?"
+  words = ["doctor"]
 
   [[formula.sample]]
   native = "Они голодны?"
   target = "Are they hungry?"
+  words = ["hungry"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -178,22 +193,27 @@ order = 40
   [[formula.sample]]
   native = "В холодильнике есть молоко."
   target = "There is milk in the fridge."
+  words = ["milk", "fridge"]
 
   [[formula.sample]]
   native = "В парке есть скамейки."
   target = "There are benches in the park."
+  words = ["bench", "park"]
 
   [[formula.sample]]
   native = "На кухне есть стол."
   target = "There is a table in the kitchen."
+  words = ["table", "kitchen"]
 
   [[formula.sample]]
   native = "На улице пробки."
   target = "There are traffic jams outside."
+  words = ["traffic", "jam", "outside"]
 
   [[formula.sample]]
   native = "В городе есть хороший ресторан."
   target = "There is a good restaurant in the city."
+  words = ["good", "restaurant", "city"]
 
   [[formula.slot]]
   name = "thing"
@@ -218,22 +238,27 @@ order = 50
   [[formula.sample]]
   native = "У меня есть машина."
   target = "I have a car."
+  words = ["car"]
 
   [[formula.sample]]
   native = "У неё есть сестра."
   target = "She has a sister."
+  words = ["sister"]
 
   [[formula.sample]]
   native = "У нас есть время."
   target = "We have time."
+  words = ["time"]
 
   [[formula.sample]]
   native = "У него есть работа."
   target = "He has a job."
+  words = ["job"]
 
   [[formula.sample]]
   native = "У них есть дом."
   target = "They have got a house."
+  words = ["house"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -275,22 +300,27 @@ form = "statement"
   [[formula.sample]]
   native = "Я работаю в офисе."
   target = "I work in an office."
+  words = ["work", "office"]
 
   [[formula.sample]]
   native = "Мы живём в Москве."
   target = "We live in Moscow."
+  words = ["live"]
 
   [[formula.sample]]
   native = "Ты много читаешь."
   target = "You read a lot."
+  words = ["read", "lot"]
 
   [[formula.sample]]
   native = "Они играют в футбол по субботам."
   target = "They play football on Saturdays."
+  words = ["play", "football", "Saturday"]
 
   [[formula.sample]]
   native = "Я пью кофе по утрам."
   target = "I drink coffee in the morning."
+  words = ["drink", "coffee", "morning"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -334,22 +364,27 @@ order = 70
   [[formula.sample]]
   native = "Он работает в банке."
   target = "He works at a bank."
+  words = ["work", "bank"]
 
   [[formula.sample]]
   native = "Она любит музыку."
   target = "She likes music."
+  words = ["like", "music"]
 
   [[formula.sample]]
   native = "Он готовит ужин каждый вечер."
   target = "He cooks dinner every evening."
+  words = ["cook", "dinner", "every", "evening"]
 
   [[formula.sample]]
   native = "Оно работает нормально."
   target = "It works fine."
+  words = ["work", "fine"]
 
   [[formula.sample]]
   native = "Она ходит в спортзал по утрам."
   target = "She goes to the gym in the morning."
+  words = ["go", "gym", "morning"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -393,22 +428,27 @@ form = "negation"
   [[formula.sample]]
   native = "Я не пью кофе вечером."
   target = "I don't drink coffee in the evening."
+  words = ["drink", "coffee", "evening"]
 
   [[formula.sample]]
   native = "Он не любит рыбу."
   target = "He doesn't like fish."
+  words = ["like", "fish"]
 
   [[formula.sample]]
   native = "Мы не работаем по выходным."
   target = "We don't work on weekends."
+  words = ["work", "weekend"]
 
   [[formula.sample]]
   native = "Она не водит машину."
   target = "She doesn't drive."
+  words = ["drive"]
 
   [[formula.sample]]
   native = "Они не живут здесь."
   target = "They don't live here."
+  words = ["live", "here"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -455,22 +495,27 @@ form = "question"
   [[formula.sample]]
   native = "Ты работаешь по субботам?"
   target = "Do you work on Saturdays?"
+  words = ["work", "Saturday"]
 
   [[formula.sample]]
   native = "Он говорит по-английски?"
   target = "Does he speak English?"
+  words = ["speak", "English"]
 
   [[formula.sample]]
   native = "Вы едите мясо?"
   target = "Do you eat meat?"
+  words = ["eat", "meat"]
 
   [[formula.sample]]
   native = "Она живёт одна?"
   target = "Does she live alone?"
+  words = ["live", "alone"]
 
   [[formula.sample]]
   native = "Они играют в теннис?"
   target = "Do they play tennis?"
+  words = ["play", "tennis"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -517,22 +562,27 @@ order = 100
   [[formula.sample]]
   native = "Я хочу пойти домой."
   target = "I want to go home."
+  words = ["go", "home"]
 
   [[formula.sample]]
   native = "Она хочет купить новый телефон."
   target = "She wants to buy a new phone."
+  words = ["buy", "new", "phone"]
 
   [[formula.sample]]
   native = "Мы хотим отдохнуть."
   target = "We want to rest."
+  words = ["rest"]
 
   [[formula.sample]]
   native = "Он хочет выучить английский."
   target = "He wants to learn English."
+  words = ["learn", "English"]
 
   [[formula.sample]]
   native = "Ты хочешь есть?"
   target = "Do you want to eat?"
+  words = ["eat"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -567,22 +617,27 @@ order = 110
   [[formula.sample]]
   native = "Мне нужно позвонить маме."
   target = "I need to call my mom."
+  words = ["call", "mom"]
 
   [[formula.sample]]
   native = "Ему нужно закончить отчёт."
   target = "He needs to finish the report."
+  words = ["finish", "report"]
 
   [[formula.sample]]
   native = "Нам нужно купить хлеб."
   target = "We need to buy bread."
+  words = ["buy", "bread"]
 
   [[formula.sample]]
   native = "Тебе нужно отдохнуть."
   target = "You need to rest."
+  words = ["rest"]
 
   [[formula.sample]]
   native = "Ей нужно взять такси."
   target = "She needs to take a taxi."
+  words = ["take", "taxi"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -615,22 +670,27 @@ order = 120
   [[formula.sample]]
   native = "Давай пойдём гулять."
   target = "Let's go for a walk."
+  words = ["go", "walk"]
 
   [[formula.sample]]
   native = "Давай поедим."
   target = "Let's eat."
+  words = ["eat"]
 
   [[formula.sample]]
   native = "Давай посмотрим фильм."
   target = "Let's watch a movie."
+  words = ["watch", "movie"]
 
   [[formula.sample]]
   native = "Давай начнём."
   target = "Let's start."
+  words = ["start"]
 
   [[formula.sample]]
   native = "Давай возьмём такси."
   target = "Let's take a taxi."
+  words = ["take", "taxi"]
 
   [[formula.slot]]
   name = "verb"
@@ -654,22 +714,27 @@ order = 130
   [[formula.sample]]
   native = "Сколько это стоит?"
   target = "How much does it cost?"
+  words = ["cost"]
 
   [[formula.sample]]
   native = "Сколько у тебя братьев?"
   target = "How many brothers do you have?"
+  words = ["brother"]
 
   [[formula.sample]]
   native = "Сколько времени у нас есть?"
   target = "How much time do we have?"
+  words = ["time"]
 
   [[formula.sample]]
   native = "Сколько людей придёт?"
   target = "How many people are coming?"
+  words = ["people", "come"]
 
   [[formula.sample]]
   native = "Сколько воды тебе нужно?"
   target = "How much water do you need?"
+  words = ["water"]
 
   [[formula.slot]]
   name = "noun"
@@ -697,22 +762,27 @@ order = 140
   [[formula.sample]]
   native = "Я умею плавать."
   target = "I can swim."
+  words = ["swim"]
 
   [[formula.sample]]
   native = "Она не может прийти сегодня."
   target = "She can't come today."
+  words = ["come", "today"]
 
   [[formula.sample]]
   native = "Мы можем помочь тебе."
   target = "We can help you."
+  words = ["help"]
 
   [[formula.sample]]
   native = "Он не умеет готовить."
   target = "He can't cook."
+  words = ["cook"]
 
   [[formula.sample]]
   native = "Ты можешь открыть окно?"
   target = "Can you open the window?"
+  words = ["open", "window"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -747,22 +817,27 @@ order = 150
   [[formula.sample]]
   native = "Ты можешь мне помочь?"
   target = "Can you help me?"
+  words = ["help"]
 
   [[formula.sample]]
   native = "Я могу здесь припарковаться?"
   target = "Can I park here?"
+  words = ["park", "here"]
 
   [[formula.sample]]
   native = "Мы можем начать пораньше?"
   target = "Can we start earlier?"
+  words = ["start", "early"]
 
   [[formula.sample]]
   native = "Ты можешь передать соль?"
   target = "Can you pass the salt?"
+  words = ["pass", "salt"]
 
   [[formula.sample]]
   native = "Я могу взять твою ручку?"
   target = "Can I take your pen?"
+  words = ["take", "pen"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -793,22 +868,27 @@ order = 160
   [[formula.sample]]
   native = "Я должен идти, уже поздно."
   target = "I must go, it's late."
+  words = ["go", "late"]
 
   [[formula.sample]]
   native = "Мы должны поторопиться."
   target = "We must hurry."
+  words = ["hurry"]
 
   [[formula.sample]]
   native = "Ты должен быть осторожен."
   target = "You must be careful."
+  words = ["careful"]
 
   [[formula.sample]]
   native = "Он должен закончить это сегодня."
   target = "He must finish this today."
+  words = ["finish", "today"]
 
   [[formula.sample]]
   native = "Вы должны показать паспорт."
   target = "You must show your passport."
+  words = ["show", "passport"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -841,22 +921,27 @@ order = 170
   [[formula.sample]]
   native = "Тебе стоит отдохнуть."
   target = "You should rest."
+  words = ["rest"]
 
   [[formula.sample]]
   native = "Ей следует сходить к врачу."
   target = "She should see a doctor."
+  words = ["see", "doctor"]
 
   [[formula.sample]]
   native = "Нам стоит выйти пораньше."
   target = "We should leave early."
+  words = ["leave", "early"]
 
   [[formula.sample]]
   native = "Тебе не стоит так много работать."
   target = "You shouldn't work so much."
+  words = ["work"]
 
   [[formula.sample]]
   native = "Ему стоит извиниться."
   target = "He should apologize."
+  words = ["apologize"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -888,22 +973,27 @@ order = 180
   [[formula.sample]]
   native = "Я бы хотел кофе, пожалуйста."
   target = "I'd like a coffee, please."
+  words = ["coffee", "please"]
 
   [[formula.sample]]
   native = "Она хотела бы заказать столик."
   target = "She'd like to book a table."
+  words = ["book", "table"]
 
   [[formula.sample]]
   native = "Мы хотели бы посмотреть меню."
   target = "We'd like to see the menu."
+  words = ["see", "menu"]
 
   [[formula.sample]]
   native = "Ты хотел бы чаю?"
   target = "Would you like some tea?"
+  words = ["tea"]
 
   [[formula.sample]]
   native = "Я бы хотел задать вопрос."
   target = "I'd like to ask a question."
+  words = ["ask", "question"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -935,22 +1025,27 @@ order = 190
   [[formula.sample]]
   native = "Мне приходится вставать рано."
   target = "I have to get up early."
+  words = ["early"]
 
   [[formula.sample]]
   native = "Ей приходится работать по выходным."
   target = "She has to work on weekends."
+  words = ["work", "weekend"]
 
   [[formula.sample]]
   native = "Нам придётся подождать."
   target = "We have to wait."
+  words = ["wait"]
 
   [[formula.sample]]
   native = "Ему приходится много ездить."
   target = "He has to travel a lot."
+  words = ["travel", "lot"]
 
   [[formula.sample]]
   native = "Тебе придётся это объяснить."
   target = "You have to explain this."
+  words = ["explain"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -989,22 +1084,27 @@ form = "statement"
   [[formula.sample]]
   native = "Я был на работе вчера."
   target = "I was at work yesterday."
+  words = ["work", "yesterday"]
 
   [[formula.sample]]
   native = "Они были дома."
   target = "They were at home."
+  words = ["home"]
 
   [[formula.sample]]
   native = "Она была уставшая."
   target = "She was tired."
+  words = ["tired"]
 
   [[formula.sample]]
   native = "Мы были в парке."
   target = "We were in the park."
+  words = ["park"]
 
   [[formula.sample]]
   native = "Погода была хорошая."
   target = "The weather was nice."
+  words = ["weather", "nice"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1040,22 +1140,27 @@ form = "question"
   [[formula.sample]]
   native = "Ты был на встрече?"
   target = "Were you at the meeting?"
+  words = ["meeting"]
 
   [[formula.sample]]
   native = "Он опоздал?"
   target = "Was he late?"
+  words = ["late"]
 
   [[formula.sample]]
   native = "Вы были в отпуске?"
   target = "Were you on vacation?"
+  words = ["vacation"]
 
   [[formula.sample]]
   native = "Она была рада?"
   target = "Was she happy?"
+  words = ["happy"]
 
   [[formula.sample]]
   native = "Они были готовы?"
   target = "Were they ready?"
+  words = ["ready"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1093,22 +1198,27 @@ form = "statement"
   [[formula.sample]]
   native = "Вчера я работал допоздна."
   target = "I worked late yesterday."
+  words = ["work", "late", "yesterday"]
 
   [[formula.sample]]
   native = "Мы пошли в кино."
   target = "We went to the cinema."
+  words = ["go", "cinema"]
 
   [[formula.sample]]
   native = "Она увидела старого друга."
   target = "She saw an old friend."
+  words = ["see", "old", "friend"]
 
   [[formula.sample]]
   native = "У него была встреча утром."
   target = "He had a meeting in the morning."
+  words = ["meeting", "morning"]
 
   [[formula.sample]]
   native = "Они купили новую машину."
   target = "They bought a new car."
+  words = ["buy", "new", "car"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1144,22 +1254,27 @@ form = "negation"
   [[formula.sample]]
   native = "Я не позвонил вчера."
   target = "I didn't call yesterday."
+  words = ["call", "yesterday"]
 
   [[formula.sample]]
   native = "Она не пошла на работу."
   target = "She didn't go to work."
+  words = ["go", "work"]
 
   [[formula.sample]]
   native = "Мы не увидели его."
   target = "We didn't see him."
+  words = ["see"]
 
   [[formula.sample]]
   native = "Он не купил хлеб."
   target = "He didn't buy bread."
+  words = ["buy", "bread"]
 
   [[formula.sample]]
   native = "Они не закончили проект."
   target = "They didn't finish the project."
+  words = ["finish", "project"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1204,22 +1319,27 @@ form = "question"
   [[formula.sample]]
   native = "Ты позвонил маме?"
   target = "Did you call your mom?"
+  words = ["call", "mom"]
 
   [[formula.sample]]
   native = "Он купил билеты?"
   target = "Did he buy the tickets?"
+  words = ["buy", "ticket"]
 
   [[formula.sample]]
   native = "Вы видели этот фильм?"
   target = "Did you see this movie?"
+  words = ["see", "movie"]
 
   [[formula.sample]]
   native = "Она закончила работу?"
   target = "Did she finish the work?"
+  words = ["finish", "work"]
 
   [[formula.sample]]
   native = "Они хорошо провели время?"
   target = "Did they have a good time?"
+  words = ["good", "time"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1257,22 +1377,27 @@ form = "statement"
   [[formula.sample]]
   native = "Я позвоню тебе завтра."
   target = "I'll call you tomorrow."
+  words = ["call", "tomorrow"]
 
   [[formula.sample]]
   native = "Она поможет нам."
   target = "She will help us."
+  words = ["help"]
 
   [[formula.sample]]
   native = "Мы встретимся в семь."
   target = "We'll meet at seven."
+  words = ["meet", "seven"]
 
   [[formula.sample]]
   native = "Он купит билеты."
   target = "He will buy the tickets."
+  words = ["buy", "ticket"]
 
   [[formula.sample]]
   native = "Погода будет хорошая."
   target = "The weather will be nice."
+  words = ["weather", "nice"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1307,22 +1432,27 @@ form = "negation"
   [[formula.sample]]
   native = "Я не буду это есть."
   target = "I won't eat this."
+  words = ["eat"]
 
   [[formula.sample]]
   native = "Он не придёт сегодня."
   target = "He won't come today."
+  words = ["come", "today"]
 
   [[formula.sample]]
   native = "Мы не будем опаздывать."
   target = "We won't be late."
+  words = ["late"]
 
   [[formula.sample]]
   native = "Она не забудет."
   target = "She won't forget."
+  words = ["forget"]
 
   [[formula.sample]]
   native = "Они не согласятся."
   target = "They won't agree."
+  words = ["agree"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1357,18 +1487,22 @@ form = "question"
   [[formula.sample]]
   native = "Ты поможешь мне?"
   target = "Will you help me?"
+  words = ["help"]
 
   [[formula.sample]]
   native = "Она придёт на вечеринку?"
   target = "Will she come to the party?"
+  words = ["come", "party"]
 
   [[formula.sample]]
   native = "Вы будете дома вечером?"
   target = "Will you be home in the evening?"
+  words = ["home", "evening"]
 
   [[formula.sample]]
   native = "Он позвонит завтра?"
   target = "Will he call tomorrow?"
+  words = ["call", "tomorrow"]
 
   [[formula.sample]]
   native = "Они успеют?"
@@ -1404,22 +1538,27 @@ order = 280
   [[formula.sample]]
   native = "Я собираюсь переехать в другой город."
   target = "I'm going to move to another city."
+  words = ["move", "another", "city"]
 
   [[formula.sample]]
   native = "Мы собираемся поужинать вне дома."
   target = "We are going to eat out."
+  words = ["eat"]
 
   [[formula.sample]]
   native = "Она собирается сменить работу."
   target = "She is going to change her job."
+  words = ["change", "job"]
 
   [[formula.sample]]
   native = "Они собираются пожениться."
   target = "They are going to get married."
+  words = ["married"]
 
   [[formula.sample]]
   native = "Ты собираешься смотреть матч?"
   target = "Are you going to watch the match?"
+  words = ["watch", "match"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1456,22 +1595,27 @@ order = 290
   [[formula.sample]]
   native = "Я сейчас готовлю ужин."
   target = "I'm cooking dinner right now."
+  words = ["cook", "dinner", "now"]
 
   [[formula.sample]]
   native = "Она разговаривает по телефону."
   target = "She is talking on the phone."
+  words = ["talk", "phone"]
 
   [[formula.sample]]
   native = "Мы смотрим фильм."
   target = "We are watching a movie."
+  words = ["watch", "movie"]
 
   [[formula.sample]]
   native = "Он работает над проектом."
   target = "He is working on a project."
+  words = ["work", "project"]
 
   [[formula.sample]]
   native = "Они едут домой."
   target = "They are driving home."
+  words = ["drive", "home"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1504,22 +1648,27 @@ order = 300
   [[formula.sample]]
   native = "Я сейчас не работаю."
   target = "I'm not working right now."
+  words = ["work", "now"]
 
   [[formula.sample]]
   native = "Он не спит."
   target = "He isn't sleeping."
+  words = ["sleep"]
 
   [[formula.sample]]
   native = "Ты сейчас читаешь?"
   target = "Are you reading right now?"
+  words = ["read", "now"]
 
   [[formula.sample]]
   native = "Она готовит?"
   target = "Is she cooking?"
+  words = ["cook"]
 
   [[formula.sample]]
   native = "Мы не опаздываем."
   target = "We aren't running late."
+  words = ["late"]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1540,3 +1689,513 @@ order = 300
     { native = "готовлю", target = "cooking" },
     { native = "опаздываю", target = "running late" },
   ]
+
+# ---------------------------------------------------------------------------
+# Words: what the sentences above teach, in the order they are first met,
+# each with what it means. How common a word is and how it sounds come from
+# the lexicon of the language (lexicons/en), not from here.
+# ---------------------------------------------------------------------------
+
+[[word]]
+lemma = "home"
+gloss = "дом, дома"
+
+[[word]]
+lemma = "doctor"
+gloss = "врач"
+
+[[word]]
+lemma = "ready"
+gloss = "готовый"
+
+[[word]]
+lemma = "work"
+gloss = "работать; работа"
+
+[[word]]
+lemma = "friend"
+gloss = "друг"
+
+[[word]]
+lemma = "hungry"
+gloss = "голодный"
+
+[[word]]
+lemma = "busy"
+gloss = "занятой, занятый"
+
+[[word]]
+lemma = "here"
+gloss = "здесь, сюда"
+
+[[word]]
+lemma = "milk"
+gloss = "молоко"
+
+[[word]]
+lemma = "fridge"
+gloss = "холодильник"
+
+[[word]]
+lemma = "bench"
+gloss = "скамейка"
+
+[[word]]
+lemma = "park"
+gloss = "парк; парковаться"
+
+[[word]]
+lemma = "table"
+gloss = "стол, столик"
+
+[[word]]
+lemma = "kitchen"
+gloss = "кухня"
+
+[[word]]
+lemma = "traffic"
+gloss = "движение (на дороге)"
+
+[[word]]
+lemma = "jam"
+gloss = "пробка (на дороге)"
+
+[[word]]
+lemma = "outside"
+gloss = "снаружи, на улице"
+
+[[word]]
+lemma = "good"
+gloss = "хороший"
+
+[[word]]
+lemma = "restaurant"
+gloss = "ресторан"
+
+[[word]]
+lemma = "city"
+gloss = "город"
+
+[[word]]
+lemma = "car"
+gloss = "машина"
+
+[[word]]
+lemma = "sister"
+gloss = "сестра"
+
+[[word]]
+lemma = "time"
+gloss = "время"
+
+[[word]]
+lemma = "job"
+gloss = "работа, место работы"
+
+[[word]]
+lemma = "house"
+gloss = "дом (здание)"
+
+[[word]]
+lemma = "office"
+gloss = "офис"
+
+[[word]]
+lemma = "live"
+gloss = "жить"
+
+[[word]]
+lemma = "read"
+gloss = "читать"
+
+[[word]]
+lemma = "lot"
+gloss = "много (a lot)"
+
+[[word]]
+lemma = "play"
+gloss = "играть"
+
+[[word]]
+lemma = "football"
+gloss = "футбол"
+
+[[word]]
+lemma = "Saturday"
+gloss = "суббота"
+
+[[word]]
+lemma = "drink"
+gloss = "пить"
+
+[[word]]
+lemma = "coffee"
+gloss = "кофе"
+
+[[word]]
+lemma = "morning"
+gloss = "утро"
+
+[[word]]
+lemma = "bank"
+gloss = "банк"
+
+[[word]]
+lemma = "like"
+gloss = "нравиться, любить"
+
+[[word]]
+lemma = "music"
+gloss = "музыка"
+
+[[word]]
+lemma = "cook"
+gloss = "готовить (еду)"
+
+[[word]]
+lemma = "dinner"
+gloss = "ужин"
+
+[[word]]
+lemma = "every"
+gloss = "каждый"
+
+[[word]]
+lemma = "evening"
+gloss = "вечер"
+
+[[word]]
+lemma = "fine"
+gloss = "хорошо, нормально"
+
+[[word]]
+lemma = "go"
+gloss = "идти, ехать"
+
+[[word]]
+lemma = "gym"
+gloss = "спортзал"
+
+[[word]]
+lemma = "fish"
+gloss = "рыба"
+
+[[word]]
+lemma = "weekend"
+gloss = "выходные"
+
+[[word]]
+lemma = "drive"
+gloss = "водить машину, ехать"
+
+[[word]]
+lemma = "speak"
+gloss = "говорить (на языке)"
+
+[[word]]
+lemma = "English"
+gloss = "английский (язык)"
+
+[[word]]
+lemma = "eat"
+gloss = "есть, кушать"
+
+[[word]]
+lemma = "meat"
+gloss = "мясо"
+
+[[word]]
+lemma = "alone"
+gloss = "один, в одиночестве"
+
+[[word]]
+lemma = "tennis"
+gloss = "теннис"
+
+[[word]]
+lemma = "buy"
+gloss = "покупать"
+
+[[word]]
+lemma = "new"
+gloss = "новый"
+
+[[word]]
+lemma = "phone"
+gloss = "телефон"
+
+[[word]]
+lemma = "rest"
+gloss = "отдыхать; отдых"
+
+[[word]]
+lemma = "learn"
+gloss = "учить, узнавать"
+
+[[word]]
+lemma = "call"
+gloss = "звонить"
+
+[[word]]
+lemma = "mom"
+gloss = "мама"
+
+[[word]]
+lemma = "finish"
+gloss = "заканчивать"
+
+[[word]]
+lemma = "report"
+gloss = "отчёт"
+
+[[word]]
+lemma = "bread"
+gloss = "хлеб"
+
+[[word]]
+lemma = "take"
+gloss = "брать"
+
+[[word]]
+lemma = "taxi"
+gloss = "такси"
+
+[[word]]
+lemma = "walk"
+gloss = "прогулка; гулять"
+
+[[word]]
+lemma = "watch"
+gloss = "смотреть"
+
+[[word]]
+lemma = "movie"
+gloss = "фильм"
+
+[[word]]
+lemma = "start"
+gloss = "начинать"
+
+[[word]]
+lemma = "cost"
+gloss = "стоить"
+
+[[word]]
+lemma = "brother"
+gloss = "брат"
+
+[[word]]
+lemma = "people"
+gloss = "люди"
+
+[[word]]
+lemma = "come"
+gloss = "приходить"
+
+[[word]]
+lemma = "water"
+gloss = "вода"
+
+[[word]]
+lemma = "swim"
+gloss = "плавать"
+
+[[word]]
+lemma = "today"
+gloss = "сегодня"
+
+[[word]]
+lemma = "help"
+gloss = "помогать"
+
+[[word]]
+lemma = "open"
+gloss = "открывать"
+
+[[word]]
+lemma = "window"
+gloss = "окно"
+
+[[word]]
+lemma = "early"
+gloss = "рано, ранний"
+
+[[word]]
+lemma = "pass"
+gloss = "передавать"
+
+[[word]]
+lemma = "salt"
+gloss = "соль"
+
+[[word]]
+lemma = "pen"
+gloss = "ручка"
+
+[[word]]
+lemma = "late"
+gloss = "поздно, поздний"
+
+[[word]]
+lemma = "hurry"
+gloss = "торопиться"
+
+[[word]]
+lemma = "careful"
+gloss = "осторожный"
+
+[[word]]
+lemma = "show"
+gloss = "показывать"
+
+[[word]]
+lemma = "passport"
+gloss = "паспорт"
+
+[[word]]
+lemma = "see"
+gloss = "видеть"
+
+[[word]]
+lemma = "leave"
+gloss = "уходить, уезжать"
+
+[[word]]
+lemma = "apologize"
+gloss = "извиняться"
+
+[[word]]
+lemma = "please"
+gloss = "пожалуйста"
+
+[[word]]
+lemma = "book"
+gloss = "бронировать; книга"
+
+[[word]]
+lemma = "menu"
+gloss = "меню"
+
+[[word]]
+lemma = "tea"
+gloss = "чай"
+
+[[word]]
+lemma = "ask"
+gloss = "спрашивать, просить"
+
+[[word]]
+lemma = "question"
+gloss = "вопрос"
+
+[[word]]
+lemma = "wait"
+gloss = "ждать"
+
+[[word]]
+lemma = "travel"
+gloss = "путешествовать, ездить"
+
+[[word]]
+lemma = "explain"
+gloss = "объяснять"
+
+[[word]]
+lemma = "yesterday"
+gloss = "вчера"
+
+[[word]]
+lemma = "tired"
+gloss = "уставший"
+
+[[word]]
+lemma = "weather"
+gloss = "погода"
+
+[[word]]
+lemma = "nice"
+gloss = "хороший, приятный"
+
+[[word]]
+lemma = "meeting"
+gloss = "встреча"
+
+[[word]]
+lemma = "vacation"
+gloss = "отпуск"
+
+[[word]]
+lemma = "happy"
+gloss = "счастливый, довольный"
+
+[[word]]
+lemma = "cinema"
+gloss = "кино, кинотеатр"
+
+[[word]]
+lemma = "old"
+gloss = "старый"
+
+[[word]]
+lemma = "project"
+gloss = "проект"
+
+[[word]]
+lemma = "ticket"
+gloss = "билет"
+
+[[word]]
+lemma = "tomorrow"
+gloss = "завтра"
+
+[[word]]
+lemma = "meet"
+gloss = "встречать, встречаться"
+
+[[word]]
+lemma = "seven"
+gloss = "семь"
+
+[[word]]
+lemma = "forget"
+gloss = "забывать"
+
+[[word]]
+lemma = "agree"
+gloss = "соглашаться"
+
+[[word]]
+lemma = "party"
+gloss = "вечеринка"
+
+[[word]]
+lemma = "move"
+gloss = "переезжать, двигаться"
+
+[[word]]
+lemma = "another"
+gloss = "другой, ещё один"
+
+[[word]]
+lemma = "change"
+gloss = "менять"
+
+[[word]]
+lemma = "married"
+gloss = "женатый, замужем"
+
+[[word]]
+lemma = "match"
+gloss = "матч"
+
+[[word]]
+lemma = "now"
+gloss = "сейчас"
+
+[[word]]
+lemma = "talk"
+gloss = "разговаривать"
+
+[[word]]
+lemma = "sleep"
+gloss = "спать"
