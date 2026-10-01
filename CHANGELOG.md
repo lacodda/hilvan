@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-10-01
+
+### Bug Fixes
+- Advise sleeping more, ask without a dangling slot, vary must
+
+### Dependencies
+- Update, and take Button and the type scale from dowel
+
+### Documentation
+- Explain words, the lexicon and the levels
+- Say the tutor teaches words, and bump to 0.4.0
+
+### Features
+- Rank English words by how often they are met
+- Learn words inside the sentences they are met in
+- Ask a word in its sentence and show the levels on Today
+
 ## [0.3.1] - 2026-09-23
 
 ### Bug Fixes
