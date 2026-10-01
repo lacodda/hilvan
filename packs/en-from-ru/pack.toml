@@ -1,5 +1,5 @@
 id = "en-from-ru"
-version = 3
+version = 4
 native = "ru"
 target = "en"
 
@@ -646,7 +646,7 @@ order = 120
 [[formula]]
 id = "how-much-many"
 name = "Сколько - How much / How many"
-pattern = "How much/many + <noun> + <rest>?"
+pattern = "How much/many + <noun> + do you need?"
 say = "How <noun:much> <noun> do you need?"
 explanation = "How much спрашивают про то, что не считается по штукам - деньги, время, вода; how many - про то, что можно посчитать - людей, дни, вещи. Русское «сколько» одно на всё, поэтому эта развилка обычно и путает: посмотрите на существительное - если у него есть множественное число (many books), берите many, если нет (much money) - much."
 order = 130
@@ -817,7 +817,7 @@ order = 160
     { native = "ты", target = "you" },
     { native = "он", target = "he" },
     { native = "мы", target = "we" },
-    { native = "вы", target = "you" },
+    { native = "она", target = "she" },
   ]
 
   [[formula.slot]]
@@ -873,7 +873,7 @@ order = 170
     { native = "отдохнуть", target = "rest" },
     { native = "сходить к врачу", target = "see a doctor" },
     { native = "выйти пораньше", target = "leave early" },
-    { native = "так много работать", target = "work so much" },
+    { native = "больше спать", target = "sleep more" },
     { native = "извиниться", target = "apologize" },
   ]
 
