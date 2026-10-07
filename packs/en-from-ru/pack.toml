@@ -1,5 +1,5 @@
 id = "en-from-ru"
-version = 4
+version = 5
 native = "ru"
 target = "en"
 
@@ -12,6 +12,7 @@ id = "be-present-statement"
 name = "Я есть - to be в настоящем"
 pattern = "<pronoun> + am/is/are + <rest>"
 say = "<pronoun> <pronoun:be> <rest>."
+accept = ["<pronoun:short> <rest>."]
 explanation = "В русском мы говорим «я дома», «он врач» без всякой связки, а в английском связка обязательна: I am, he/she/it is, we/you/they are. Самая частая ошибка русскоговорящего - выбросить эту связку вообще, сказать «I doctor» вместо «I am a doctor». Запомните её просто как часть местоимения: I am, you are, he is - одно целое, которое нельзя разорвать."
 order = 10
 family = "be-present"
@@ -21,37 +22,42 @@ form = "statement"
   native = "Я дома."
   target = "I am at home."
   words = ["home"]
+  accept = ["I'm at home."]
 
   [[formula.sample]]
   native = "Он врач."
   target = "He is a doctor."
   words = ["doctor"]
+  accept = ["He's a doctor."]
 
   [[formula.sample]]
   native = "Мы готовы."
   target = "We are ready."
   words = ["ready"]
+  accept = ["We're ready."]
 
   [[formula.sample]]
   native = "Она на работе."
   target = "She is at work."
   words = ["work"]
+  accept = ["She's at work."]
 
   [[formula.sample]]
   native = "Они друзья."
   target = "They are friends."
   words = ["friend"]
+  accept = ["They're friends."]
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", be = "am" },
-    { native = "ты", target = "you", be = "are" },
-    { native = "он", target = "he", be = "is" },
-    { native = "она", target = "she", be = "is" },
-    { native = "оно", target = "it", be = "is" },
-    { native = "мы", target = "we", be = "are" },
-    { native = "они", target = "they", be = "are" },
+    { native = "я", target = "I", be = "am", short = "I'm" },
+    { native = "ты", target = "you", be = "are", short = "you're" },
+    { native = "он", target = "he", be = "is", short = "he's" },
+    { native = "она", target = "she", be = "is", short = "she's" },
+    { native = "оно", target = "it", be = "is", short = "it's" },
+    { native = "мы", target = "we", be = "are", short = "we're" },
+    { native = "они", target = "they", be = "are", short = "they're" },
   ]
 
   [[formula.slot]]
@@ -71,8 +77,10 @@ id = "be-present-negation"
 name = "Я не - to be, отрицание"
 pattern = "<pronoun> + am not/isn't/aren't + <rest>"
 say = "<pronoun> <pronoun:be-not> <rest>."
+accept = ["<pronoun> <pronoun:be> not <rest>.", "<pronoun:short> not <rest>."]
 explanation = "Отрицание строится той же связкой плюс not: am not, isn't, aren't. В разговоре почти всегда используют слитную форму isn't и aren't, а с I говорят am not (сокращения I'm not). Ошибка новичка - добавить don't туда, где уже есть am/is/are: «I don't tired» вместо «I'm not tired» - с to be частица do не нужна никогда."
 order = 20
+parents = ["be-present-statement"]
 family = "be-present"
 form = "negation"
 
@@ -80,36 +88,41 @@ form = "negation"
   native = "Я не голоден."
   target = "I'm not hungry."
   words = ["hungry"]
+  accept = ["I am not hungry."]
 
   [[formula.sample]]
   native = "Он не дома."
   target = "He isn't at home."
   words = ["home"]
+  accept = ["He is not at home.", "He's not at home."]
 
   [[formula.sample]]
   native = "Мы не готовы."
   target = "We aren't ready."
   words = ["ready"]
+  accept = ["We are not ready.", "We're not ready."]
 
   [[formula.sample]]
   native = "Она не занята."
   target = "She isn't busy."
   words = ["busy"]
+  accept = ["She is not busy.", "She's not busy."]
 
   [[formula.sample]]
   native = "Они не здесь."
   target = "They aren't here."
   words = ["here"]
+  accept = ["They are not here.", "They're not here."]
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", be-not = "am not" },
-    { native = "ты", target = "you", be-not = "aren't" },
-    { native = "он", target = "he", be-not = "isn't" },
-    { native = "она", target = "she", be-not = "isn't" },
-    { native = "мы", target = "we", be-not = "aren't" },
-    { native = "они", target = "they", be-not = "aren't" },
+    { native = "я", target = "I", be-not = "am not", be = "am", short = "I'm" },
+    { native = "ты", target = "you", be-not = "aren't", be = "are", short = "you're" },
+    { native = "он", target = "he", be-not = "isn't", be = "is", short = "he's" },
+    { native = "она", target = "she", be-not = "isn't", be = "is", short = "she's" },
+    { native = "мы", target = "we", be-not = "aren't", be = "are", short = "we're" },
+    { native = "они", target = "they", be-not = "aren't", be = "are", short = "they're" },
   ]
 
   [[formula.slot]]
@@ -130,6 +143,7 @@ pattern = "Am/Is/Are + <pronoun> + <rest>?"
 say = "<pronoun:be> <pronoun> <rest>?"
 explanation = "В вопросе связка просто выходит вперёд, перед местоимением: Is he at home?, Are you ready? Порядок слов - вот что здесь ломается у русских: по привычке хочется спросить «He is at home?» с интонацией, как в русском, но по-английски так не говорят - глагол обязан встать первым."
 order = 30
+parents = ["be-present-statement"]
 family = "be-present"
 form = "question"
 
@@ -187,13 +201,16 @@ id = "there-is-are"
 name = "Там есть - there is / there are"
 pattern = "There is/are + <thing>"
 say = "There <thing:be> <thing>."
+accept = ["<thing:there> <thing>."]
 explanation = "По-русски «в холодильнике есть молоко» начинается с места, а по-английски начинается с формулы there is/are - буквально «там имеется». Is берём для одного предмета, are - для нескольких. Ошибка новичка - переводить дословно и начинать с места («In the fridge is milk») или путать is/are по числу."
 order = 40
+parents = ["be-present-statement"]
 
   [[formula.sample]]
   native = "В холодильнике есть молоко."
   target = "There is milk in the fridge."
   words = ["milk", "fridge"]
+  accept = ["There's milk in the fridge."]
 
   [[formula.sample]]
   native = "В парке есть скамейки."
@@ -204,6 +221,7 @@ order = 40
   native = "На кухне есть стол."
   target = "There is a table in the kitchen."
   words = ["table", "kitchen"]
+  accept = ["There's a table in the kitchen."]
 
   [[formula.sample]]
   native = "На улице пробки."
@@ -214,17 +232,18 @@ order = 40
   native = "В городе есть хороший ресторан."
   target = "There is a good restaurant in the city."
   words = ["good", "restaurant", "city"]
+  accept = ["There's a good restaurant in the city."]
 
   [[formula.slot]]
   name = "thing"
   values = [
-    { native = "молоко", target = "milk", be = "is" },
-    { native = "стол", target = "a table", be = "is" },
-    { native = "скамейки", target = "benches", be = "are" },
-    { native = "проблема", target = "a problem", be = "is" },
-    { native = "хороший ресторан", target = "a good restaurant", be = "is" },
-    { native = "пробки", target = "traffic jams", be = "are" },
-    { native = "магазин", target = "a shop", be = "is" },
+    { native = "молоко", target = "milk", be = "is", there = "There's" },
+    { native = "стол", target = "a table", be = "is", there = "There's" },
+    { native = "скамейки", target = "benches", be = "are", there = "There are" },
+    { native = "проблема", target = "a problem", be = "is", there = "There's" },
+    { native = "хороший ресторан", target = "a good restaurant", be = "is", there = "There's" },
+    { native = "пробки", target = "traffic jams", be = "are", there = "There are" },
+    { native = "магазин", target = "a shop", be = "is", there = "There's" },
   ]
 
 [[formula]]
@@ -232,6 +251,7 @@ id = "have-got"
 name = "У меня есть - have / have got"
 pattern = "<pronoun> + have/has (got) + <thing>"
 say = "<pronoun> <pronoun:have> <thing>."
+accept = ["<pronoun> <pronoun:have> got <thing>.", "<pronoun:got> <thing>."]
 explanation = "У обладания в английском нет отдельного слова вроде русского «у меня» - вместо этого меняется сам глагол: have для я/ты/мы/они, has для он/она/оно. В разговорной речи часто добавляют got (I've got a car), но и просто have тоже верно. Частая ошибка - сказать «I has» или «he have», перепутав, к кому какая форма относится."
 order = 50
 
@@ -259,20 +279,22 @@ order = 50
   native = "У них есть дом."
   target = "They have got a house."
   words = ["house"]
+  accept = ["They've got a house."]
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", have = "have" },
-    { native = "ты", target = "you", have = "have" },
-    { native = "он", target = "he", have = "has" },
-    { native = "она", target = "she", have = "has" },
-    { native = "мы", target = "we", have = "have" },
-    { native = "они", target = "they", have = "have" },
+    { native = "я", target = "I", have = "have", got = "I've got" },
+    { native = "ты", target = "you", have = "have", got = "you've got" },
+    { native = "он", target = "he", have = "has", got = "he's got" },
+    { native = "она", target = "she", have = "has", got = "she's got" },
+    { native = "мы", target = "we", have = "have", got = "we've got" },
+    { native = "они", target = "they", have = "have", got = "they've got" },
   ]
 
   [[formula.slot]]
   name = "thing"
+  takes = "noun"
   values = [
     { native = "машина", target = "a car" },
     { native = "сестра", target = "a sister" },
@@ -333,6 +355,7 @@ form = "statement"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "работаю", target = "work" },
     { native = "живу", target = "live" },
@@ -360,6 +383,7 @@ pattern = "<pronoun> + <verb-s> + <rest>"
 say = "<pronoun> <verb-s> <rest>."
 explanation = "С he/she/it к глаголу приклеивается звук -s: work становится works, live - lives. Это единственное место в настоящем времени, где глагол вообще меняется, и именно это место русскоговорящие чаще всего забывают - в русском окончания глагола зависят не от «он/она», а от лица и рода в прошедшем, поэтому рука не привыкла добавлять эту -s."
 order = 70
+parents = ["present-simple-statement"]
 
   [[formula.sample]]
   native = "Он работает в банке."
@@ -420,8 +444,10 @@ id = "present-simple-negation"
 name = "Я не делаю - Present Simple, отрицание"
 pattern = "<pronoun> + don't/doesn't + <verb> + <rest>"
 say = "<pronoun> <pronoun:do-not> <verb> <rest>."
+accept = ["<pronoun> <pronoun:do> not <verb> <rest>."]
 explanation = "Отрицание строится с помощью don't (я/ты/мы/они) или doesn't (он/она/оно) плюс глагол в самой простой форме - без -s, ведь -s уже «спрятана» в doesn't. Вот тут и рождается частая ошибка: говорят «he doesn't works» вместо «he doesn't work», ставя -s дважды."
 order = 80
+parents = ["present-simple-he-she-it"]
 family = "present-simple"
 form = "negation"
 
@@ -429,40 +455,46 @@ form = "negation"
   native = "Я не пью кофе вечером."
   target = "I don't drink coffee in the evening."
   words = ["drink", "coffee", "evening"]
+  accept = ["I do not drink coffee in the evening."]
 
   [[formula.sample]]
   native = "Он не любит рыбу."
   target = "He doesn't like fish."
   words = ["like", "fish"]
+  accept = ["He does not like fish."]
 
   [[formula.sample]]
   native = "Мы не работаем по выходным."
   target = "We don't work on weekends."
   words = ["work", "weekend"]
+  accept = ["We do not work on weekends."]
 
   [[formula.sample]]
   native = "Она не водит машину."
   target = "She doesn't drive."
   words = ["drive"]
+  accept = ["She does not drive."]
 
   [[formula.sample]]
   native = "Они не живут здесь."
   target = "They don't live here."
   words = ["live", "here"]
+  accept = ["They do not live here."]
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", do-not = "don't" },
-    { native = "ты", target = "you", do-not = "don't" },
-    { native = "он", target = "he", do-not = "doesn't" },
-    { native = "она", target = "she", do-not = "doesn't" },
-    { native = "мы", target = "we", do-not = "don't" },
-    { native = "они", target = "they", do-not = "don't" },
+    { native = "я", target = "I", do-not = "don't", do = "do" },
+    { native = "ты", target = "you", do-not = "don't", do = "do" },
+    { native = "он", target = "he", do-not = "doesn't", do = "does" },
+    { native = "она", target = "she", do-not = "doesn't", do = "does" },
+    { native = "мы", target = "we", do-not = "don't", do = "do" },
+    { native = "они", target = "they", do-not = "don't", do = "do" },
   ]
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "пью", target = "drink" },
     { native = "люблю", target = "like" },
@@ -489,6 +521,7 @@ pattern = "Do/Does + <pronoun> + <verb> + <rest>?"
 say = "<pronoun:do> <pronoun> <verb> <rest>?"
 explanation = "Вопрос начинается с do (я/ты/мы/они) или does (он/она/оно), а сам смысловой глагол снова стоит в простой форме без -s - вся работа по указанию на лицо уже сделана словом does. Ошибка новичка - спросить «Does he works?» вместо «Does he work?», либо вообще забыть do/does и спросить «He works?» с одной интонацией, как в русском."
 order = 90
+parents = ["present-simple-he-she-it"]
 family = "present-simple"
 form = "question"
 
@@ -529,6 +562,7 @@ form = "question"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "работаешь", target = "work" },
     { native = "говоришь", target = "speak" },
@@ -558,6 +592,7 @@ pattern = "<pronoun> + want(s) to + <verb>"
 say = "<pronoun> want<pronoun:s> to <verb>."
 explanation = "После want всегда идёт to и глагол в простой форме - это целая склейка, want to, которую проще выучить как одно слово. Не забывайте про -s у he/she/it: he wants to go. Ошибка - сказать «I want go» без to, по аналогии с тем, как в русском «хочу пойти» не требует лишних слов между глаголами."
 order = 100
+parents = ["present-simple-he-she-it"]
 
   [[formula.sample]]
   native = "Я хочу пойти домой."
@@ -597,6 +632,7 @@ order = 100
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "пойти домой", target = "go home" },
     { native = "купить новый телефон", target = "buy a new phone" },
@@ -613,6 +649,7 @@ pattern = "<pronoun> + need(s) to + <verb>"
 say = "<pronoun> need<pronoun:s> to <verb>."
 explanation = "Формула та же, что и want to, только смысл ближе к необходимости: мне нужно, а не хочется. He/she/it снова получает -s: she needs to go. Разница с want to только в оттенке - выбирайте need, когда по-русски напрашивается «нужно» или «надо», а не «хочу»."
 order = 110
+parents = ["want-to-verb"]
 
   [[formula.sample]]
   native = "Мне нужно позвонить маме."
@@ -651,6 +688,7 @@ order = 110
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "позвонить маме", target = "call my mom" },
     { native = "закончить отчёт", target = "finish the report" },
@@ -694,6 +732,7 @@ order = 120
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "пойдём гулять", target = "go for a walk" },
     { native = "поедим", target = "eat" },
@@ -710,6 +749,7 @@ pattern = "How much/many + <noun> + do you need?"
 say = "How <noun:much> <noun> do you need?"
 explanation = "How much спрашивают про то, что не считается по штукам - деньги, время, вода; how many - про то, что можно посчитать - людей, дни, вещи. Русское «сколько» одно на всё, поэтому эта развилка обычно и путает: посмотрите на существительное - если у него есть множественное число (many books), берите many, если нет (much money) - much."
 order = 130
+parents = ["present-simple-question"]
 
   [[formula.sample]]
   native = "Сколько это стоит?"
@@ -768,6 +808,7 @@ order = 140
   native = "Она не может прийти сегодня."
   target = "She can't come today."
   words = ["come", "today"]
+  accept = ["She cannot come today."]
 
   [[formula.sample]]
   native = "Мы можем помочь тебе."
@@ -778,6 +819,7 @@ order = 140
   native = "Он не умеет готовить."
   target = "He can't cook."
   words = ["cook"]
+  accept = ["He cannot cook."]
 
   [[formula.sample]]
   native = "Ты можешь открыть окно?"
@@ -797,6 +839,7 @@ order = 140
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "плавать", target = "swim" },
     { native = "прийти сегодня", target = "come today" },
@@ -813,6 +856,7 @@ pattern = "Can + <pronoun> + <verb>?"
 say = "Can <pronoun> <verb>?"
 explanation = "Can выходит вперёд для вопроса и просьбы - Can you help me? звучит как обычная вежливая просьба, а не строгий вопрос про умение. Порядок тот же принцип, что и везде: сначала глагол-помощник, потом местоимение, потом смысловой глагол без всяких добавок."
 order = 150
+parents = ["modal-can"]
 
   [[formula.sample]]
   native = "Ты можешь мне помочь?"
@@ -849,6 +893,7 @@ order = 150
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "мне помочь", target = "help me" },
     { native = "здесь припарковаться", target = "park here" },
@@ -864,11 +909,13 @@ pattern = "<pronoun> + must + <verb>"
 say = "<pronoun> must <verb>."
 explanation = "Must - сильная необходимость, часто с оттенком срочности или правила: I must go, we must hurry. Как и can, must не меняется по лицам и не берёт -s, а после него сразу простая форма глагола без to. В повседневной речи вместо must чаще говорят have to (см. отдельную формулу), но must остаётся для правил, инструкций и сильных советов самому себе."
 order = 160
+parents = ["modal-can"]
 
   [[formula.sample]]
   native = "Я должен идти, уже поздно."
   target = "I must go, it's late."
   words = ["go", "late"]
+  accept = ["I must go, it is late."]
 
   [[formula.sample]]
   native = "Мы должны поторопиться."
@@ -902,6 +949,7 @@ order = 160
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "идти, уже поздно", target = "go, it's late" },
     { native = "поторопиться", target = "hurry" },
@@ -917,6 +965,7 @@ pattern = "<pronoun> + should + <verb>"
 say = "<pronoun> should <verb>."
 explanation = "Should - это мягкий совет, «стоило бы», а не жёсткое требование: You should rest звучит как забота, а не приказ. Ведёт себя точно как can и must - не меняется по лицам, сразу за ним простой глагол без to. Русскоговорящие иногда путают should с must, но should всегда мягче - это совет, который можно и не послушать."
 order = 170
+parents = ["modal-can"]
 
   [[formula.sample]]
   native = "Тебе стоит отдохнуть."
@@ -937,6 +986,7 @@ order = 170
   native = "Тебе не стоит так много работать."
   target = "You shouldn't work so much."
   words = ["work"]
+  accept = ["You should not work so much."]
 
   [[formula.sample]]
   native = "Ему стоит извиниться."
@@ -954,6 +1004,7 @@ order = 170
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "отдохнуть", target = "rest" },
     { native = "сходить к врачу", target = "see a doctor" },
@@ -967,23 +1018,28 @@ id = "would-like"
 name = "Я бы хотел - would like"
 pattern = "<pronoun> + would like + <thing/verb>"
 say = "<pronoun> would like <thing/verb>."
+accept = ["<pronoun>'d like <thing/verb>."]
 explanation = "Would like - вежливая версия want, идеальна для заказа в кафе или просьбы: I'd like a coffee звучит культурнее, чем I want a coffee. Обычно сокращают would до 'd: I'd like, she'd like. После would like можно поставить и предмет (a coffee), и глагол с to (to order): I'd like to order. Ошибка - забыть 'd и сказать «I like a coffee», что меняет смысл на «мне нравится кофе вообще»."
 order = 180
+parents = ["want-to-verb", "modal-can"]
 
   [[formula.sample]]
   native = "Я бы хотел кофе, пожалуйста."
   target = "I'd like a coffee, please."
   words = ["coffee", "please"]
+  accept = ["I would like a coffee, please."]
 
   [[formula.sample]]
   native = "Она хотела бы заказать столик."
   target = "She'd like to book a table."
   words = ["book", "table"]
+  accept = ["She would like to book a table."]
 
   [[formula.sample]]
   native = "Мы хотели бы посмотреть меню."
   target = "We'd like to see the menu."
   words = ["see", "menu"]
+  accept = ["We would like to see the menu."]
 
   [[formula.sample]]
   native = "Ты хотел бы чаю?"
@@ -994,6 +1050,7 @@ order = 180
   native = "Я бы хотел задать вопрос."
   target = "I'd like to ask a question."
   words = ["ask", "question"]
+  accept = ["I would like to ask a question."]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1006,6 +1063,7 @@ order = 180
 
   [[formula.slot]]
   name = "thing/verb"
+  takes = "noun"
   values = [
     { native = "кофе, пожалуйста", target = "a coffee, please" },
     { native = "заказать столик", target = "to book a table" },
@@ -1021,6 +1079,7 @@ pattern = "<pronoun> + have/has to + <verb>"
 say = "<pronoun> <pronoun:have> to <verb>."
 explanation = "Have to - самый разговорный способ сказать «должен, приходится», и в отличие от must он меняется по лицам, как обычный have: I have to, he has to. Ошибка новичка - смешать его с must и сказать «he must to go» (лишнее to) или забыть -s у has to с he/she/it."
 order = 190
+parents = ["have-got", "need-to-verb"]
 
   [[formula.sample]]
   native = "Мне приходится вставать рано."
@@ -1059,6 +1118,7 @@ order = 190
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "вставать рано", target = "get up early" },
     { native = "работать по выходным", target = "work on weekends" },
@@ -1078,6 +1138,7 @@ pattern = "<pronoun> + was/were + <rest>"
 say = "<pronoun> <pronoun:was> <rest>."
 explanation = "В прошлом у to be всего две формы: was для я/он/она/оно, were для ты/мы/они. Это проще, чем в настоящем, но именно поэтому русскоговорящие иногда путают было ли I was или I were - запомните: were только с you, we, they, всё остальное - was."
 order = 200
+parents = ["be-present-statement"]
 family = "be-past"
 form = "statement"
 
@@ -1134,6 +1195,7 @@ pattern = "Was/Were + <pronoun> + <rest>?"
 say = "<pronoun:was> <pronoun> <rest>?"
 explanation = "Как и в настоящем, was/were просто выходят вперёд местоимения: Were you there?, Was he late? Никакого do/did здесь не нужно - это касается только обычных глаголов, а to be всегда справляется сам, и в прошлом тоже."
 order = 210
+parents = ["be-present-question", "be-past-statement"]
 family = "be-past"
 form = "question"
 
@@ -1192,6 +1254,7 @@ pattern = "<pronoun> + <verb-ed/irregular> + <rest>"
 say = "<pronoun> <verb-ed/irregular>."
 explanation = "Для завершённого действия в прошлом обычные глаголы получают окончание -ed (work - worked), а самые частые глаголы вроде go, see, have меняются полностью и их формы нужно просто запомнить (went, saw, had). Хорошая новость - эта форма одна для всех местоимений, никакого -s у he/she/it здесь уже нет, это то, что путает по инерции после present simple."
 order = 220
+parents = ["present-simple-statement"]
 family = "past-simple"
 form = "statement"
 
@@ -1246,8 +1309,10 @@ id = "past-simple-negation"
 name = "Я не сделал - Past Simple, отрицание"
 pattern = "<pronoun> + didn't + <verb> + <rest>"
 say = "<pronoun> didn't <verb> <rest>."
+accept = ["<pronoun> did not <verb> <rest>."]
 explanation = "Отрицание в прошлом всегда через didn't - и после него глагол возвращается в самую простую форму, даже если это неправильный глагол: didn't go, а не didn't went. Именно эту ошибку - оставить прошедшую форму глагола после didn't - делают чаще всего, потому что кажется, будто прошедшее время нужно показать дважды."
 order = 230
+parents = ["present-simple-negation", "past-simple-statement"]
 family = "past-simple"
 form = "negation"
 
@@ -1255,26 +1320,31 @@ form = "negation"
   native = "Я не позвонил вчера."
   target = "I didn't call yesterday."
   words = ["call", "yesterday"]
+  accept = ["I did not call yesterday."]
 
   [[formula.sample]]
   native = "Она не пошла на работу."
   target = "She didn't go to work."
   words = ["go", "work"]
+  accept = ["She did not go to work."]
 
   [[formula.sample]]
   native = "Мы не увидели его."
   target = "We didn't see him."
   words = ["see"]
+  accept = ["We did not see him."]
 
   [[formula.sample]]
   native = "Он не купил хлеб."
   target = "He didn't buy bread."
   words = ["buy", "bread"]
+  accept = ["He did not buy bread."]
 
   [[formula.sample]]
   native = "Они не закончили проект."
   target = "They didn't finish the project."
   words = ["finish", "project"]
+  accept = ["They did not finish the project."]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1288,6 +1358,7 @@ form = "negation"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "позвонил", target = "call" },
     { native = "пошёл", target = "go" },
@@ -1313,6 +1384,7 @@ pattern = "Did + <pronoun> + <verb> + <rest>?"
 say = "Did <pronoun> <verb>?"
 explanation = "Вопрос делается через did впереди, и глагол снова стоит в простой форме без -ed и без неправильных изменений: Did you see him?, а не Did you saw him? Did уже сам по себе показывает, что речь о прошлом - смысловому глаголу второй раз это показывать не нужно."
 order = 240
+parents = ["present-simple-question", "past-simple-statement"]
 family = "past-simple"
 form = "question"
 
@@ -1352,6 +1424,7 @@ form = "question"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "позвонил маме", target = "call your mom" },
     { native = "купил билеты", target = "buy the tickets" },
@@ -1369,8 +1442,10 @@ id = "future-will-statement"
 name = "Я сделаю - will"
 pattern = "<pronoun> + will + <verb>"
 say = "<pronoun> will <verb>."
+accept = ["<pronoun>'ll <verb>."]
 explanation = "Will - самый простой способ говорить о будущем: одна форма на все местоимения, после неё глагол в простой форме без to. В речи will почти всегда сжимают до 'll: I'll call, we'll see. Ошибка новичка - добавить to после will (I will to go) по привычке от русского «буду» плюс инфинитив."
 order = 250
+parents = ["modal-can"]
 family = "future-will"
 form = "statement"
 
@@ -1378,21 +1453,25 @@ form = "statement"
   native = "Я позвоню тебе завтра."
   target = "I'll call you tomorrow."
   words = ["call", "tomorrow"]
+  accept = ["I will call you tomorrow."]
 
   [[formula.sample]]
   native = "Она поможет нам."
   target = "She will help us."
   words = ["help"]
+  accept = ["She'll help us."]
 
   [[formula.sample]]
   native = "Мы встретимся в семь."
   target = "We'll meet at seven."
   words = ["meet", "seven"]
+  accept = ["We will meet at seven."]
 
   [[formula.sample]]
   native = "Он купит билеты."
   target = "He will buy the tickets."
   words = ["buy", "ticket"]
+  accept = ["He'll buy the tickets."]
 
   [[formula.sample]]
   native = "Погода будет хорошая."
@@ -1411,6 +1490,7 @@ form = "statement"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "позвоню тебе завтра", target = "call you tomorrow" },
     { native = "поможет нам", target = "help us" },
@@ -1424,8 +1504,10 @@ id = "future-will-negation"
 name = "Я не сделаю - won't"
 pattern = "<pronoun> + won't + <verb>"
 say = "<pronoun> won't <verb>."
+accept = ["<pronoun> will not <verb>."]
 explanation = "Отрицание will и not сливается в won't - это стоит просто запомнить как отдельное слово, потому что оно не выглядит как will плюс not на письме. После won't - опять простой глагол без to: I won't go, а не I won't to go."
 order = 260
+parents = ["future-will-statement"]
 family = "future-will"
 form = "negation"
 
@@ -1433,26 +1515,31 @@ form = "negation"
   native = "Я не буду это есть."
   target = "I won't eat this."
   words = ["eat"]
+  accept = ["I will not eat this.", "I'll not eat this."]
 
   [[formula.sample]]
   native = "Он не придёт сегодня."
   target = "He won't come today."
   words = ["come", "today"]
+  accept = ["He will not come today.", "He'll not come today."]
 
   [[formula.sample]]
   native = "Мы не будем опаздывать."
   target = "We won't be late."
   words = ["late"]
+  accept = ["We will not be late.", "We'll not be late."]
 
   [[formula.sample]]
   native = "Она не забудет."
   target = "She won't forget."
   words = ["forget"]
+  accept = ["She will not forget.", "She'll not forget."]
 
   [[formula.sample]]
   native = "Они не согласятся."
   target = "They won't agree."
   words = ["agree"]
+  accept = ["They will not agree.", "They'll not agree."]
 
   [[formula.slot]]
   name = "pronoun"
@@ -1466,6 +1553,7 @@ form = "negation"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "это есть", target = "eat this" },
     { native = "прийти сегодня", target = "come today" },
@@ -1481,6 +1569,7 @@ pattern = "Will + <pronoun> + <verb>?"
 say = "Will <pronoun> <verb>?"
 explanation = "Will выходит вперёд местоимения так же, как can и должен и все остальные помощники: Will you help me? Форма глагола после него не меняется ни при каких условиях - никакого -s, никакого -ed, только простая форма."
 order = 270
+parents = ["future-will-statement"]
 family = "future-will"
 form = "question"
 
@@ -1519,6 +1608,7 @@ form = "question"
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "мне помочь", target = "help me" },
     { native = "прийти на вечеринку", target = "come to the party" },
@@ -1532,28 +1622,34 @@ id = "future-going-to"
 name = "Я собираюсь - going to"
 pattern = "<pronoun> + am/is/are going to + <verb>"
 say = "<pronoun> <pronoun:be> going to <verb>."
+accept = ["<pronoun:short> going to <verb>."]
 explanation = "Going to берут для планов, о которых уже решили заранее, в отличие от will, который больше подходит для решений на ходу. Сборка идёт через to be (am/is/are), поэтому эта формула требует ту же связку, что и be-present: I'm going to, she's going to. Ошибка - забыть саму связку am/is/are и сказать просто «I going to go»."
 order = 280
+parents = ["be-present-statement", "want-to-verb"]
 
   [[formula.sample]]
   native = "Я собираюсь переехать в другой город."
   target = "I'm going to move to another city."
   words = ["move", "another", "city"]
+  accept = ["I am going to move to another city."]
 
   [[formula.sample]]
   native = "Мы собираемся поужинать вне дома."
   target = "We are going to eat out."
   words = ["eat"]
+  accept = ["We're going to eat out."]
 
   [[formula.sample]]
   native = "Она собирается сменить работу."
   target = "She is going to change her job."
   words = ["change", "job"]
+  accept = ["She's going to change her job."]
 
   [[formula.sample]]
   native = "Они собираются пожениться."
   target = "They are going to get married."
   words = ["married"]
+  accept = ["They're going to get married."]
 
   [[formula.sample]]
   native = "Ты собираешься смотреть матч?"
@@ -1563,15 +1659,16 @@ order = 280
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", be = "am" },
-    { native = "мы", target = "we", be = "are" },
-    { native = "она", target = "she", be = "is" },
-    { native = "они", target = "they", be = "are" },
-    { native = "ты", target = "you", be = "are" },
+    { native = "я", target = "I", be = "am", short = "I'm" },
+    { native = "мы", target = "we", be = "are", short = "we're" },
+    { native = "она", target = "she", be = "is", short = "she's" },
+    { native = "они", target = "they", be = "are", short = "they're" },
+    { native = "ты", target = "you", be = "are", short = "you're" },
   ]
 
   [[formula.slot]]
   name = "verb"
+  takes = "verb"
   values = [
     { native = "переехать в другой город", target = "move to another city" },
     { native = "поужинать вне дома", target = "eat out" },
@@ -1589,42 +1686,49 @@ id = "present-continuous-statement"
 name = "Я делаю сейчас - Present Continuous"
 pattern = "<pronoun> + am/is/are + <verb-ing> + <rest>"
 say = "<pronoun> <pronoun:be> <verb-ing>."
+accept = ["<pronoun:short> <verb-ing>."]
 explanation = "Эта формула - для действия прямо сейчас, в эту минуту, в отличие от Present Simple, который про обычные дела вообще. Собирается из уже знакомой связки am/is/are плюс глагол с окончанием -ing: I'm working, she's cooking. Ошибка новичка - использовать здесь Present Simple там, где по-русски «сейчас» подразумевается, но не сказано словом: «Что ты делаешь?» - это всегда Continuous, «What are you doing?», а не «What do you do?»."
 order = 290
+parents = ["be-present-statement"]
 
   [[formula.sample]]
   native = "Я сейчас готовлю ужин."
   target = "I'm cooking dinner right now."
   words = ["cook", "dinner", "now"]
+  accept = ["I am cooking dinner right now."]
 
   [[formula.sample]]
   native = "Она разговаривает по телефону."
   target = "She is talking on the phone."
   words = ["talk", "phone"]
+  accept = ["She's talking on the phone."]
 
   [[formula.sample]]
   native = "Мы смотрим фильм."
   target = "We are watching a movie."
   words = ["watch", "movie"]
+  accept = ["We're watching a movie."]
 
   [[formula.sample]]
   native = "Он работает над проектом."
   target = "He is working on a project."
   words = ["work", "project"]
+  accept = ["He's working on a project."]
 
   [[formula.sample]]
   native = "Они едут домой."
   target = "They are driving home."
   words = ["drive", "home"]
+  accept = ["They're driving home."]
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", be = "am" },
-    { native = "она", target = "she", be = "is" },
-    { native = "мы", target = "we", be = "are" },
-    { native = "он", target = "he", be = "is" },
-    { native = "они", target = "they", be = "are" },
+    { native = "я", target = "I", be = "am", short = "I'm" },
+    { native = "она", target = "she", be = "is", short = "she's" },
+    { native = "мы", target = "we", be = "are", short = "we're" },
+    { native = "он", target = "he", be = "is", short = "he's" },
+    { native = "они", target = "they", be = "are", short = "they're" },
   ]
 
   [[formula.slot]]
@@ -1642,18 +1746,22 @@ id = "present-continuous-negation-question"
 name = "Я не делаю сейчас / Ты делаешь? - Continuous"
 pattern = "<pronoun> + am not/isn't/aren't + <verb-ing> ... / Am/Is/Are + <pronoun> + <verb-ing>?"
 say = "<pronoun> <pronoun:be-not> <verb-ing>."
+accept = ["<pronoun> <pronoun:be> not <verb-ing>.", "<pronoun:short> not <verb-ing>."]
 explanation = "Отрицание и вопрос в Continuous устроены так же, как у обычного to be: not добавляется прямо к am/is/are (isn't working), а в вопросе am/is/are просто выходят вперёд местоимения (Is she working?). Никакого don't/does здесь нет и быть не может - это частая путаница, потому что глагол на -ing сбивает с толку и хочется добавить do."
 order = 300
+parents = ["be-present-negation", "present-continuous-statement"]
 
   [[formula.sample]]
   native = "Я сейчас не работаю."
   target = "I'm not working right now."
   words = ["work", "now"]
+  accept = ["I am not working right now."]
 
   [[formula.sample]]
   native = "Он не спит."
   target = "He isn't sleeping."
   words = ["sleep"]
+  accept = ["He is not sleeping.", "He's not sleeping."]
 
   [[formula.sample]]
   native = "Ты сейчас читаешь?"
@@ -1669,15 +1777,16 @@ order = 300
   native = "Мы не опаздываем."
   target = "We aren't running late."
   words = ["late"]
+  accept = ["We are not running late.", "We're not running late."]
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "я", target = "I", be-not = "am not" },
-    { native = "он", target = "he", be-not = "isn't" },
-    { native = "ты", target = "you", be-not = "aren't" },
-    { native = "она", target = "she", be-not = "isn't" },
-    { native = "мы", target = "we", be-not = "aren't" },
+    { native = "я", target = "I", be-not = "am not", be = "am", short = "I'm" },
+    { native = "он", target = "he", be-not = "isn't", be = "is", short = "he's" },
+    { native = "ты", target = "you", be-not = "aren't", be = "are", short = "you're" },
+    { native = "она", target = "she", be-not = "isn't", be = "is", short = "she's" },
+    { native = "мы", target = "we", be-not = "aren't", be = "are", short = "we're" },
   ]
 
   [[formula.slot]]
