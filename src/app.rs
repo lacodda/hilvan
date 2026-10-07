@@ -9,7 +9,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use chrono::Utc;
@@ -20,7 +20,8 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::auth;
-use crate::study::{self, Answer, Graded};
+use crate::own::{self, NewWord, Refused};
+use crate::study::{self, Answer, AnswerError, Graded, Turn};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
 use crate::words;
 
@@ -52,7 +53,10 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
     let study = Router::new()
         .route("/today", get(today))
         .route("/formulas/{id}", get(formula))
+        .route("/formulas/{id}/check", post(check))
         .route("/formulas/{id}/review", post(review))
+        .route("/own-words", get(own_words).post(add_own_word))
+        .route("/own-words/{id}", delete(remove_own_word))
         .route("/words/{id}", get(word))
         .route("/words/{id}/review", post(review_word))
         .route("/speech", get(speech))
@@ -299,10 +303,52 @@ async fn formula(State(state): State<AppState>, UrlPath(id): UrlPath<String>) ->
     }
 }
 
+async fn check(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(turn): Json<Turn>) -> Response {
+    match study::check(&state.pool, &id, &turn).await {
+        Ok(checked) => Json(checked).into_response(),
+        Err(error) => answer_failed(error),
+    }
+}
+
 async fn review(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(answer): Json<Answer>) -> Response {
     match study::review(&state.pool, &id, answer, Utc::now()).await {
         Ok(reviewed) => Json(reviewed).into_response(),
-        Err(error) => (StatusCode::NOT_FOUND, Json(json!({ "error": error.to_string() }))).into_response(),
+        Err(error) => answer_failed(error),
+    }
+}
+
+/// An answer that could not be taken: a formula that is not there is the
+/// client asking for the wrong id, a turn naming something the formula does
+/// not ask is a client out of step with the pack, and a database failure is
+/// the server's own.
+fn answer_failed(error: AnswerError) -> Response {
+    match error {
+        AnswerError::NotFound(_) => (StatusCode::NOT_FOUND, Json(json!({ "error": error.to_string() }))).into_response(),
+        AnswerError::Unanswerable(_) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": error.to_string() }))).into_response(),
+        AnswerError::Database(error) => failed("the answer could not be recorded", &error),
+    }
+}
+
+async fn own_words(State(state): State<AppState>) -> Response {
+    match own::list(&state.pool).await {
+        Ok(words) => Json(json!({ "words": words })).into_response(),
+        Err(error) => failed("your words could not be read", &error),
+    }
+}
+
+async fn add_own_word(State(state): State<AppState>, Json(word): Json<NewWord>) -> Response {
+    match own::add(&state.pool, &word, Utc::now()).await {
+        Ok(word) => (StatusCode::CREATED, Json(word)).into_response(),
+        Err(Refused::Database(error)) => failed("the word could not be added", &error),
+        // Said to the learner as it is: each of these is theirs to fix.
+        Err(refused) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": refused.to_string() }))).into_response(),
+    }
+}
+
+async fn remove_own_word(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match own::remove(&state.pool, id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => failed("the word could not be removed", &error),
     }
 }
 
@@ -718,7 +764,11 @@ gloss = "дом"
         assert_eq!(body["words"]["levels"][0]["size"], 1000);
 
         app.clone()
-            .oneshot(json_request("POST", "/api/formulas/be-present/review", r#"{"rating":"good"}"#))
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/be-present/review",
+                r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}]}"#,
+            ))
             .await
             .unwrap();
         let response = app.oneshot(Request::get("/api/today").body(Body::empty()).unwrap()).await.unwrap();
@@ -816,7 +866,11 @@ gloss = "дом"
         let app = open(taught().await, &dir);
         let response = app
             .clone()
-            .oneshot(json_request("POST", "/api/formulas/be-present/review", r#"{"rating":"good"}"#))
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/be-present/review",
+                r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}]}"#,
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -827,10 +881,119 @@ gloss = "дом"
     }
 
     #[tokio::test]
+    async fn a_typed_turn_is_checked_without_being_recorded() {
+        let dir = web_root();
+        let pool = taught().await;
+        let app = open(pool.clone(), &dir);
+        let response = app
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/be-present/check",
+                r#"{"asked":{"values":{"pronoun":"I"}},"typed":"I are here"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["correct"], false);
+        assert_eq!(body["failure"], "formula");
+        assert_eq!(body["answer"], "I is here.");
+        let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
+        assert_eq!(reviews, 0, "a check is a look, not an answer");
+
+        // A turn naming a value the formula does not have is the client out
+        // of step with the pack.
+        let response = app
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/be-present/check",
+                r#"{"asked":{"values":{"pronoun":"thou"}},"typed":"x"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn a_said_answer_is_graded_by_its_turns_and_kept_with_them() {
+        let dir = web_root();
+        let pool = taught().await;
+        let response = open(pool.clone(), &dir)
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/be-present/review",
+                r#"{"direction":"produce","easy":true,"turns":[
+                    {"asked":{"values":{"pronoun":"I"}},"typed":"I is here."},
+                    {"asked":{"values":{"pronoun":"I"}},"typed":"I here is"}]}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body_json(response).await;
+        assert_eq!(body["rating"], "again", "one turn of two in the wrong order is half the turns slipping");
+
+        let kept: Vec<(i64, String, Option<String>)> = sqlx::query_as("SELECT correct, typed, failure FROM attempt ORDER BY position")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            kept,
+            vec![(1, "I is here.".to_string(), None), (0, "I here is".to_string(), Some("order".to_string()))]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_said_answer_with_no_turns_is_refused() {
+        let dir = web_root();
+        let response = open(taught().await, &dir)
+            .oneshot(json_request("POST", "/api/formulas/be-present/review", r#"{"direction":"produce","turns":[]}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn own_words_are_added_listed_and_removed() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let response = app
+            .clone()
+            .oneshot(json_request("POST", "/api/own-words", r#"{"kind":"verb","native":"плавать","target":"swim"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let id = body_json(response).await["id"].as_i64().unwrap();
+
+        let response = app
+            .clone()
+            .oneshot(json_request("POST", "/api/own-words", r#"{"kind":"verb","native":"плыть","target":"swim"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY, "a word the learner already has");
+
+        let response = app.clone().oneshot(Request::get("/api/own-words").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(body_json(response).await["words"][0]["target"], "swim");
+
+        let response = app
+            .clone()
+            .oneshot(Request::delete(format!("/api/own-words/{id}")).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = app.oneshot(Request::get("/api/own-words").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(body_json(response).await["words"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[tokio::test]
     async fn answering_a_formula_that_does_not_exist_is_a_404() {
         let dir = web_root();
         let response = open(taught().await, &dir)
-            .oneshot(json_request("POST", "/api/formulas/nonsense/review", r#"{"rating":"good"}"#))
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/nonsense/review",
+                r#"{"direction":"recognise","rating":"good"}"#,
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);

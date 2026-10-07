@@ -146,8 +146,7 @@ mod tests {
 
     use super::*;
     use crate::pack;
-    use crate::scheduling::Rating;
-    use crate::study::Answer;
+    use crate::study::{Answer, Asked, Turn};
 
     async fn taught() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -250,9 +249,13 @@ gloss = "дом"
         let pool = taught().await;
         assert!(listening(&pool).await.unwrap().is_empty(), "nothing started, nothing to listen to");
 
-        let answer = Answer {
-            rating: Rating::Good,
-            direction: crate::scheduling::Direction::Produce,
+        let sentence = study::formula(&pool, "be").await.unwrap().samples[0].sentence;
+        let answer = Answer::Produce {
+            turns: vec![Turn {
+                asked: Asked::Sample(sentence),
+                typed: "I am at home.".to_string(),
+            }],
+            easy: false,
             duration_ms: None,
         };
         study::review(&pool, "be", answer, Utc::now()).await.unwrap();

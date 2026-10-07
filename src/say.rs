@@ -108,31 +108,87 @@ impl Template {
     /// the pack validator rules out before a learner can meet them.
     #[must_use]
     pub fn render<F: Filling>(&self, chosen: &HashMap<&str, &F>) -> Option<String> {
-        let mut sentence = String::new();
+        self.render_marked(chosen, &BTreeSet::new()).map(|marked| marked.text)
+    }
+
+    /// The sentence, with where each character came from: the formula's own
+    /// text, or a word that filled a hole.
+    ///
+    /// What the formula itself says is its fixed text, every form it asks
+    /// for, and the value of a slot it agrees with - `agreeing` names those,
+    /// the slots some template of the formula asks a form of: the pronoun
+    /// that picks "am" or "is" is the formula's business. The plain value of
+    /// any other slot - "at home", "a doctor" - is a word. A typed answer is
+    /// read through this: a miss in the formula's own text is a failure of the
+    /// shape, a miss in a word is a failure of that word.
+    #[must_use]
+    pub fn render_marked<F: Filling>(&self, chosen: &HashMap<&str, &F>, agreeing: &BTreeSet<&str>) -> Option<Marked> {
+        let mut chars: Vec<(char, Role)> = Vec::new();
         for piece in &self.pieces {
             match piece {
-                Piece::Text(text) => sentence.push_str(text),
+                Piece::Text(text) => chars.extend(text.chars().map(|c| (c, Role::Formula))),
                 Piece::Hole { slot, form } => {
                     let value = chosen.get(slot.as_str())?;
-                    match form {
-                        Some(form) => sentence.push_str(value.form(form)?),
-                        None => sentence.push_str(value.word()),
+                    if let Some(form) = form {
+                        chars.extend(value.form(form)?.chars().map(|c| (c, Role::Formula)));
+                    } else {
+                        let role = if agreeing.contains(slot.as_str()) { Role::Formula } else { Role::Word };
+                        chars.extend(value.word().chars().map(|c| (c, role)));
                     }
                 }
             }
         }
-        Some(capitalise(&tidy(&sentence)))
+        Some(Marked::from_chars(tidy(chars)))
     }
 }
 
-/// Collapses the doubled spaces an empty form leaves behind ("I  want").
-fn tidy(sentence: &str) -> String {
-    sentence.split(' ').filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" ")
+/// Where a character of a rendered sentence came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    /// The formula's own text, a form it asked for, or the slot it agrees with.
+    Formula,
+    /// The plain value of a slot: a word the formula carries.
+    Word,
 }
 
-fn capitalise(sentence: &str) -> String {
-    let mut chars = sentence.chars();
-    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+/// A rendered sentence, and the role of each of its characters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Marked {
+    pub text: String,
+    /// One per character of `text`, in order.
+    pub roles: Vec<Role>,
+}
+
+impl Marked {
+    fn from_chars(chars: Vec<(char, Role)>) -> Self {
+        let mut chars = chars;
+        if let Some(&(first, role)) = chars.first() {
+            // "he" opens a sentence as "He" - and a letter whose capital is
+            // two letters stays two, as the app raises it.
+            let capital: Vec<(char, Role)> = first.to_uppercase().map(|c| (c, role)).collect();
+            chars.splice(0..1, capital);
+        }
+        Self {
+            text: chars.iter().map(|(c, _)| *c).collect(),
+            roles: chars.into_iter().map(|(_, role)| role).collect(),
+        }
+    }
+}
+
+/// Collapses the doubled spaces an empty form leaves behind ("I  want"), and
+/// the spaces at either end.
+fn tidy(chars: Vec<(char, Role)>) -> Vec<(char, Role)> {
+    let mut out: Vec<(char, Role)> = Vec::with_capacity(chars.len());
+    for (c, role) in chars {
+        if c == ' ' && out.last().is_none_or(|(last, _)| *last == ' ') {
+            continue;
+        }
+        out.push((c, role));
+    }
+    while out.last().is_some_and(|(c, _)| *c == ' ') {
+        out.pop();
+    }
+    out
 }
 
 /// Every sentence a template can say, over the values of each slot.
@@ -235,6 +291,36 @@ mod tests {
     fn a_broken_template_is_refused() {
         assert!(matches!(Template::parse("<pronoun am"), Err(TemplateError::Unclosed(_))));
         assert!(matches!(Template::parse("<> am"), Err(TemplateError::EmptyHole(_))));
+    }
+
+    #[test]
+    fn a_rendered_sentence_knows_which_characters_are_words() {
+        // The pronoun agrees, so it is the formula's; "at home" fills a plain
+        // hole, so it is a word; "is" is a form, and the full stop is text.
+        let template = Template::parse("<pronoun> <pronoun:be> <rest>.").unwrap();
+        let chosen = HashMap::from([("pronoun", &HE), ("rest", &HOME)]);
+        let marked = template.render_marked(&chosen, &BTreeSet::from(["pronoun"])).unwrap();
+        assert_eq!(marked.text, "He is at home.");
+        let words: String = marked
+            .text
+            .chars()
+            .zip(&marked.roles)
+            .map(|(c, role)| if *role == Role::Word { c } else { '_' })
+            .collect();
+        assert_eq!(words, "______at home_");
+
+        // A slot nobody agrees with is a word, whoever it is.
+        let marked = template.render_marked(&chosen, &BTreeSet::new()).unwrap();
+        assert_eq!(marked.roles[0], Role::Word);
+        assert_eq!(marked.roles.len(), marked.text.chars().count());
+    }
+
+    #[test]
+    fn an_empty_form_leaves_no_space_at_the_edges_either() {
+        const NOBODY: Word = Word("", &[("s", "")]);
+        let template = Template::parse("<pronoun> want<pronoun:s> to go.").unwrap();
+        let chosen = HashMap::from([("pronoun", &NOBODY)]);
+        assert_eq!(template.render(&chosen).as_deref(), Some("Want to go."));
     }
 
     #[test]

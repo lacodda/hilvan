@@ -4,11 +4,13 @@
 //! The crate is a Rust library so the integration tests can build the router
 //! the way `main` does; the binary in `main.rs` is the command line over it.
 
+pub mod answer;
 pub mod app;
 pub mod auth;
 pub mod config;
 pub mod db;
 pub mod lexicon;
+pub mod own;
 pub mod pack;
 pub mod say;
 pub mod scheduling;

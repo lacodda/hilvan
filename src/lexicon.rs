@@ -130,6 +130,16 @@ impl Lexicon {
             .is_some_and(|entries| entries.iter().any(|&index| self.entries[index].lemma.to_lowercase() == lemma))
     }
 
+    /// Every lemma a spelling can be: "left" is "leave" and "left". Empty for
+    /// a spelling the lexicon has never met.
+    #[must_use]
+    pub fn lemmas_of(&self, spelling: &str) -> Vec<&str> {
+        self.by_form
+            .get(&spelling.to_lowercase())
+            .map(|entries| entries.iter().map(|&index| self.entries[index].lemma.as_str()).collect())
+            .unwrap_or_default()
+    }
+
     /// How many lemmas it holds.
     #[must_use]
     pub fn len(&self) -> usize {

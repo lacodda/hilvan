@@ -6,15 +6,18 @@
 //! that knows about formulas, days and the size of a sitting, and
 //! [`crate::words`] the part that knows about words.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
-use crate::pack::Form;
-use crate::say::Filling;
+use crate::answer::{self, Checked, Failure, Variant};
+use crate::lexicon;
+use crate::own;
+use crate::pack::{Form, OwnKind};
+use crate::say::{Filling, Template};
 use crate::scheduling::{Card, Direction, Kind, Rating, Scheduled, Scheduler, Stitch};
 use crate::words::{self, Standing, Word};
 
@@ -54,8 +57,24 @@ pub struct Formula {
     /// order: what the switch on the card offers. Empty when the formula
     /// stands alone.
     pub sisters: Vec<Sister>,
+    /// Other templates as right as `say`: "<pronoun>'d like <thing>." A
+    /// typed answer matching any of them is right.
+    pub accept: Vec<String>,
+    /// The formulas this one stands on, in the pack's order, with where
+    /// each stands: the card names them, and a formula opens only once all
+    /// of them are sewn.
+    pub parents: Vec<Parent>,
     /// Which language each side is in: what the drill asks the voice for.
     pub languages: Languages,
+}
+
+/// A formula another stands on, as its child shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct Parent {
+    pub id: String,
+    pub name: String,
+    /// Where it stands, producing side.
+    pub stitch: Stitch,
 }
 
 /// The two languages of a formula, ISO 639-1: `native` for prompts and
@@ -94,6 +113,9 @@ pub struct Sample {
     pub target: String,
     /// The words the sentence teaches, where they stand in `target`.
     pub words: Vec<Mark>,
+    /// Other spellings of `target` just as right: "I am not hungry." for
+    /// "I'm not hungry.".
+    pub accept: Vec<String>,
 }
 
 /// A word marked in a sentence.
@@ -112,6 +134,9 @@ pub struct Mark {
 #[derive(Debug, Clone, Serialize)]
 pub struct Slot {
     pub name: String,
+    /// Which kind of the learner's own words the slot takes, when it takes
+    /// any: they stand among its values, marked `own`.
+    pub takes: Option<OwnKind>,
     pub values: Vec<Value>,
 }
 
@@ -122,6 +147,8 @@ pub struct Value {
     pub target: String,
     /// What `say` picks from for agreement: `be` = "is" on "he".
     pub forms: BTreeMap<String, String>,
+    /// Whether this is one of the learner's own words rather than the pack's.
+    pub own: bool,
 }
 
 impl Filling for Value {
@@ -228,24 +255,76 @@ pub struct Today {
     pub progress: Progress,
     /// Where the learner stands with words.
     pub words: Standing,
+    /// The next formula the pack's sequence would open, when it is not in
+    /// today's queue, and the parents it is waiting on. `None` once every
+    /// formula is started.
+    pub next: Option<Next>,
 }
 
-/// What the learner sends back after answering.
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub struct Answer {
-    pub rating: Rating,
-    /// Which direction was answered. Defaults to producing, which is what a
-    /// client written before directions existed meant.
-    #[serde(default = "produce")]
-    pub direction: Direction,
-    /// How long the answer took, when the client measured it. The second
-    /// dimension of a card: shown to the learner, not fed to the scheduler.
-    #[serde(default)]
-    pub duration_ms: Option<i64>,
+/// The formula next in line, and what holds it.
+#[derive(Debug, Clone, Serialize)]
+pub struct Next {
+    pub id: String,
+    pub name: String,
+    /// Its parents not yet sewn. Empty when it waits only for a day with
+    /// room for a new formula.
+    pub waits_for: Vec<Parent>,
 }
 
-const fn produce() -> Direction {
-    Direction::Produce
+/// What the learner sends back after answering a formula.
+///
+/// Saying it is typed and checked: the turns are the answer, and the
+/// machine grades them. Understanding it is heard and graded by the learner,
+/// because what the learner understood is not something they can type.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "direction", rename_all = "lowercase")]
+pub enum Answer {
+    Produce {
+        /// Every turn the learner typed, in order.
+        turns: Vec<Turn>,
+        /// The learner's word that it came without thinking. Honoured only
+        /// when every turn was right: the one thing the machine cannot see.
+        #[serde(default)]
+        easy: bool,
+        /// How long the answer took, when the client measured it. Shown to
+        /// the learner, never fed to the scheduler.
+        #[serde(default)]
+        duration_ms: Option<i64>,
+    },
+    Recognise {
+        rating: Rating,
+        #[serde(default)]
+        duration_ms: Option<i64>,
+    },
+}
+
+/// One typed turn: what was asked, and what the learner typed.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Turn {
+    pub asked: Asked,
+    pub typed: String,
+}
+
+/// Which question a turn asked: one of the formula's own sentences, or a
+/// substitution, named by the value it put in each slot.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Asked {
+    /// The id of a sentence the formula shows.
+    Sample(i64),
+    /// Slot name to the `target` of the value chosen for it.
+    Values(BTreeMap<String, String>),
+}
+
+/// Why an answer could not be taken.
+#[derive(Debug, thiserror::Error)]
+pub enum AnswerError {
+    #[error("there is no {0}")]
+    NotFound(String),
+    #[error("{0}")]
+    Unanswerable(String),
+    #[error(transparent)]
+    Database(#[from] anyhow::Error),
 }
 
 /// What the learner sends back after answering a word: how it went, and
@@ -267,6 +346,12 @@ pub struct Reviewed {
     /// How this answer compared with the usual pace of this card, when there
     /// is a usual pace to compare with.
     pub pace: Option<Pace>,
+    /// The grade the answer was given - by the learner when heard, by the
+    /// typed turns when said.
+    pub rating: Rating,
+    /// The words whose failure was sent to their own cards: a typed answer
+    /// that got the shape right and a word wrong.
+    pub words: Vec<String>,
 }
 
 /// Today's queue: formulas, then words; in each, everything due and then
@@ -298,12 +383,43 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
     words.waiting -= i64::try_from(opened).unwrap_or(0);
 
     Ok(Today {
+        next: next_in_line(pool, &queue).await?,
         queue,
         reviewed_today: reviewed_since(pool, start_of_day(now)).await?,
         counts,
         progress,
         words,
     })
+}
+
+/// The first formula of the pack's sequence that has not started and is
+/// not opening today, with the parents it waits on.
+async fn next_in_line(pool: &SqlitePool, queue: &[Due]) -> Result<Option<Next>> {
+    let opening: BTreeSet<&str> = queue
+        .iter()
+        .filter_map(|due| match &due.subject {
+            Subject::Formula { formula, .. } if due.is_new => Some(formula.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let rows = sqlx::query(
+        "SELECT f.id, f.name FROM card c JOIN formula f ON f.id = c.subject_id
+         WHERE c.kind = 'formula' AND c.state = 'new'
+         ORDER BY f.position, f.id",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to look for the next formula")?;
+    let Some(row) = rows.iter().find(|row| !opening.contains(row.get::<&str, _>("id"))) else {
+        return Ok(None);
+    };
+    let id: String = row.get("id");
+    let waits_for = parents(pool, &id).await?.into_iter().filter(|parent| parent.stitch != Stitch::Sewn).collect();
+    Ok(Some(Next {
+        name: row.get("name"),
+        id,
+        waits_for,
+    }))
 }
 
 /// The formulas of today's queue.
@@ -337,7 +453,8 @@ async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due
     let started_today = introduced_since(pool, Kind::Formula(Direction::Produce), start_of_day(now)).await?;
     if usize::try_from(started_today).unwrap_or(usize::MAX) < NEW_FORMULAS_PER_DAY {
         // The next formula is the first one in the pack's own sequence that
-        // has never been answered: the pack decides the order, not the clock.
+        // has never been answered and whose parents are all sewn: the pack
+        // decides the order, the tree decides what is ready, not the clock.
         if let Some(id) = next_new(pool).await? {
             queue.push(due(pool, &id, Direction::Produce, true, now).await?);
         }
@@ -390,14 +507,199 @@ async fn word_due(pool: &SqlitePool, id: &str, is_new: bool, now: DateTime<Utc>)
 
 /// Records an answer and reschedules the formula in the direction answered.
 ///
+/// Said, the answer is its typed turns: each is checked again here - the
+/// server is the one truth about what was right - kept whole, and turned
+/// into a grade. A turn that got the shape right and a word wrong sends the
+/// word to its own card instead of failing the formula.
+///
 /// # Errors
 ///
-/// Fails when the formula has no card in that direction - which means it is
-/// not in any loaded pack - or when the database rejects a statement.
-pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: DateTime<Utc>) -> Result<Reviewed> {
-    record(pool, Kind::Formula(answer.direction), formula_id, answer.rating, answer.duration_ms, now)
-        .await?
-        .with_context(|| format!("there is no formula called {formula_id}"))
+/// `NotFound` when the formula has no card in that direction - it is in no
+/// loaded pack - `Unanswerable` for a said answer with no turns or a turn
+/// that names something the formula does not ask, and `Database` when the
+/// database rejects a statement.
+pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: DateTime<Utc>) -> Result<Reviewed, AnswerError> {
+    let not_found = || AnswerError::NotFound(format!("formula called {formula_id}"));
+    match answer {
+        Answer::Recognise { rating, duration_ms } => record(pool, Kind::Formula(Direction::Recognise), formula_id, rating, duration_ms, now, &[])
+            .await?
+            .ok_or_else(not_found),
+        Answer::Produce { turns, easy, duration_ms } => {
+            if turns.is_empty() {
+                return Err(AnswerError::Unanswerable("a said answer is its typed turns, and none came".to_string()));
+            }
+            let formula = formula(pool, formula_id).await.map_err(|_| not_found())?;
+            let judged = turns
+                .iter()
+                .map(|turn| judge(&formula, turn).map(|(prompt, checked)| (prompt, checked, turn.typed.clone())))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let failures: Vec<Option<Failure>> = judged.iter().map(|(_, checked, _)| checked.failure).collect();
+            let rating = rate(&failures, easy);
+            let attempts: Vec<Attempt> = judged
+                .iter()
+                .map(|(prompt, checked, typed)| Attempt {
+                    prompt: prompt.clone(),
+                    expected: checked.closest.clone(),
+                    typed: typed.clone(),
+                    failure: checked.failure,
+                    missed: checked.missed.clone(),
+                })
+                .collect();
+            // The failure goes to the deck that owns it: a word the shape
+            // carried and the learner did not have comes back on its own
+            // card, and the formula is not marked down for it.
+            let missed: Vec<&str> = judged
+                .iter()
+                .filter(|(_, checked, _)| checked.failure == Some(Failure::Word))
+                .flat_map(|(_, checked, _)| checked.missed.iter().map(String::as_str))
+                .collect();
+            let words = cards_for(pool, &formula.languages.target, &missed).await?;
+
+            // One transaction: a formula graded with its word failures lost,
+            // or the other way round, would be a sitting half remembered.
+            let kind = Kind::Formula(Direction::Produce);
+            let mut tx = pool.begin().await.context("failed to open a transaction")?;
+            let next = apply(&mut tx, kind, formula_id, rating, duration_ms, now, &attempts)
+                .await?
+                .ok_or_else(not_found)?;
+            for word in &words {
+                apply(&mut tx, Kind::Word, word, Rating::Again, None, now, &[]).await?;
+            }
+            tx.commit().await.context("failed to commit the review")?;
+
+            for word in &words {
+                // A word opened by its failure is heard in the first sentence
+                // it stands in, like one opened by its own answer.
+                words::anchor(pool, word).await?;
+            }
+            let mut reviewed = reviewed(pool, kind, formula_id, rating, &next, now).await?;
+            reviewed.words = words;
+            Ok(reviewed)
+        }
+    }
+}
+
+/// Checks one typed turn without recording it: what the drill shows the
+/// moment the learner submits. The same check runs again when the formula
+/// is graded, so nothing the client holds decides a grade.
+///
+/// # Errors
+///
+/// `NotFound` when there is no such formula, `Unanswerable` when the turn
+/// names something the formula does not ask, `Database` when a query fails.
+pub async fn check(pool: &SqlitePool, formula_id: &str, turn: &Turn) -> Result<Checked, AnswerError> {
+    let formula = formula(pool, formula_id)
+        .await
+        .map_err(|_| AnswerError::NotFound(format!("formula called {formula_id}")))?;
+    judge(&formula, turn).map(|(_, checked)| checked)
+}
+
+/// The grade a said answer earns, from what went wrong in its turns.
+///
+/// A slip of the shape - its own words or their order - in half the turns
+/// or more means it is not there yet: again. One slip is effort: hard. No
+/// slip is good, and a word that did not come is the word's failure, not
+/// the formula's. Easy only on the learner's word and only for turns with
+/// nothing wrong at all: whether it cost thought is the one thing typing
+/// does not show, and the time it took is shown, never graded on (ADR 0005).
+#[must_use]
+pub fn rate(failures: &[Option<Failure>], easy: bool) -> Rating {
+    let slips = failures.iter().filter(|failure| failure.is_some_and(Failure::is_the_shapes)).count();
+    if slips > 0 && slips * 2 >= failures.len() {
+        Rating::Again
+    } else if slips > 0 {
+        Rating::Hard
+    } else if easy && failures.iter().all(Option::is_none) {
+        Rating::Easy
+    } else {
+        Rating::Good
+    }
+}
+
+/// One turn, read against the right answers the formula gives for it: the
+/// prompt it showed, in the learner's own language, and the verdict.
+fn judge(formula: &Formula, turn: &Turn) -> Result<(String, Checked), AnswerError> {
+    let unanswerable = |why: String| AnswerError::Unanswerable(format!("formula {} {why}", formula.id));
+    match &turn.asked {
+        Asked::Sample(sentence) => {
+            let sample = formula
+                .samples
+                .iter()
+                .find(|sample| sample.sentence == *sentence)
+                .ok_or_else(|| unanswerable(format!("shows no sentence {sentence}")))?;
+            let marks: Vec<&str> = sample.words.iter().map(|mark| mark.form.as_str()).collect();
+            let variants: Vec<Variant> = std::iter::once(&sample.target)
+                .chain(&sample.accept)
+                .map(|text| Variant::from_sentence(text, &marks))
+                .collect();
+            Ok((sample.native.clone(), answer::check(&variants, &turn.typed)))
+        }
+        Asked::Values(values) => {
+            let say = formula.say.as_deref().ok_or_else(|| unanswerable("has nothing to substitute".to_string()))?;
+            if let Some(name) = values.keys().find(|name| !formula.slots.iter().any(|slot| &slot.name == *name)) {
+                return Err(unanswerable(format!("has no slot called {name:?}")));
+            }
+            let mut chosen: HashMap<&str, &Value> = HashMap::new();
+            let mut prompt = formula.pattern.clone();
+            for slot in &formula.slots {
+                let target = values
+                    .get(&slot.name)
+                    .ok_or_else(|| unanswerable(format!("was asked with nothing in {:?}", slot.name)))?;
+                let value = slot
+                    .values
+                    .iter()
+                    .find(|value| &value.target == target)
+                    .ok_or_else(|| unanswerable(format!("has no {target:?} in {:?}", slot.name)))?;
+                chosen.insert(slot.name.as_str(), value);
+                prompt = prompt.replace(&format!("<{}>", slot.name), &value.native);
+            }
+            let templates = std::iter::once(say)
+                .chain(formula.accept.iter().map(String::as_str))
+                .map(Template::parse)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| unanswerable(format!("has a template that cannot be read: {error}")))?;
+            // The slots the formula agrees with are its own, whichever of its
+            // templates asks the form.
+            let agreeing: BTreeSet<&str> = templates.iter().flat_map(|template| template.forms().into_keys()).collect();
+            let variants = templates
+                .iter()
+                .map(|template| template.render_marked(&chosen, &agreeing).map(|marked| Variant::from_marked(&marked)))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| unanswerable("has a value without a form its templates ask for".to_string()))?;
+            Ok((prompt, answer::check(&variants, &turn.typed)))
+        }
+    }
+}
+
+/// The words of the deck that missed spellings are: "went" is go's. Only
+/// words with a card, in the language of the formula.
+async fn cards_for(pool: &SqlitePool, language: &str, missed: &[&str]) -> Result<Vec<String>> {
+    if missed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(
+        "SELECT w.id, w.lemma FROM word w JOIN card c ON c.kind = 'word' AND c.subject_id = w.id
+         WHERE w.language = ? ORDER BY w.id",
+    )
+    .bind(language)
+    .fetch_all(pool)
+    .await
+    .context("failed to read the words of the deck")?;
+    let lexicon = lexicon::of(language);
+    let mut found: Vec<String> = Vec::new();
+    for spelling in missed {
+        let spelling = spelling.to_lowercase();
+        for row in &rows {
+            let lemma: String = row.get("lemma");
+            let is_it = lemma.to_lowercase() == spelling || lexicon.is_some_and(|lexicon| lexicon.is_spelling_of(&spelling, &lemma));
+            let id: String = row.get("id");
+            if is_it && !found.contains(&id) {
+                found.push(id);
+            }
+        }
+    }
+    Ok(found)
 }
 
 /// Records an answer to a word and reschedules it.
@@ -410,23 +712,71 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
 /// Fails when there is no such word in any loaded pack, or when the
 /// database rejects a statement.
 pub async fn review_word(pool: &SqlitePool, word_id: &str, graded: Graded, now: DateTime<Utc>) -> Result<Reviewed> {
-    let reviewed = record(pool, Kind::Word, word_id, graded.rating, graded.duration_ms, now)
+    let reviewed = record(pool, Kind::Word, word_id, graded.rating, graded.duration_ms, now, &[])
         .await?
         .with_context(|| format!("there is no word called {word_id}"))?;
     words::anchor(pool, word_id).await?;
     Ok(reviewed)
 }
 
-/// Applies an answer to a card: the new schedule, and the review kept
-/// whole. `None` when there is no such card.
-async fn record(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, duration_ms: Option<i64>, now: DateTime<Utc>) -> Result<Option<Reviewed>> {
-    let Some(card) = card(pool, kind, subject).await? else {
+/// A typed turn, as it is kept with the review it belongs to.
+struct Attempt {
+    prompt: String,
+    expected: String,
+    typed: String,
+    failure: Option<Failure>,
+    missed: Vec<String>,
+}
+
+/// Applies an answer to one card, on its own: the new schedule and the
+/// review, committed together. `None` when there is no such card.
+async fn record(
+    pool: &SqlitePool,
+    kind: Kind,
+    subject: &str,
+    rating: Rating,
+    duration_ms: Option<i64>,
+    now: DateTime<Utc>,
+    attempts: &[Attempt],
+) -> Result<Option<Reviewed>> {
+    let mut tx = pool.begin().await.context("failed to open a transaction")?;
+    let Some(next) = apply(&mut tx, kind, subject, rating, duration_ms, now, attempts).await? else {
+        return Ok(None);
+    };
+    tx.commit().await.context("failed to commit the review")?;
+    Ok(Some(reviewed(pool, kind, subject, rating, &next, now).await?))
+}
+
+/// What an answer did to a card, as the app is told.
+async fn reviewed(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, next: &Card, now: DateTime<Utc>) -> Result<Reviewed> {
+    Ok(Reviewed {
+        stitch: next.stitch,
+        due: next.due,
+        interval_days: (next.due - now).num_days(),
+        pace: pace(pool, kind, subject).await?,
+        rating,
+        words: Vec::new(),
+    })
+}
+
+/// Applies an answer to a card inside a transaction: the new schedule, and
+/// the review kept whole with the turns typed for it. The card as it now
+/// stands, or `None` when there is no such card.
+async fn apply(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    kind: Kind,
+    subject: &str,
+    rating: Rating,
+    duration_ms: Option<i64>,
+    now: DateTime<Utc>,
+    attempts: &[Attempt],
+) -> Result<Option<Card>> {
+    let Some(card) = card(&mut **tx, kind, subject).await? else {
         return Ok(None);
     };
 
     let Scheduled { card: next, elapsed_days } = Scheduler::new().review(&card, rating, now);
 
-    let mut tx = pool.begin().await.context("failed to open a transaction")?;
     sqlx::query(
         "UPDATE card SET state = ?, stability = ?, difficulty = ?, due = ?, reps = ?, lapses = ?,
              last_reviewed = ?, introduced_at = COALESCE(introduced_at, ?)
@@ -442,15 +792,16 @@ async fn record(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, du
     .bind(now.to_rfc3339())
     .bind(kind.as_str())
     .bind(subject)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .context("failed to save the card")?;
 
     // The history is kept in full so the schedule can be recomputed when the
     // memory model changes (ADR 0003).
-    sqlx::query(
+    let review: i64 = sqlx::query_scalar(
         "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms)
-         SELECT id, ?, ?, ?, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?",
+         SELECT id, ?, ?, ?, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?
+         RETURNING id",
     )
     .bind(rating.as_i64())
     .bind(now.to_rfc3339())
@@ -460,17 +811,30 @@ async fn record(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, du
     .bind(duration_ms)
     .bind(kind.as_str())
     .bind(subject)
-    .execute(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .context("failed to record the review")?;
-    tx.commit().await.context("failed to commit the review")?;
 
-    Ok(Some(Reviewed {
-        stitch: next.stitch,
-        due: next.due,
-        interval_days: (next.due - now).num_days(),
-        pace: pace(pool, kind, subject).await?,
-    }))
+    // The turns typed for it, kept as long as the review: the real
+    // mistakes, which later versions pair into confusions and explain.
+    for (position, attempt) in attempts.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO attempt (review_id, position, prompt, expected, typed, correct, failure, missed)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(review)
+        .bind(i64::try_from(position).unwrap_or(i64::MAX))
+        .bind(&attempt.prompt)
+        .bind(&attempt.expected)
+        .bind(&attempt.typed)
+        .bind(i64::from(attempt.failure.is_none()))
+        .bind(attempt.failure.map(Failure::as_str))
+        .bind(serde_json::to_string(&attempt.missed).context("failed to write the missed words of a turn")?)
+        .execute(&mut **tx)
+        .await
+        .context("failed to record a typed turn")?;
+    }
+    Ok(Some(next))
 }
 
 /// One formula with its samples and slots.
@@ -480,7 +844,7 @@ async fn record(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, du
 /// Fails when there is no such formula, or when the database rejects a query.
 pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
     let row = sqlx::query(
-        "SELECT f.id, f.name, f.pattern, f.say, f.explanation, f.family, f.form, p.native, p.target
+        "SELECT f.id, f.name, f.pattern, f.say, f.accept, f.explanation, f.family, f.form, p.native, p.target
          FROM formula f JOIN pack p ON p.id = f.pack_id WHERE f.id = ?",
     )
     .bind(id)
@@ -490,9 +854,10 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
     .with_context(|| format!("there is no formula called {id}"))?;
 
     let native: String = row.get("native");
+    let target: String = row.get("target");
     let samples = samples(pool, id, &native).await?;
 
-    let slot_rows = sqlx::query("SELECT id, name FROM slot WHERE formula_id = ? ORDER BY position")
+    let slot_rows = sqlx::query("SELECT id, name, takes FROM slot WHERE formula_id = ? ORDER BY position")
         .bind(id)
         .fetch_all(pool)
         .await
@@ -501,7 +866,7 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
     let mut slots = Vec::with_capacity(slot_rows.len());
     for slot in slot_rows {
         let slot_id: i64 = slot.get("id");
-        let values = sqlx::query("SELECT native, target, forms FROM slot_value WHERE slot_id = ? ORDER BY position")
+        let mut values = sqlx::query("SELECT native, target, forms FROM slot_value WHERE slot_id = ? ORDER BY position")
             .bind(slot_id)
             .fetch_all(pool)
             .await
@@ -509,20 +874,40 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
             .iter()
             .map(value)
             .collect::<Result<Vec<_>>>()?;
+        let takes = slot.get::<Option<String>, _>("takes").map(|kind| OwnKind::parse(&kind)).transpose()?;
+        if let Some(kind) = takes {
+            // The learner's own words after the pack's; one that says what a
+            // pack value already says is that value, not a second one.
+            for word in own::of_kind(pool, &target, kind).await? {
+                if values.iter().any(|value| value.target == word.target) {
+                    continue;
+                }
+                values.push(Value {
+                    native: word.native,
+                    target: word.target,
+                    forms: BTreeMap::new(),
+                    own: true,
+                });
+            }
+        }
         slots.push(Slot {
             name: slot.get("name"),
+            takes,
             values,
         });
     }
 
     let family: Option<String> = row.get("family");
     let form = row.get::<Option<String>, _>("form").map(|word| Form::parse(&word)).transpose()?;
+    let accept: String = row.get("accept");
 
     Ok(Formula {
         id: row.get("id"),
         name: row.get("name"),
         pattern: row.get("pattern"),
         say: row.get("say"),
+        accept: serde_json::from_str(&accept).with_context(|| format!("the answers formula {id} accepts are not JSON: {accept}"))?,
+        parents: parents(pool, id).await?,
         languages: Languages {
             native: row.get("native"),
             target: row.get("target"),
@@ -537,6 +922,30 @@ pub async fn formula(pool: &SqlitePool, id: &str) -> Result<Formula> {
         samples,
         slots,
     })
+}
+
+/// The formulas one stands on, in the pack's order, with where each stands.
+async fn parents(pool: &SqlitePool, id: &str) -> Result<Vec<Parent>> {
+    let rows = sqlx::query(
+        "SELECT f.id, f.name, c.state FROM formula_parent fp
+         JOIN formula f ON f.id = fp.parent_id
+         LEFT JOIN card c ON c.kind = 'formula' AND c.subject_id = f.id
+         WHERE fp.formula_id = ?
+         ORDER BY f.position, f.id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .context("failed to read the parents of a formula")?;
+    rows.iter()
+        .map(|row| {
+            Ok(Parent {
+                id: row.get("id"),
+                name: row.get("name"),
+                stitch: row.get::<Option<String>, _>("state").map_or(Ok(Stitch::New), |state| Stitch::parse(&state))?,
+            })
+        })
+        .collect()
 }
 
 /// The other forms of the same shape, in the order the switch shows them.
@@ -627,13 +1036,14 @@ fn value(row: &SqliteRow) -> Result<Value> {
         native: row.get("native"),
         target: row.get("target"),
         forms: serde_json::from_str(&forms).with_context(|| format!("the forms of a slot value are not JSON: {forms}"))?,
+        own: false,
     })
 }
 
 /// The worked examples of a formula, with the words marked in them.
 async fn samples(pool: &SqlitePool, formula_id: &str, native: &str) -> Result<Vec<Sample>> {
     let rows = sqlx::query(
-        "SELECT s.id, s.text, COALESCE(t.text, '') AS translation FROM formula_sentence fs
+        "SELECT s.id, s.text, s.accept, COALESCE(t.text, '') AS translation FROM formula_sentence fs
          JOIN sentence s ON s.id = fs.sentence_id
          LEFT JOIN sentence_translation t ON t.sentence_id = s.id AND t.language = ?
          WHERE fs.formula_id = ?
@@ -665,18 +1075,19 @@ async fn samples(pool: &SqlitePool, formula_id: &str, native: &str) -> Result<Ve
         });
     }
 
-    Ok(rows
-        .iter()
+    rows.iter()
         .map(|row| {
             let sentence: i64 = row.get("id");
-            Sample {
+            let accept: String = row.get("accept");
+            Ok(Sample {
                 sentence,
                 native: row.get("translation"),
                 target: row.get("text"),
                 words: by_sentence.get(&sentence).cloned().unwrap_or_default(),
-            }
+                accept: serde_json::from_str(&accept).with_context(|| format!("the spellings sentence {sentence} accepts are not JSON: {accept}"))?,
+            })
         })
-        .collect())
+        .collect()
 }
 
 /// Midnight UTC of the day `now` falls in.
@@ -689,14 +1100,14 @@ fn start_of_day(now: DateTime<Utc>) -> DateTime<Utc> {
     now.date_naive().and_hms_opt(0, 0, 0).map_or(now, |naive| naive.and_utc())
 }
 
-async fn card(pool: &SqlitePool, kind: Kind, subject: &str) -> Result<Option<Card>> {
+async fn card<'e, E: sqlx::SqliteExecutor<'e>>(executor: E, kind: Kind, subject: &str) -> Result<Option<Card>> {
     let row = sqlx::query(
         "SELECT state, stability, difficulty, due, reps, lapses, last_reviewed
          FROM card WHERE kind = ? AND subject_id = ?",
     )
     .bind(kind.as_str())
     .bind(subject)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .context("failed to read a card")?;
 
@@ -722,11 +1133,19 @@ fn timestamp(row: &SqliteRow, column: &str) -> Result<Option<DateTime<Utc>>> {
     .transpose()
 }
 
+/// The first formula of the pack's sequence never answered whose parents
+/// are all sewn. A parent with no card at all - a pack edited by hand - is
+/// not sewn either: `NULL` is spelt out, because `state != 'sewn'` alone
+/// would let it through.
 async fn next_new(pool: &SqlitePool) -> Result<Option<String>> {
     sqlx::query_scalar(
         "SELECT f.id FROM card c
          JOIN formula f ON f.id = c.subject_id
          WHERE c.kind = 'formula' AND c.state = 'new'
+           AND NOT EXISTS (
+               SELECT 1 FROM formula_parent fp
+               LEFT JOIN card pc ON pc.kind = 'formula' AND pc.subject_id = fp.parent_id
+               WHERE fp.formula_id = f.id AND (pc.state IS NULL OR pc.state != 'sewn'))
          ORDER BY f.position, f.id
          LIMIT 1",
     )
@@ -901,17 +1320,33 @@ order = {}
         DateTime::parse_from_rfc3339("2026-09-01T09:00:00Z").unwrap().with_timezone(&Utc) + chrono::Duration::days(day)
     }
 
-    /// An answer in the producing direction, which is what most of these
-    /// tests are about.
-    const fn said(rating: Rating) -> Answer {
-        Answer {
+    /// A grade put straight onto a card, in the producing direction: most of
+    /// these tests are about the schedule, not about typing, and the typed
+    /// turns that earn a grade have tests of their own below.
+    #[derive(Debug, Clone, Copy)]
+    struct Said {
+        rating: Rating,
+        direction: Direction,
+        duration_ms: Option<i64>,
+    }
+
+    const fn said(rating: Rating) -> Said {
+        Said {
             rating,
             direction: Direction::Produce,
             duration_ms: None,
         }
     }
 
-    impl Answer {
+    /// Grades a formula as `said` says. Shadows the public `review`, which
+    /// takes typed turns.
+    async fn review(pool: &SqlitePool, id: &str, said: Said, now: DateTime<Utc>) -> Result<Reviewed> {
+        record(pool, Kind::Formula(said.direction), id, said.rating, said.duration_ms, now, &[])
+            .await?
+            .with_context(|| format!("there is no formula called {id}"))
+    }
+
+    impl Said {
         /// The same answer, with how long it took.
         const fn taking(self, duration_ms: i64) -> Self {
             Self {
@@ -1488,6 +1923,353 @@ gloss = "зонт"
         assert_eq!(fresh, NEW_WORDS_PER_DAY - 4);
         // Twelve met, four started, six in today's queue: two wait for tomorrow.
         assert_eq!(after.words.waiting, 2);
+    }
+
+    /// `be` stands alone; `want` stands on `be`; `ask` stands alone, later in
+    /// the sequence; `like` stands on `want`. Every formula substitutes a
+    /// pronoun and a rest, so a turn can be typed against it.
+    const TREE: &str = r#"
+id = "tree"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "be"
+name = "to be"
+pattern = "<pronoun> + am/is + <rest>"
+say = "<pronoun> <pronoun:be> <rest>."
+accept = ["<pronoun:short> <rest>."]
+explanation = "e"
+order = 10
+  [[formula.sample]]
+  native = "Она занята."
+  target = "She is busy."
+  words = ["busy"]
+  accept = ["She's busy."]
+  [[formula.slot]]
+  name = "pronoun"
+  values = [
+    { native = "я", target = "I", be = "am", short = "I'm" },
+    { native = "она", target = "she", be = "is", short = "she's" },
+  ]
+  [[formula.slot]]
+  name = "rest"
+  takes = "noun"
+  values = [{ native = "занята", target = "busy" }, { native = "дома", target = "at home" }]
+
+[[formula]]
+id = "want"
+name = "want"
+pattern = "<pronoun> + want + <rest>"
+say = "<pronoun> want <rest>."
+explanation = "e"
+order = 20
+parents = ["be"]
+  [[formula.sample]]
+  native = "Я хочу чай."
+  target = "I want tea."
+  [[formula.slot]]
+  name = "pronoun"
+  values = [{ native = "я", target = "I" }]
+  [[formula.slot]]
+  name = "rest"
+  values = [{ native = "чай", target = "tea" }]
+
+[[formula]]
+id = "ask"
+name = "ask"
+pattern = "Can + <pronoun> + go?"
+say = "Can <pronoun> go?"
+explanation = "e"
+order = 30
+  [[formula.sample]]
+  native = "Можно мне?"
+  target = "Can I go?"
+  [[formula.slot]]
+  name = "pronoun"
+  values = [{ native = "я", target = "I" }]
+
+[[formula]]
+id = "like"
+name = "would like"
+pattern = "<pronoun> + would like + <rest>"
+say = "<pronoun> would like <rest>."
+explanation = "e"
+order = 40
+parents = ["want"]
+  [[formula.sample]]
+  native = "Я бы хотел чай."
+  target = "I would like tea."
+  [[formula.slot]]
+  name = "pronoun"
+  values = [{ native = "я", target = "I" }]
+  [[formula.slot]]
+  name = "rest"
+  values = [{ native = "чай", target = "tea" }]
+
+[[word]]
+lemma = "busy"
+gloss = "занятой"
+"#;
+
+    async fn tree() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let pack: pack::Pack = toml::from_str(TREE).unwrap();
+        pack.validate().unwrap();
+        pack::load(&pool, &pack).await.unwrap();
+        pool
+    }
+
+    fn new_formulas(today: &Today) -> Vec<&str> {
+        today
+            .queue
+            .iter()
+            .filter(|due| due.is_new && due.direction() == Some(Direction::Produce))
+            .map(|due| due.formula_id().as_str())
+            .collect()
+    }
+
+    /// Sews a formula: two good answers a day apart, the way a learner
+    /// coming back would.
+    async fn sew(pool: &SqlitePool, id: &str, day: i64) {
+        review(pool, id, said(Rating::Good), at(day)).await.unwrap();
+        let sewn = review(pool, id, said(Rating::Good), at(day) + chrono::Duration::hours(1)).await.unwrap();
+        assert_eq!(sewn.stitch, Stitch::Sewn, "the fixture assumes two good answers sew a formula");
+    }
+
+    #[tokio::test]
+    async fn a_formula_waits_until_its_parents_are_sewn() {
+        // The whole of idea 1: grammar goes up the tree.
+        let pool = tree().await;
+        review(&pool, "be", said(Rating::Good), at(0)).await.unwrap();
+
+        // Day 1: "be" is only basted, so "want" is held and the next formula
+        // that stands on nothing opens instead.
+        let day = today(&pool, at(1)).await.unwrap();
+        assert_eq!(new_formulas(&day), vec!["ask"], "a formula opened on a loose parent, or nothing opened at all");
+        let next = day.next.expect("the formula held back should be named");
+        assert_eq!(next.id, "want");
+        assert_eq!(next.waits_for.iter().map(|parent| parent.id.as_str()).collect::<Vec<_>>(), vec!["be"]);
+
+        // Once the parent is sewn, the child is next in line again.
+        sew(&pool, "be", 1).await;
+        review(&pool, "ask", said(Rating::Good), at(1)).await.unwrap();
+        let day = today(&pool, at(2)).await.unwrap();
+        assert_eq!(new_formulas(&day), vec!["want"]);
+        let next = day.next.expect("would like is still to come");
+        assert_eq!(next.id, "like");
+        assert!(!next.waits_for.is_empty(), "would like stands on want, which has only just opened");
+    }
+
+    #[tokio::test]
+    async fn a_parent_with_no_card_holds_its_child_shut() {
+        // A database edited by hand: the parent's card is gone. NULL is not
+        // "sewn", and a comparison that forgot it would open the child.
+        let pool = tree().await;
+        sqlx::query("DELETE FROM card WHERE subject_id = 'be'").execute(&pool).await.unwrap();
+        let day = today(&pool, at(0)).await.unwrap();
+        assert!(!new_formulas(&day).contains(&"want"), "a formula opened on a parent nobody has");
+    }
+
+    #[tokio::test]
+    async fn a_started_formula_is_not_shut_again_when_its_parent_slips() {
+        let pool = tree().await;
+        sew(&pool, "be", 0).await;
+        review(&pool, "want", said(Rating::Good), at(1)).await.unwrap();
+        review(&pool, "be", said(Rating::Again), at(2)).await.unwrap();
+        let later = today(&pool, at(30)).await.unwrap();
+        assert!(
+            later.queue.iter().any(|due| due.formula_id() == "want" && !due.is_new),
+            "a formula already being drilled vanished because its parent came loose"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_card_names_the_parents_it_stands_on() {
+        let pool = tree().await;
+        let want = formula(&pool, "want").await.unwrap();
+        let parents: Vec<_> = want.parents.iter().map(|parent| (parent.id.as_str(), parent.stitch)).collect();
+        assert_eq!(parents, vec![("be", Stitch::New)]);
+        assert!(formula(&pool, "be").await.unwrap().parents.is_empty());
+    }
+
+    fn typed(asked: Asked, text: &str) -> Turn {
+        Turn {
+            asked,
+            typed: text.to_string(),
+        }
+    }
+
+    fn values(pairs: &[(&str, &str)]) -> Asked {
+        Asked::Values(pairs.iter().map(|(slot, value)| ((*slot).to_string(), (*value).to_string())).collect())
+    }
+
+    fn produced(turns: Vec<Turn>, easy: bool) -> Answer {
+        Answer::Produce {
+            turns,
+            easy,
+            duration_ms: Some(5000),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_said_answer_is_graded_by_what_the_turns_got_wrong() {
+        let pool = tree().await;
+        let she = || values(&[("pronoun", "she"), ("rest", "at home")]);
+        let right = || typed(she(), "She's at home");
+        let slip = || typed(she(), "She are at home");
+
+        let flawless = super::review(&pool, "be", produced(vec![right(), right()], true), at(0)).await.unwrap();
+        assert_eq!(flawless.rating, Rating::Easy, "flawless turns and the learner's word earn easy");
+
+        let pool = tree().await;
+        let one = super::review(&pool, "be", produced(vec![right(), slip(), right(), right()], true), at(0))
+            .await
+            .unwrap();
+        assert_eq!(one.rating, Rating::Hard, "one slip in four is effort, and the learner's easy is not taken");
+
+        let pool = tree().await;
+        let half = super::review(&pool, "be", produced(vec![right(), slip(), slip(), right()], false), at(0))
+            .await
+            .unwrap();
+        assert_eq!(half.rating, Rating::Again, "half the turns slipping means the shape is not there");
+    }
+
+    #[test]
+    fn the_grade_follows_the_slips_of_the_shape_only() {
+        use crate::answer::Failure::{Formula as Shape, Order, Word};
+        assert_eq!(rate(&[None, None], false), Rating::Good);
+        assert_eq!(rate(&[None, None], true), Rating::Easy);
+        assert_eq!(
+            rate(&[None, Some(Word)], true),
+            Rating::Good,
+            "a word's failure is not the formula's, and is not easy either"
+        );
+        assert_eq!(rate(&[None, None, None, Some(Order)], false), Rating::Hard);
+        assert_eq!(rate(&[None, None, Some(Shape), Some(Order)], false), Rating::Again);
+        assert_eq!(rate(&[Some(Shape)], true), Rating::Again);
+    }
+
+    #[tokio::test]
+    async fn a_word_that_did_not_come_goes_to_its_own_card() {
+        // "в колоду уходит именно сбой": the shape came, the word did not -
+        // the formula keeps its grade and the word comes back on its own.
+        let pool = tree().await;
+        let sentence = formula(&pool, "be").await.unwrap().samples[0].sentence;
+        let reviewed = super::review(&pool, "be", produced(vec![typed(Asked::Sample(sentence), "She is bisy.")], false), at(0))
+            .await
+            .unwrap();
+        assert_eq!(reviewed.rating, Rating::Good, "the formula was marked down for a word");
+        assert_eq!(reviewed.words, vec!["en:busy"]);
+
+        let (state, reps): (String, i64) = sqlx::query_as("SELECT state, reps FROM card WHERE kind = 'word' AND subject_id = 'en:busy'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!((state.as_str(), reps), ("basted", 1), "the missed word should be back in the deck");
+        let rating: i64 =
+            sqlx::query_scalar("SELECT r.rating FROM review r JOIN card c ON c.id = r.card_id WHERE c.kind = 'word' AND c.subject_id = 'en:busy'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(rating, Rating::Again.as_i64());
+    }
+
+    #[tokio::test]
+    async fn a_slip_of_the_shape_sends_no_word_to_the_deck() {
+        let pool = tree().await;
+        let sentence = formula(&pool, "be").await.unwrap().samples[0].sentence;
+        let reviewed = super::review(&pool, "be", produced(vec![typed(Asked::Sample(sentence), "")], false), at(0))
+            .await
+            .unwrap();
+        assert_eq!(reviewed.rating, Rating::Again);
+        assert!(reviewed.words.is_empty(), "nothing typed says nothing about the words");
+        let reps: i64 = sqlx::query_scalar("SELECT reps FROM card WHERE kind = 'word' AND subject_id = 'en:busy'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(reps, 0);
+    }
+
+    #[tokio::test]
+    async fn every_turn_is_kept_with_its_review() {
+        let pool = tree().await;
+        let turns = vec![
+            typed(values(&[("pronoun", "I"), ("rest", "busy")]), "I'm busy"),
+            typed(values(&[("pronoun", "she"), ("rest", "busy")]), "Busy she is"),
+        ];
+        super::review(&pool, "be", produced(turns, false), at(0)).await.unwrap();
+        let kept: Vec<(String, String, String, i64, Option<String>)> =
+            sqlx::query_as("SELECT prompt, expected, typed, correct, failure FROM attempt ORDER BY position")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            kept[0],
+            ("я + am/is + занята".to_string(), "I'm busy.".to_string(), "I'm busy".to_string(), 1, None)
+        );
+        assert_eq!(kept[1].3, 0);
+        assert_eq!(kept[1].4.as_deref(), Some("order"));
+    }
+
+    #[tokio::test]
+    async fn a_turn_naming_what_the_formula_does_not_ask_is_refused() {
+        let pool = tree().await;
+        for asked in [
+            values(&[("pronoun", "thou"), ("rest", "busy")]),
+            values(&[("pronoun", "I")]),
+            values(&[("pronoun", "I"), ("rest", "busy"), ("place", "here")]),
+            Asked::Sample(9999),
+        ] {
+            let error = check(&pool, "be", &typed(asked, "x")).await.unwrap_err();
+            assert!(matches!(error, AnswerError::Unanswerable(_)), "{error:#}");
+        }
+        assert!(matches!(
+            check(&pool, "nonsense", &typed(Asked::Sample(1), "x")).await.unwrap_err(),
+            AnswerError::NotFound(_)
+        ));
+        let none = super::review(&pool, "be", produced(Vec::new(), false), at(0)).await.unwrap_err();
+        assert!(matches!(none, AnswerError::Unanswerable(_)));
+        let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
+        assert_eq!(reviews, 0, "a refused answer was recorded");
+    }
+
+    #[tokio::test]
+    async fn own_words_stand_in_the_slots_that_take_them_and_answer_like_any_value() {
+        let pool = tree().await;
+        let car = own::NewWord {
+            kind: OwnKind::Noun,
+            native: "в машине".to_string(),
+            target: "in the car".to_string(),
+        };
+        own::add(&pool, &car, at(0)).await.unwrap();
+        // One that says what a pack value says is that value.
+        let busy = own::NewWord {
+            target: "busy".to_string(),
+            ..car.clone()
+        };
+        own::add(&pool, &busy, at(0)).await.unwrap();
+        let verb = own::NewWord {
+            kind: OwnKind::Verb,
+            ..car.clone()
+        };
+        own::add(&pool, &verb, at(0)).await.unwrap();
+
+        let be = formula(&pool, "be").await.unwrap();
+        let rest: Vec<(&str, bool)> = be.slots[1].values.iter().map(|value| (value.target.as_str(), value.own)).collect();
+        assert_eq!(rest, vec![("busy", false), ("at home", false), ("in the car", true)]);
+        assert!(be.slots[0].values.iter().all(|value| !value.own), "a slot that takes nothing took an own word");
+
+        let checked = check(&pool, "be", &typed(values(&[("pronoun", "she"), ("rest", "in the car")]), "She's in the car."))
+            .await
+            .unwrap();
+        assert!(checked.correct);
+        let checked = check(&pool, "be", &typed(values(&[("pronoun", "she"), ("rest", "in the car")]), "She is in the bus."))
+            .await
+            .unwrap();
+        assert_eq!(checked.failure, Some(Failure::Word), "an own word missed is a word missed");
     }
 
     #[tokio::test]

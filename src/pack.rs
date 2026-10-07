@@ -141,6 +141,16 @@ pub struct Formula {
     /// without it.
     #[serde(default)]
     pub form: Option<Form>,
+    /// The formulas this one is built from: "would like" stands on "want
+    /// to". A formula opens only once every parent is sewn, and every parent
+    /// comes earlier in the pack's sequence, so the tree cannot loop.
+    #[serde(default)]
+    pub parents: Vec<String>,
+    /// Other sentences just as right as `say`, in its syntax: "<pronoun>'d
+    /// like <thing>." beside "<pronoun> would like <thing>.". A typed answer
+    /// matching any of them is right.
+    #[serde(default)]
+    pub accept: Vec<String>,
     #[serde(default, rename = "sample")]
     pub samples: Vec<Sample>,
     #[serde(default, rename = "slot")]
@@ -158,6 +168,10 @@ pub struct Sample {
     /// pronoun, the "am" - are the formula's, and are left out.
     #[serde(default)]
     pub words: Vec<String>,
+    /// Other spellings just as right: "I am not hungry." beside "I'm not
+    /// hungry.".
+    #[serde(default)]
+    pub accept: Vec<String>,
 }
 
 /// A hole in the pattern the drill substitutes into.
@@ -165,8 +179,50 @@ pub struct Sample {
 pub struct Slot {
     /// Matches a `<placeholder>` in the pattern.
     pub name: String,
+    /// Which of the learner's own words the slot takes besides its values,
+    /// when it takes any. Such a slot asks no form of its value: a word the
+    /// learner typed in carries none.
+    #[serde(default)]
+    pub takes: Option<OwnKind>,
     pub values: Vec<Value>,
 }
+
+/// What kind of word of the learner's own a slot takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OwnKind {
+    Noun,
+    Verb,
+}
+
+impl OwnKind {
+    /// The word stored in the slot and own-word rows.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Noun => "noun",
+            Self::Verb => "verb",
+        }
+    }
+
+    /// Reads a kind back from a row.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the word is neither kind.
+    pub fn parse(value: &str) -> Result<Self, UnknownKind> {
+        match value {
+            "noun" => Ok(Self::Noun),
+            "verb" => Ok(Self::Verb),
+            other => Err(UnknownKind(other.to_string())),
+        }
+    }
+}
+
+/// A kind of own word that is neither a noun nor a verb.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} is not a kind of word: expected noun or verb")]
+pub struct UnknownKind(String);
 
 /// One filling for a slot: the word in both languages, and the forms that
 /// agree with it.
@@ -248,6 +304,12 @@ impl Pack {
                 if slot.values.is_empty() {
                     bail!("slot {:?} of formula {:?} has no values", slot.name, formula.id);
                 }
+                // A typed answer names the value it was asked with by what it
+                // says; two values saying the same are one value told twice.
+                let mut targets = HashSet::new();
+                if let Some(value) = slot.values.iter().find(|value| !targets.insert(value.target.as_str())) {
+                    bail!("slot {:?} of formula {:?} holds {:?} twice", slot.name, formula.id, value.target);
+                }
                 // A slot the pattern does not mention cannot be substituted
                 // into: the drill would silently ignore it.
                 let placeholder = format!("<{}>", slot.name);
@@ -263,8 +325,38 @@ impl Pack {
             validate_say(formula)?;
         }
 
+        self.validate_parents()?;
         self.validate_families()?;
         self.validate_words()
+    }
+
+    /// The rules that make the parents a tree the learner can climb.
+    ///
+    /// Every parent is a formula of the pack, named once, and comes earlier
+    /// in its sequence than the child: a parent introduced after its child
+    /// would hold the child shut behind something the pack has not taught
+    /// yet, and two formulas each waiting on the other would never open. The
+    /// order makes both impossible rather than checked for.
+    fn validate_parents(&self) -> Result<()> {
+        let order: HashMap<&str, i64> = self.formulas.iter().map(|formula| (formula.id.as_str(), formula.order)).collect();
+        for formula in &self.formulas {
+            let mut named = HashSet::new();
+            for parent in &formula.parents {
+                if !named.insert(parent.as_str()) {
+                    bail!("formula {:?} names its parent {parent:?} twice", formula.id);
+                }
+                let Some(&parent_order) = order.get(parent.as_str()) else {
+                    bail!("formula {:?} stands on {parent:?}, which is not a formula of the pack", formula.id);
+                };
+                if parent_order >= formula.order {
+                    bail!(
+                        "formula {:?} stands on {parent:?}, which does not come before it: a parent has to be taught first",
+                        formula.id
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The rules that hold the words to their sentences.
@@ -296,7 +388,7 @@ impl Pack {
 
         let lexicon = lexicon::of(&self.target);
         let mut used: HashSet<String> = HashSet::new();
-        let mut sentences: HashMap<&str, (&str, BTreeSet<String>)> = HashMap::new();
+        let mut sentences: HashMap<&str, (&str, BTreeSet<String>, BTreeSet<&str>)> = HashMap::new();
         for formula in &self.formulas {
             for sample in &formula.samples {
                 let mut marked = BTreeSet::new();
@@ -321,12 +413,13 @@ impl Pack {
                     }
                     used.insert(key);
                 }
+                let accepted = validate_accepted(formula, sample)?;
                 match sentences.entry(sample.target.as_str()) {
                     Entry::Vacant(vacant) => {
-                        vacant.insert((sample.native.as_str(), marked));
+                        vacant.insert((sample.native.as_str(), marked, accepted));
                     }
                     Entry::Occupied(occupied) => {
-                        let (native, words) = occupied.get();
+                        let (native, words, spellings) = occupied.get();
                         if *native != sample.native {
                             bail!(
                                 "{:?} is translated two ways, {native:?} and {:?}: a sentence has one meaning",
@@ -336,6 +429,9 @@ impl Pack {
                         }
                         if *words != marked {
                             bail!("{:?} is marked with different words in two formulas", sample.target);
+                        }
+                        if *spellings != accepted {
+                            bail!("{:?} accepts different spellings in two formulas", sample.target);
                         }
                     }
                 }
@@ -398,6 +494,9 @@ impl Pack {
 /// there as a word nobody hears.
 fn validate_say(formula: &Formula) -> Result<()> {
     let Some(say) = formula.say.as_deref() else {
+        if !formula.accept.is_empty() {
+            bail!("formula {:?} accepts other answers but has no `say` to be another way of saying", formula.id);
+        }
         if formula.slots.is_empty() {
             return Ok(());
         }
@@ -407,39 +506,66 @@ fn validate_say(formula: &Formula) -> Result<()> {
             formula.pattern
         );
     };
-    let template = Template::parse(say).with_context(|| format!("formula {:?} has an unreadable `say`", formula.id))?;
+    let mut templates = vec![(
+        "`say`",
+        Template::parse(say).with_context(|| format!("formula {:?} has an unreadable `say`", formula.id))?,
+    )];
+    let mut seen = HashSet::from([say]);
+    for accepted in &formula.accept {
+        if !seen.insert(accepted.as_str()) {
+            bail!("formula {:?} accepts {accepted:?} twice, or as its own `say`", formula.id);
+        }
+        let template = Template::parse(accepted).with_context(|| format!("formula {:?} accepts an unreadable {accepted:?}", formula.id))?;
+        templates.push(("`accept`", template));
+    }
 
     let slots: HashSet<&str> = formula.slots.iter().map(|slot| slot.name.as_str()).collect();
-    for name in template.slots() {
-        if !slots.contains(name) {
-            bail!("formula {:?} says <{name}>, but has no slot called {name:?}", formula.id);
+    let mut asked: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+    for (field, template) in &templates {
+        for name in template.slots() {
+            if !slots.contains(name) {
+                bail!("formula {:?} says <{name}> in {field}, but has no slot called {name:?}", formula.id);
+            }
         }
-    }
-    let said = template.slots();
-    let forms = template.forms();
-    for slot in &formula.slots {
-        if !said.contains(slot.name.as_str()) {
+        // Every template says every slot: an answer that drops a word the
+        // prompt showed is a different sentence, however it is spelt.
+        let said = template.slots();
+        if let Some(slot) = formula.slots.iter().find(|slot| !said.contains(slot.name.as_str())) {
             bail!(
-                "formula {:?} never says its slot {:?}: the answer would drop a word the prompt showed",
+                "formula {:?} never says its slot {:?} in {field}: the answer would drop a word the prompt showed",
                 formula.id,
                 slot.name
             );
         }
-        let wanted = forms.get(slot.name.as_str()).cloned().unwrap_or_default();
-        for value in &slot.values {
-            for form in &wanted {
-                if !value.forms.contains_key(*form) {
+        for (name, forms) in template.forms() {
+            let slot = formula.slots.iter().find(|slot| slot.name == name);
+            for value in slot.iter().flat_map(|slot| &slot.values) {
+                if let Some(form) = forms.iter().find(|form| !value.forms.contains_key(**form)) {
                     bail!(
-                        "value {:?} of slot {:?} in formula {:?} has no form {form:?}, which `say` asks for",
+                        "value {:?} of slot {name:?} in formula {:?} has no form {form:?}, which {field} asks for",
                         value.target,
-                        slot.name,
                         formula.id
                     );
                 }
             }
+            asked.entry(name).or_default().extend(forms);
+        }
+    }
+
+    for slot in &formula.slots {
+        let wanted = asked.get(slot.name.as_str()).cloned().unwrap_or_default();
+        if let (Some(kind), Some(form)) = (slot.takes, wanted.iter().next()) {
+            bail!(
+                "slot {:?} of formula {:?} takes the learner's own {} words but asks its value for the form {form:?}, which a word typed in does not carry",
+                slot.name,
+                formula.id,
+                kind.as_str()
+            );
+        }
+        for value in &slot.values {
             if let Some(unused) = value.forms.keys().find(|form| !wanted.contains(form.as_str())) {
                 bail!(
-                    "value {:?} of slot {:?} in formula {:?} carries a form {unused:?} that `say` never asks for",
+                    "value {:?} of slot {:?} in formula {:?} carries a form {unused:?} that no template asks for",
                     value.target,
                     slot.name,
                     formula.id
@@ -448,6 +574,21 @@ fn validate_say(formula: &Formula) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The other spellings a sample accepts: each a sentence of its own, named
+/// once and never the sample's own spelling.
+fn validate_accepted<'a>(formula: &Formula, sample: &'a Sample) -> Result<BTreeSet<&'a str>> {
+    let mut accepted = BTreeSet::new();
+    for spelling in &sample.accept {
+        if spelling.trim().is_empty() {
+            bail!("formula {:?} accepts an empty spelling of {:?}", formula.id, sample.target);
+        }
+        if spelling == &sample.target || !accepted.insert(spelling.as_str()) {
+            bail!("formula {:?} accepts {spelling:?} twice for {:?}", formula.id, sample.target);
+        }
+    }
+    Ok(accepted)
 }
 
 /// What a load did.
@@ -549,6 +690,8 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
         insert_formula(&mut tx, pack, formula).await?;
     }
 
+    insert_parents(&mut tx, pack).await?;
+
     // A sentence no formula shows any more is gone, and an anchor in it with
     // it: the word is heard in the first sentence it is met in until it is
     // answered again. Formulas are the only thing that shows sentences
@@ -593,12 +736,29 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
     })
 }
 
+/// Links every formula to its parents. After every formula is in: a parent
+/// is a row the link points at, and the pack's sequence is not the order of
+/// the file.
+async fn insert_parents(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack) -> Result<()> {
+    for formula in &pack.formulas {
+        for parent in &formula.parents {
+            sqlx::query("INSERT INTO formula_parent (formula_id, parent_id) VALUES (?, ?)")
+                .bind(&formula.id)
+                .bind(parent)
+                .execute(&mut **tx)
+                .await
+                .with_context(|| format!("failed to set {parent} as a parent of {}", formula.id))?;
+        }
+    }
+    Ok(())
+}
+
 /// Writes one formula with its sentences, slots and slot values.
 async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack, formula: &Formula) -> Result<()> {
     let (pack_id, target) = (pack.id.as_str(), pack.target.as_str());
     sqlx::query(
-        "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position, family, form, say)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO formula (id, pack_id, target, name, pattern, explanation, position, family, form, say, accept)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&formula.id)
     .bind(pack_id)
@@ -610,6 +770,7 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pac
     .bind(formula.family.as_deref())
     .bind(formula.form.map(Form::as_str))
     .bind(formula.say.as_deref())
+    .bind(serde_json::to_string(&formula.accept).context("failed to write the answers a formula accepts")?)
     .execute(&mut **tx)
     .await
     .with_context(|| format!("failed to insert formula {}", formula.id))?;
@@ -619,10 +780,11 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pac
     }
 
     for (position, slot) in formula.slots.iter().enumerate() {
-        let slot_id: i64 = sqlx::query_scalar("INSERT INTO slot (formula_id, name, position) VALUES (?, ?, ?) RETURNING id")
+        let slot_id: i64 = sqlx::query_scalar("INSERT INTO slot (formula_id, name, position, takes) VALUES (?, ?, ?, ?) RETURNING id")
             .bind(&formula.id)
             .bind(&slot.name)
             .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .bind(slot.takes.map(OwnKind::as_str))
             .fetch_one(&mut **tx)
             .await
             .with_context(|| format!("failed to insert slot {} of formula {}", slot.name, formula.id))?;
@@ -646,14 +808,16 @@ async fn insert_formula(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pac
 /// translation, its place among the formula's examples, and its words.
 async fn insert_sample(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack, formula: &Formula, position: i64, sample: &Sample) -> Result<()> {
     // `DO UPDATE` rather than `DO NOTHING`, because only an update hands back
-    // the id of the row that was already there.
+    // the id of the row that was already there - and the spellings it
+    // accepts are the pack's to correct, like its translation.
     let sentence: i64 = sqlx::query_scalar(
-        "INSERT INTO sentence (language, text) VALUES (?, ?)
-         ON CONFLICT (language, text) DO UPDATE SET text = excluded.text
+        "INSERT INTO sentence (language, text, accept) VALUES (?, ?, ?)
+         ON CONFLICT (language, text) DO UPDATE SET accept = excluded.accept
          RETURNING id",
     )
     .bind(&pack.target)
     .bind(&sample.target)
+    .bind(serde_json::to_string(&sample.accept).context("failed to write the spellings a sentence accepts")?)
     .fetch_one(&mut **tx)
     .await
     .with_context(|| format!("failed to insert the sentence {:?}", sample.target))?;
@@ -924,7 +1088,7 @@ order = 10
         // while the sentence went without it.
         let values = r#"{ native = "я", target = "I", be = "am" }, { native = "он", target = "he", be = "is", bee = "is" }"#;
         let error = with_say(Some("<pronoun> <pronoun:be> <rest>."), values).validate().unwrap_err();
-        assert!(format!("{error:#}").contains("\"bee\" that `say` never asks for"), "{error:#}");
+        assert!(format!("{error:#}").contains("\"bee\" that no template asks for"), "{error:#}");
     }
 
     #[tokio::test]
@@ -1489,6 +1653,7 @@ order = 10
             native: "Они заняты.".to_string(),
             target: "They are busy.".to_string(),
             words: Vec::new(),
+            accept: Vec::new(),
         };
         load(&pool, &shrunk).await.unwrap();
 
@@ -1498,6 +1663,226 @@ order = 10
             .unwrap();
         let anchors: i64 = sqlx::query_scalar("SELECT count(*) FROM anchor").fetch_one(&pool).await.unwrap();
         assert_eq!((gone, anchors), (0, 0), "a sentence nobody shows, or an anchor in it, was left behind");
+    }
+
+    /// Three formulas: `be` stands alone, `want` on `be`, `like` on both.
+    fn tree(want_parents: &str, like_parents: &str) -> String {
+        format!(
+            r#"
+id = "tree"
+version = 1
+native = "ru"
+target = "en"
+
+[[formula]]
+id = "be"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 10
+  [[formula.sample]]
+  native = "a"
+  target = "I am here."
+
+[[formula]]
+id = "want"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 20
+parents = [{want_parents}]
+  [[formula.sample]]
+  native = "b"
+  target = "I want tea."
+
+[[formula]]
+id = "like"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 30
+parents = [{like_parents}]
+  [[formula.sample]]
+  native = "c"
+  target = "I would like tea."
+"#
+        )
+    }
+
+    #[test]
+    fn a_tree_of_parents_is_accepted() {
+        parse(&tree(r#""be""#, r#""be", "want""#))
+            .validate()
+            .expect("parents earlier in the sequence should load");
+    }
+
+    #[test]
+    fn a_parent_that_is_not_there_or_not_earlier_or_named_twice_is_rejected() {
+        let error = parse(&tree(r#""bee""#, "")).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("not a formula of the pack"), "{error:#}");
+        // A parent taught after its child would hold the child shut; a
+        // formula its own parent never opens at all.
+        let error = parse(&tree(r#""like""#, "")).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("does not come before it"), "{error:#}");
+        let error = parse(&tree(r#""want""#, "")).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("does not come before it"), "{error:#}");
+        let error = parse(&tree(r#""be", "be""#, "")).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("twice"), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn parents_reach_the_database_and_a_reload_replaces_them() {
+        let pool = pool().await;
+        load(&pool, &parse(&tree(r#""be""#, r#""be", "want""#))).await.unwrap();
+        let links: Vec<(String, String)> = sqlx::query_as("SELECT formula_id, parent_id FROM formula_parent ORDER BY formula_id, parent_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let links: Vec<(&str, &str)> = links.iter().map(|(child, parent)| (child.as_str(), parent.as_str())).collect();
+        assert_eq!(links, vec![("like", "be"), ("like", "want"), ("want", "be")]);
+
+        let mut changed = parse(&tree(r#""be""#, r#""want""#));
+        changed.version = 2;
+        load(&pool, &changed).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM formula_parent").fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 2, "a reload kept a parent the pack no longer names");
+    }
+
+    #[test]
+    fn an_accepted_template_is_held_to_the_rules_of_say() {
+        let with = |accept: &str, values: &str| {
+            let mut pack = with_say(Some("<pronoun> <pronoun:be> <rest>."), values);
+            pack.formulas[0].accept = vec![accept.to_string()];
+            pack.validate()
+        };
+        let short = r#"{ native = "я", target = "I", be = "am", be-short = "I'm" }, { native = "он", target = "he", be = "is", be-short = "he's" }"#;
+        with("<pronoun:be-short> <rest>.", short).expect("a contraction carried by the values should be accepted");
+
+        // The form only an accepted template asks for is asked for.
+        let error = with("<pronoun:be-short> <rest>.", AGREEING).unwrap_err();
+        assert!(format!("{error:#}").contains("has no form \"be-short\", which `accept` asks for"), "{error:#}");
+        let error = with("<pronoun:be-short>.", short).unwrap_err();
+        assert!(format!("{error:#}").contains("never says its slot \"rest\" in `accept`"), "{error:#}");
+        let error = with("<pronoun:be-short> <place>.", short).unwrap_err();
+        assert!(format!("{error:#}").contains("no slot called \"place\""), "{error:#}");
+        let error = with("<pronoun> <pronoun:be> <rest>.", AGREEING).unwrap_err();
+        assert!(format!("{error:#}").contains("twice, or as its own `say`"), "{error:#}");
+    }
+
+    #[test]
+    fn a_slot_that_takes_own_words_asks_no_form_of_them() {
+        let mut pack = with_say(Some("<pronoun> <pronoun:be> <rest>."), AGREEING);
+        pack.formulas[0].slots[1].takes = Some(OwnKind::Noun);
+        pack.validate().expect("a plain slot can take the learner's words");
+        pack.formulas[0].slots[0].takes = Some(OwnKind::Noun);
+        let error = pack.validate().unwrap_err();
+        assert!(format!("{error:#}").contains("asks its value for the form \"be\""), "{error:#}");
+    }
+
+    #[test]
+    fn a_slot_holding_the_same_value_twice_is_rejected() {
+        let values = r#"{ native = "я", target = "I", be = "am" }, { native = "я сам", target = "I", be = "am" }"#;
+        let error = with_say(Some("<pronoun> <pronoun:be> <rest>."), values).validate().unwrap_err();
+        assert!(format!("{error:#}").contains("holds \"I\" twice"), "{error:#}");
+    }
+
+    #[test]
+    fn a_sentence_accepts_its_spellings_once_and_the_same_everywhere() {
+        let mut pack = worded(1, "врач", "Он врач.");
+        pack.formulas[0].samples[0].accept = vec!["He's a doctor.".to_string()];
+        pack.validate().expect("another spelling of a sentence should be accepted");
+
+        pack.formulas[0].samples[0].accept = vec!["He is a doctor.".to_string()];
+        assert!(format!("{:#}", pack.validate().unwrap_err()).contains("twice"));
+
+        // Shown by a second formula without the spelling: one sentence, two
+        // answers to whether "He's" is right.
+        let mut pack = worded(1, "врач", "Он врач.");
+        pack.formulas[0].samples[0].accept = vec!["He's a doctor.".to_string()];
+        let copy = Sample {
+            accept: Vec::new(),
+            ..pack.formulas[0].samples[0].clone()
+        };
+        pack.formulas[1].samples.push(copy);
+        assert!(format!("{:#}", pack.validate().unwrap_err()).contains("accepts different spellings"));
+    }
+
+    #[tokio::test]
+    async fn accepted_answers_and_own_word_slots_reach_the_database() {
+        let pool = pool().await;
+        let short = r#"{ native = "я", target = "I", be = "am", be-short = "I'm" }"#;
+        let mut pack = with_say(Some("<pronoun> <pronoun:be> <rest>."), short);
+        pack.formulas[0].accept = vec!["<pronoun:be-short> <rest>.".to_string()];
+        pack.formulas[0].samples[0].accept = vec!["I'm here.".to_string()];
+        pack.formulas[0].slots[1].takes = Some(OwnKind::Noun);
+        load(&pool, &pack).await.unwrap();
+
+        let formula = crate::study::formula(&pool, "be").await.unwrap();
+        assert_eq!(formula.accept, vec!["<pronoun:be-short> <rest>."]);
+        assert_eq!(formula.samples[0].accept, vec!["I'm here."]);
+        assert_eq!(formula.slots[1].takes, Some(OwnKind::Noun));
+        assert_eq!(formula.slots[0].takes, None);
+    }
+
+    #[test]
+    fn every_answer_the_shipped_pack_accepts_is_a_sentence() {
+        // The accepted templates are answers a learner's typing is held
+        // against: a scaffold left in one would mark a right answer wrong.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
+        let pack = Pack::read(&path).expect("the shipped pack should load");
+        let mut accepted = 0;
+        for formula in &pack.formulas {
+            let slots: Vec<(&str, Vec<&Value>)> = formula.slots.iter().map(|slot| (slot.name.as_str(), slot.values.iter().collect())).collect();
+            let mut sentences: Vec<String> = Vec::new();
+            for template in &formula.accept {
+                sentences.extend(crate::say::every_sentence(&Template::parse(template).unwrap(), &slots, 10_000));
+            }
+            sentences.extend(formula.samples.iter().flat_map(|sample| sample.accept.iter().cloned()));
+            for sentence in sentences {
+                assert!(
+                    !sentence.contains(" + ") && !sentence.contains('/') && !sentence.contains('<') && !sentence.contains("  "),
+                    "formula {} accepts a scaffold: {sentence:?}",
+                    formula.id
+                );
+                assert!(sentence.ends_with(['.', '?', '!']), "formula {} accepts an unfinished {sentence:?}", formula.id);
+                assert!(
+                    sentence.starts_with(char::is_uppercase),
+                    "formula {} accepts {sentence:?} in lower case",
+                    formula.id
+                );
+                accepted += 1;
+            }
+        }
+        assert!(accepted > 300, "the pack should accept the contractions it teaches, accepted {accepted}");
+    }
+
+    #[test]
+    fn the_shipped_pack_is_a_tree_with_room_to_start() {
+        // A formula with no parent opens on the first day; a pack where
+        // nearly everything stands on something is a climb, not a list.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
+        let pack = Pack::read(&path).expect("the shipped pack should load");
+        let roots: Vec<&str> = pack
+            .formulas
+            .iter()
+            .filter(|formula| formula.parents.is_empty())
+            .map(|formula| formula.id.as_str())
+            .collect();
+        assert!(roots.contains(&"be-present-statement"), "the first formula should stand on nothing: {roots:?}");
+        assert!(
+            roots.len() * 4 <= pack.formulas.len(),
+            "most formulas should stand on another, but {} of {} are roots: {roots:?}",
+            roots.len(),
+            pack.formulas.len()
+        );
+        assert!(
+            pack.formulas
+                .iter()
+                .filter(|formula| formula.slots.iter().any(|slot| slot.takes.is_some()))
+                .count()
+                >= 15,
+            "the pack should let the learner's own words into the formulas that can take them"
+        );
     }
 
     #[tokio::test]
