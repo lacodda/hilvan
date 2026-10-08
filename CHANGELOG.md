@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-10-08
+
+### Documentation
+- Explain parents, typed answers and own words, and bump to 0.5.0
+
+### Features
+- Stand formulas on parents, check typed answers and take own words
+- Name each formula's parents and accept contractions
+- Type a formula, see what slipped, and add words of your own
+
+### Testing
+- Drill the shipped pack by typing its first sentence
+
 ## [0.4.0] - 2026-10-01
 
 ### Bug Fixes
