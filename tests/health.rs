@@ -53,6 +53,16 @@ async fn json(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
     (status, body)
 }
 
+async fn post(app: &Router, uri: &str, body: &Value) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    json(app, request).await
+}
+
 #[tokio::test]
 async fn health_answers_ok_with_the_crate_version() {
     let (app, _data, _web) = stand(None).await;
@@ -102,18 +112,21 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
         "the drill was handed a formula with nothing to show"
     );
 
-    let (status, reviewed) = json(
-        &app,
-        Request::builder()
-            .method("POST")
-            .uri(format!("/api/formulas/{first}/review"))
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"rating":"good","duration_ms":3100}"#))
-            .unwrap(),
-    )
-    .await;
+    // Said, the formula is typed: its first sentence, contracted the way the
+    // pack accepts, is a right answer.
+    let sample = &today["queue"][0]["formula"]["samples"][0];
+    let sentence = sample["sentence"].as_i64().expect("a sample is a sentence");
+    let contracted = sample["accept"][0].as_str().expect("the first sample accepts its contraction");
+    let turn = serde_json::json!({ "asked": { "sample": sentence }, "typed": contracted });
+    let (status, checked) = post(&app, &format!("/api/formulas/{first}/check"), &turn).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(checked["correct"], true, "{contracted:?} was marked wrong: {checked}");
+
+    let answer = serde_json::json!({ "direction": "produce", "turns": [turn], "duration_ms": 3100 });
+    let (status, reviewed) = post(&app, &format!("/api/formulas/{first}/review"), &answer).await;
     assert_eq!(status, StatusCode::OK);
     assert_ne!(reviewed["stitch"], "new");
+    assert_eq!(reviewed["rating"], "good");
 
     // Producing it once opens the other direction - the same shape, asked
     // backwards - and the words of its sentences, which have now been met.
