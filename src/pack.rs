@@ -12,6 +12,11 @@
 //! loader checks each mark against the sentence - "went" is a form of "go" -
 //! with the lexicon of the language (see [`crate::lexicon`]).
 //!
+//! And a pack says how its formulas hang together and what counts as right:
+//! the parents each formula stands on, always earlier in its sequence, the
+//! other answers a typed turn may give ("I'd like" for "I would like"), and
+//! the slots that take the learner's own words (ADR 0007).
+//!
 //! Loading is idempotent: the same pack loaded twice leaves the database as
 //! it was, and a pack whose contents changed replaces its own formulas and
 //! words without touching what the learner has learnt about them.

@@ -22,21 +22,29 @@ id = "be-present-statement"   # stable across versions; the database keys on it
 name = "I am / you are"       # what the learner sees as the title
 pattern = "<pronoun> + am/is/are + <rest>"   # the scaffold shown on the card
 say = "<pronoun> <pronoun:be> <rest>."       # the sentence a substitution says
+accept = ["<pronoun:short> <rest>."]         # optional: other answers just as right
 explanation = "..."           # one paragraph, in the native language
 order = 10                    # the order formulas are introduced in
+parents = []                  # optional: formulas this one stands on, earlier in order
 family = "be-present"          # optional: the shape this is one form of
 form = "statement"             # optional: statement, negation or question
 
   [[formula.sample]]          # worked examples: what a correct answer looks like
   native = "Я дома."
   target = "I am at home."
+  accept = ["I'm at home."]   # optional: other spellings just as right
 
   [[formula.slot]]            # the substitutions the drill draws from
   name = "pronoun"
   values = [
-    { native = "я", target = "I", be = "am" },    # be: a form `say` agrees with
-    { native = "ты", target = "you", be = "are" },
+    { native = "я", target = "I", be = "am", short = "I'm" },    # be, short: forms the templates agree with
+    { native = "ты", target = "you", be = "are", short = "you're" },
   ]
+
+  [[formula.slot]]
+  name = "rest"
+  takes = "noun"              # optional: the learner's own nouns go here too
+  values = [{ native = "дома", target = "at home" }]
 ```
 
 Every formula needs at least one sample; slots are optional, but a formula
@@ -44,6 +52,16 @@ with no slot cannot be drilled by substitution, only recalled. A formula with
 slots needs `say`: the pattern is a scaffold, and `say` is the sentence the
 drill answers with and the tutor reads aloud. Agreement lives on the value -
 `be = "is"` on "he" - so the code knows nothing about English.
+
+A typed answer is checked against `say` and every template in `accept`, so a
+formula that teaches a contraction accepts the other spelling as well: the
+contraction is a form on the value (`short = "she's"`), and a sample lists its
+other spellings in its own `accept`.
+
+`parents` names the formulas this one is built from; it opens only once all of
+them are sewn, and each must come earlier in `order`. A slot with `takes`
+accepts the learner's own nouns or verbs, and so may not ask its value for any
+form.
 
 A statement, its negation and its question stay three formulas with three
 schedules - the negation with `don't` really is a separate thing to

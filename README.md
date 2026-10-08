@@ -13,11 +13,12 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 
 ## What you get
 
-- **Formulas, not vocabulary lists.** Grammar drilled as substitution patterns, so production practice starts on structures you can already half-manage. Thirty of them ship as a [pack](https://github.com/lacodda/hilvan/blob/main/packs/en-from-ru/README.md) for English from Russian - a file, not code.
+- **Formulas, not vocabulary lists.** Grammar drilled as substitution patterns, so production practice starts on structures you can already half-manage. Thirty of them ship as a [pack](https://github.com/lacodda/hilvan/blob/main/packs/en-from-ru/README.md) for English from Russian - a file, not code - and each opens only once the formulas it stands on are sewn.
+- **Typed, checked, mended by cause.** You type the sentence; the tutor checks it, tells a slipped shape from a missed word or the wrong order, grades the formula itself, and sends a missed word back to its own card. Nouns and verbs of your own life go into the drill beside the pack's.
 - **Words from the sentences you meet.** Each worked example marks the words it teaches; a word opens once you have met its sentence, is asked in that sentence by ear, and counts toward the commonest 1,000, 2,000 and 5,000 words of English.
 - **Every sentence heard.** The language you learn is spoken by a native ElevenLabs voice, your own by Piper running beside the tutor - slowly while a formula is new, at speaking speed once it holds. Each sound is made once and kept, and the paid budget shows how long it will last.
 - **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
-- **A sitting on a phone.** The formula of the day, a prompt, your own answer, and how it went.
+- **A sitting on a phone.** The formula of the day, a prompt, your typed answer, and what it got right.
 - **A password on the door.** The server refuses to run open and says so in its first log line if you skip it.
 
 ## Install
@@ -57,7 +58,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.4.0**: words, inside the sentences they are met in. The pack's 150 worked examples mark 126 words; a word opens once its sentence is met, is asked there by ear with its transcription, and counts toward the commonest 1,000, 2,000 and 5,000 words of English, ranked by a lexicon built from open data. Thirty grammar formulas for a Russian speaker are drilled both ways, every sentence is heard, and a sitting runs end to end on a phone, behind a password. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
+**v0.5.0**: formulas stand on parents, and a said answer is typed and checked. A formula opens once the ones it is built from are sewn; each typed turn is read against the answer and the contractions the pack accepts, a slip of the shape grades the formula and a missed word goes to its own card, and nouns and verbs of your own fill the drill's plain slots. Thirty formulas for a Russian speaker, 126 words in their sentences, every sentence heard, on a phone, behind a password. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
 
 ## Documentation
 

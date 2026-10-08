@@ -13,6 +13,12 @@ This is what v0.1.0 does: a [formula pack](/hilvan/reference/packs/) supplies th
 
 v0.2.0 adds the other half of production. A shape is drilled in three forms - statement, negation, question - behind one switch on the card, because being able to say *I am tired* without being able to ask *Are you tired?* is half a formula. And the ladder runs one shape through every person in a minute, which is how the choice between *am*, *is* and *are* stops being a decision.
 
+From v0.5.0 the feedback is the machine's, not the learner's guess at it. A formula is said by typing it, and every turn is checked: right or not, and when not, *what* went wrong - the shape slipped (*She are busy*), a word it carries did not come (*She is bisy*), or every word came in the wrong order (*She is busy?* for a question). The three are mended apart: a slip of the shape grades the formula down, and a missing word goes back to that word's own card instead. *I'd like* and *I would like* are one answer, because the pack lists both. Understanding stays a listening skill, graded by the learner, because what you understood is not something to type.
+
+The formulas also stand on each other now. *I would like* is built from *I want* and the shape of a modal, and it opens only once those are sewn: grammar goes up a tree rather than down a list, and a shape never opens on a loose foundation.
+
+And the sentences can be about your life. The nouns and verbs you add yourself - *swim*, *a bicycle* - go into the formulas that can take them, in about half of their substitutions. A sentence you might actually say is remembered faster than one the pack's author might.
+
 ## Spaced retrieval - built
 
 A formula drilled once is forgotten on a predictable schedule; recalling it right before it would have faded resets that schedule and pushes the next review further out. hilvan uses FSRS to decide what to review and when, so review time goes to what is about to be forgotten rather than what was already reviewed yesterday.

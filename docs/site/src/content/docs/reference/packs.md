@@ -1,6 +1,6 @@
 ---
 title: Formula packs
-description: The pack.toml format - what a pack is, its shape, the words its sentences teach, the rules the loader enforces, and what loading does.
+description: The pack.toml format - what a pack is, its shape, the parents a formula stands on, the answers it accepts, the words its sentences teach, the rules the loader enforces, and what loading does.
 ---
 
 A pack is the material a learner starts from: grammar formulas, each with worked examples and the words to substitute into it, and the vocabulary those examples teach. A pack is **data, not code** - `pack.toml` is loaded into the database with `hilvan load-pack`, and the server itself never reads a pack file.
@@ -20,6 +20,7 @@ id = "be-present-statement"
 name = "I am / you are"
 pattern = "<pronoun> + am/is/are + <rest>"
 say = "<pronoun> <pronoun:be> <rest>."
+accept = ["<pronoun:short> <rest>."]   # optional: other answers just as right
 explanation = "..."
 order = 10
 family = "be-present"      # optional: the shape this is one form of
@@ -29,13 +30,25 @@ form = "statement"          # optional: statement, negation or question
   native = "<prompt in the learner's own language>"
   target = "I am at home."
   words = ["home"]
+  accept = ["I'm at home."]   # optional: other spellings just as right
 
   [[formula.slot]]
   name = "pronoun"
   values = [
-    { native = "<word in the learner's own language>", target = "I", be = "am" },
-    { native = "<word in the learner's own language>", target = "you", be = "are" },
+    { native = "<word in the learner's own language>", target = "I", be = "am", short = "I'm" },
+    { native = "<word in the learner's own language>", target = "you", be = "are", short = "you're" },
   ]
+
+  [[formula.slot]]
+  name = "rest"
+  takes = "noun"               # optional: the learner's own nouns go here too
+  values = [{ native = "<...>", target = "at home" }]
+
+[[formula]]
+id = "be-present-negation"
+order = 20
+parents = ["be-present-statement"]   # optional: opens once these are sewn
+# ...
 
 [[word]]
 lemma = "home"
@@ -59,6 +72,8 @@ gloss = "<what it means, in the learner's own language>"
 | `name` | What the learner sees as the title. |
 | `pattern` | The assembly shown compactly, with `<placeholder>` holes matching slot names. The scaffold on the card, not a sentence. |
 | `say` | The sentence a substitution says, with `<slot>` and `<slot:form>` holes. Required when the formula has slots - see [The sentence it says](#the-sentence-it-says). |
+| `accept` | Optional. More templates in the syntax of `say`, each another right answer - see [Answers it accepts](#answers-it-accepts). |
+| `parents` | Optional. The ids of the formulas this one stands on; it opens only once all of them are sewn - see [Parents](#parents). |
 | `explanation` | One paragraph, in the pack's native language. |
 | `order` | The position this formula is introduced in - the pack decides the learning sequence, not the clock. |
 | `family` | Optional. The shape this formula is one form of, so the card can offer a switch between them. |
@@ -66,7 +81,7 @@ gloss = "<what it means, in the learner's own language>"
 | `[[formula.sample]]` | A worked example: what a correct answer looks like. At least one per formula. |
 | `[[formula.slot]]` | A hole in the pattern the drill substitutes into. Optional. |
 
-A `sample` has `native` (the prompt), `target` (the answer) and optionally `words` - the lemmas of `target` it teaches. A `slot` has a `name` matching a `<placeholder>` in the pattern, and `values` - a list of `{ native, target }` pairs the drill draws substitutions from.
+A `sample` has `native` (the prompt), `target` (the answer), and optionally `words` - the lemmas of `target` it teaches - and `accept`, other spellings of `target` that are just as right. A `slot` has a `name` matching a `<placeholder>` in the pattern, `values` - a list of `{ native, target }` pairs the drill draws substitutions from - and optionally `takes`, the kind of the learner's [own words](#own-words) it takes as well.
 
 A formula with no slot can still be recalled, just not drilled by substitution.
 
@@ -101,6 +116,47 @@ say = "<pronoun:be> <pronoun> <rest>?"
 - A form can be a suffix: `want<pronoun:s> to <verb>.` with `s = "s"` on *he* and `s = ""` on *I* says *He wants to go* and *I want to go*.
 - The first letter is raised, so `<pronoun:be>` opens a question as *Is* and *he* opens a statement as *He*.
 - Every key on a value other than `native` and `target` is a form.
+
+### Parents
+
+A formula is built from others: *I would like* stands on *I want* and on the shape of a modal. `parents` names them, and a formula opens only once every parent's producing card is **sewn** - the next new formula is the first in the pack's `order` whose parents all are. The order is a preference; the tree is the law. A formula already started is never shut again because a parent came loose.
+
+```toml
+[[formula]]
+id = "would-like"
+order = 180
+parents = ["want-to-verb", "modal-can"]
+```
+
+Every parent must be a formula of the same pack with a lower `order` than its child: a parent taught after its child would hold the child shut, and a loop would never open. Because a parent always comes first, a loop cannot be written down at all.
+
+A formula with no parents opens as soon as the day has room for it. Keep a few such roots early in the sequence, so a day whose next formula waits on a loose parent can open another one instead.
+
+### Answers it accepts
+
+A said answer is typed and checked against what the formula says. *I'd like a coffee* and *I would like a coffee* are one answer, so a formula can list more templates that are just as right:
+
+```toml
+say = "<pronoun> would like <thing>."
+accept = ["<pronoun>'d like <thing>."]
+```
+
+An accepted template follows the rules of `say` - it says every slot, and the forms it asks for are on the values. A contraction that changes with the person is a form like any other: `accept = ["<pronoun:short> <rest>."]` with `short = "she's"` on *she*. A fixed sentence lists its other spellings on the sample itself: `accept = ["I am not hungry."]` beside `target = "I'm not hungry."`. Case, punctuation and the kind of apostrophe never matter to the check; spelling does.
+
+The check reads every word of the answer by where it came from. The template's own text, every form, and the value of a slot the formula agrees with - a slot some template asks a form of, like the pronoun that picks *am* or *is* - are the formula's; the plain value of any other slot is a word it carries. In a sample, the words marked in `words` are words and everything else is the formula's. That is how a wrong answer is told apart: a missing piece of the formula is a slip of the shape, missing words only are the word's failure, and the same words in another order are the order's.
+
+### Own words
+
+The learner can add nouns and verbs of their own life - *swim*, *a bicycle* - with what they mean. A slot that should take them says so:
+
+```toml
+  [[formula.slot]]
+  name = "verb"
+  takes = "verb"      # or "noun"
+  values = [{ native = "<...>", target = "go" }]
+```
+
+A slot that takes own words must not be asked for any form of its value - neither by `say` nor by `accept` - because a word the learner typed carries none. The plain verb of *can*, *must*, *will* and *want to* takes verbs; the thing of *have got* and *would like* takes nouns. The drill draws an own word in about half the substitutions of such a slot.
 
 ### Forms of a shape
 
@@ -137,7 +193,12 @@ The loader rejects a pack outright rather than loading it partway - a half-loade
 - A `family` holds a single formula - a switch with nothing to switch to, always a sister renamed or not written yet.
 - A formula has slots but no `say` - its substitutions would have nothing to answer with but the scaffold.
 - `say` names a slot the formula does not have, or leaves out a slot it does have - the answer would drop a word the prompt showed.
-- A value lacks a form `say` asks of its slot, or carries a form `say` never asks for - the second is almost always a misspelt key.
+- A value lacks a form `say` or an `accept` template asks of its slot, or carries a form no template asks for - the second is almost always a misspelt key.
+- An `accept` template cannot be read, names a slot the formula does not have, leaves out a slot it does have, or repeats `say` or another template. A formula without `say` accepts nothing.
+- A slot holds two values with the same `target` - a typed answer names the value it was asked with by what it says.
+- A slot that `takes` own words is asked for a form of its value.
+- A parent is not a formula of the pack, is named twice, or does not come before its child in `order`.
+- A sample accepts an empty spelling, its own `target`, or the same spelling twice; or one sentence accepts different spellings in two formulas.
 - A sample marks a word the pack declares no `[[word]]` for, marks the same word twice, or marks a word its sentence does not hold in any form.
 - A `[[word]]` is in no sentence - it could never enter the deck - has no gloss, is more than one word, or shares its lemma with another, whatever the case.
 - The same sentence is translated two ways, or marked with different words, in two formulas.

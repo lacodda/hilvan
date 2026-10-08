@@ -25,14 +25,25 @@ Open the app and it shows you today's queue: whatever is due for review, and - i
 
 **Reviews always come before the new formula.** If three formulas are due, you work through those first; the new one, when there is room for it, comes last. A day where you start something new while forgetting yesterday's is the thing hilvan is built to avoid.
 
-For each formula, you see the pattern, an explanation in your own language, and worked examples. The drill substitutes different words into the same shape, so you are producing the sentence, not just recognizing it. When you answer, you grade yourself with one of four buttons:
+For each formula, you see the pattern, an explanation in your own language, and worked examples. The drill substitutes different words into the same shape, so you are producing the sentence, not just recognizing it - and you produce it by **typing** it.
 
-- **Again** - nothing came. The formula goes back to the start.
-- **Hard** - it came, but slowly and with effort.
-- **Good** - it came.
-- **Easy** - it came without thinking about it.
+Each turn, type the sentence and press **Check** (or **I don't know**, if nothing comes). The tutor says at once whether it is right, plays the sentence, and when it is not right, shows it with what did not come marked: a piece of the formula itself in one colour, a word the formula carries in another, and what you typed that it does not have struck through. Case and punctuation do not matter; spelling does. A contraction is as right as the full form - *I'm at home* and *I am at home* are one answer. Then **Say it and record** lets you hear yourself next to the voice.
 
-There is no wrong answer to grade yourself on beyond your own honesty - the four buttons only affect when the formula comes back, not whether you "pass".
+After four turns the tutor grades the formula from what went wrong, not you:
+
+- A slip of the shape - its own words, or their order - in half the turns or more: **again**, it comes back soon.
+- One slip: **hard**.
+- No slip: **good**. If every turn was right, you are asked one thing the tutor cannot see - whether it cost thought. **Easy** if it did not.
+
+A word that did not come, when the shape did, is not held against the formula: the word goes back to your words, and comes back on its own card.
+
+### Formulas that wait
+
+Some formulas stand on others - *would like* on *want to*, the past of a question on the present one - and a formula opens only once the ones it stands on are sewn. When the next formula in the pack is still waiting, Today says so - "Next: *would like*, once *want to* is sewn" - and a formula that stands on nothing opens in its place.
+
+### Your own words
+
+**Your own words**, at the foot of Today, is where you add nouns and verbs from your own life: a verb in its plain form (*swim*), a noun as you would say it after *I have* (*a bicycle*), each with what it means. The drill puts them into the formulas that can take them - *can*, *must*, *will*, *want to* for verbs; *have got*, *would like* for nouns - in about half of their turns. A word hilvan does not know is kept, and marked in case it is a typo.
 
 ### The three forms
 
@@ -48,7 +59,7 @@ Once you have revealed an answer, **Run the ladder** puts the same formula throu
 
 ### Both directions
 
-From the second day on, some cards come the other way round: the English is the prompt, and what you produce is the meaning. Understanding and saying are different skills - you will understand far more than you can say, which is normal - so each formula is scheduled twice, and the two never share a state. The Today screen shows the two columns side by side, **say** and **know**, and the gap between them is the honest picture.
+From the second day on, some cards come the other way round: the English is the prompt, and what you produce is the meaning. Those you do not type: the sentence is played, you recall what it means, look, and grade yourself with four buttons - **Again** (nothing came), **Hard** (slowly, with effort), **Good** (it came), **Easy** (without thinking). They only decide when the card comes back. Understanding and saying are different skills - you will understand far more than you can say, which is normal - so each formula is scheduled twice, and the two never share a state. The Today screen shows the two columns side by side, **say** and **know**, and the gap between them is the honest picture.
 
 A formula is only ever asked backwards after you have been shown it forwards, and the reverse card never uses up the day's one new formula.
 
