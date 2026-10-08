@@ -5,8 +5,13 @@ import { forecastLine, remainingLine } from '@/budget'
 import { sides, tempoFor, urlOf } from '@/speech'
 
 const formula = { languages: { native: 'ru', target: 'en' } }
-const sample = { native: 'Я дома.', target: 'I am at home.', source: 'sample' } as const
-const substitution = { native: 'я + am/is/are + дома', target: 'I am at home.', source: 'substitution' } as const
+const sample = { native: 'Я дома.', target: 'I am at home.', source: 'sample', asked: { sample: 1 } } as const
+const substitution = {
+  native: 'я + am/is/are + дома',
+  target: 'I am at home.',
+  source: 'substitution',
+  asked: { values: { pronoun: 'I', rest: 'at home' } },
+} as const
 
 describe('tempoFor', () => {
   it('says new material slowly and the rest at speaking speed', () => {

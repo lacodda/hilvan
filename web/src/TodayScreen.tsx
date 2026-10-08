@@ -2,7 +2,7 @@ import type { Counts, Stitch, Today, Words } from '@/api'
 import { Shell } from '@/App'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { describeQueue } from '@/today'
+import { describeQueue, nextLine } from '@/today'
 import { levelLine, levelName } from '@/words'
 
 /** The word the learner sees for each state, and what it means. */
@@ -25,12 +25,14 @@ export function TodayScreen({
   onStart,
   onListen,
   onVoices,
+  onOwnWords,
   onSignOut,
 }: {
   today: Today
   onStart: () => void
   onListen: () => void
   onVoices: () => void
+  onOwnWords: () => void
   onSignOut: () => void
 }) {
   const started = today.progress.produce.basted + today.progress.produce.sewn + today.progress.recognise.basted + today.progress.recognise.sewn > 0
@@ -94,11 +96,15 @@ export function TodayScreen({
         {today.reviewed_today > 0 && waiting > 0 && (
           <p className="text-base text-faint">{today.reviewed_today} answered so far today.</p>
         )}
+        {nextLine(today.next) && <p className="text-base text-faint">{nextLine(today.next)}</p>}
       </section>
 
       <YourWords words={today.words} />
 
-      <footer className="mt-auto flex gap-5 pt-6">
+      <footer className="mt-auto flex flex-wrap gap-x-5 gap-y-2 pt-6">
+        <Button onClick={onOwnWords} variant="link" className="text-base text-faint underline">
+          Your own words
+        </Button>
         <Button onClick={onVoices} variant="link" className="text-base text-faint underline">
           Voices
         </Button>

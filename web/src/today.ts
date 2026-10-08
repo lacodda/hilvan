@@ -1,6 +1,6 @@
 /** What today's queue holds, said in a sentence or two. */
 
-import type { Due } from '@/api'
+import type { Due, Next } from '@/api'
 
 /** "formula" or "formulas", "word" or "words". */
 function counted(n: number, one: string): string {
@@ -44,4 +44,18 @@ export function describeQueue(queue: readonly Due[]): string {
     sentences.push(parts.length > 0 ? `Then ${line}.` : `${capitalise(line)}.`)
   }
   return sentences.join(' ')
+}
+
+/**
+ * The formula next in line, and what holds it: the tree made visible. A
+ * formula waits for its parents to be sewn, and saying which ones turns a
+ * day with nothing new into a day with a reason.
+ */
+export function nextLine(next: Next | null): string | null {
+  if (!next) return null
+  // Quoted: a formula's name is the pack's, and it can hold a dash of its own.
+  if (next.waits_for.length === 0) return `Next: "${next.name}", on the next day with room for a new formula.`
+  const names = next.waits_for.map((parent) => `"${parent.name}"`)
+  const list = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`
+  return `Next: "${next.name}", once ${list} ${names.length === 1 ? 'is' : 'are'} sewn.`
 }

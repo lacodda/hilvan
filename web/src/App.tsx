@@ -1,9 +1,10 @@
 import { Component, use, useCallback, useState, Suspense, type ReactNode } from 'react'
 
-import { api, Unauthorized, type Heard, type Today, type VoicesScreen as Voices } from '@/api'
+import { api, Unauthorized, type Heard, type OwnWord, type Today, type VoicesScreen as Voices } from '@/api'
 import { Drill } from '@/Drill'
 import { ListenScreen } from '@/ListenScreen'
 import { Mark } from '@/Mark'
+import { OwnWordsScreen } from '@/OwnWordsScreen'
 import { SignIn } from '@/SignIn'
 import { TodayScreen } from '@/TodayScreen'
 import { VoicesScreen } from '@/VoicesScreen'
@@ -20,6 +21,7 @@ type View =
   | { kind: 'drilling'; index: number }
   | { kind: 'listening'; sentences: Promise<Heard[]> }
   | { kind: 'voices'; screen: Promise<Voices> }
+  | { kind: 'own-words'; words: Promise<OwnWord[]> }
 
 /**
  * The tutor.
@@ -80,6 +82,14 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
     )
   }
 
+  if (view.kind === 'own-words') {
+    return (
+      <Suspense fallback={<Shell>Reading your words…</Shell>}>
+        <OwnWordsScreen words={view.words} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
   if (view.kind === 'drilling') {
     const due = today.queue[view.index]
     if (!due) {
@@ -112,6 +122,7 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
       onStart={() => setView({ kind: 'drilling', index: 0 })}
       onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
       onVoices={() => setView({ kind: 'voices', screen: api.voices() })}
+      onOwnWords={() => setView({ kind: 'own-words', words: api.ownWords() })}
       onSignOut={() => void api.logOut().then(reload)}
     />
   )

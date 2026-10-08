@@ -23,18 +23,34 @@ export interface Mark {
 export interface Sample extends Pair {
   sentence: number
   words: Mark[]
+  /** Other spellings just as right: "I am not hungry." for "I'm not hungry.". */
+  accept: string[]
 }
 
 /** One filling for a slot, with the forms that agree with it. */
 export interface Value extends Pair {
   /** What `say` picks from for agreement: `be` is "is" on "he". */
   forms: Record<string, string>
+  /** Whether this is one of the learner's own words rather than the pack's. */
+  own: boolean
 }
+
+/** What kind of the learner's own words a slot takes. */
+export type OwnKind = 'noun' | 'verb'
 
 /** A hole in a formula's pattern, with what can go in it. */
 export interface Slot {
   name: string
+  /** The kind of own words the slot takes besides its values, when any. */
+  takes: OwnKind | null
   values: Value[]
+}
+
+/** A formula another stands on, and where it stands. */
+export interface Parent {
+  id: string
+  name: string
+  stitch: Stitch
 }
 
 /** Which of the three ways a shape can be said. */
@@ -65,6 +81,10 @@ export interface Formula {
   form: Form | null
   /** The other forms of the same shape. Empty when the formula stands alone. */
   sisters: Sister[]
+  /** Other templates as right as `say`: "<pronoun>'d like <thing>.". */
+  accept: string[]
+  /** The formulas this one stands on; it opened once they were all sewn. */
+  parents: Parent[]
   /** Which language each side is in, ISO 639-1: what the voice is asked for. */
   languages: { native: string; target: string }
 }
@@ -178,6 +198,14 @@ export interface Words {
   waiting: number
 }
 
+/** The formula next in line, and the parents it is waiting on. */
+export interface Next {
+  id: string
+  name: string
+  /** Parents not yet sewn; empty when it waits only for a day with room. */
+  waits_for: Parent[]
+}
+
 /** Everything the Today screen shows. */
 export interface Today {
   queue: Due[]
@@ -185,6 +213,8 @@ export interface Today {
   counts: Counts
   progress: Progress
   words: Words
+  /** The next formula not opening today, or null once all have started. */
+  next: Next | null
 }
 
 /** How the answer went. The four the drill offers. */
@@ -196,6 +226,58 @@ export interface Reviewed {
   due: string
   interval_days: number
   pace: Pace | null
+  /** The grade it was given: the learner's when heard, the turns' when typed. */
+  rating: Rating
+  /** Words whose failure was sent to their own cards. */
+  words: string[]
+}
+
+/**
+ * Which question a typed turn asked: one of the formula's own sentences, by
+ * id, or a substitution, by the value put in each slot.
+ */
+export type Asked = { sample: number } | { values: Record<string, string> }
+
+/** One typed turn. */
+export interface Turn {
+  asked: Asked
+  typed: string
+}
+
+/** What went wrong in a typed answer. */
+export type Failure = 'formula' | 'order' | 'word'
+
+/** One word of the right answer, and whether the typed answer had it. */
+export interface Expected {
+  text: string
+  /** A word the formula carries, rather than the formula's own. */
+  word: boolean
+  came: boolean
+}
+
+/** What the check of a typed turn found. */
+export interface Checked {
+  correct: boolean
+  /** The formula's own answer, as it is heard. */
+  answer: string
+  /** The right answer closest to what was typed. */
+  closest: string
+  expected: Expected[]
+  /** Words typed that the right answer does not have. */
+  extra: string[]
+  failure: Failure | null
+  /** Words the shape carried that did not come. */
+  missed: string[]
+}
+
+/** One of the learner's own words. */
+export interface OwnWord {
+  id: number
+  kind: OwnKind
+  native: string
+  target: string
+  /** Whether the lexicon knows every word of it - a hint at a typo. */
+  known: boolean
 }
 
 /** How fast a sentence is said: slowly while it is new. */
@@ -289,10 +371,19 @@ export const api = {
   logOut: () => call<Session>('/session', { method: 'DELETE' }),
   today: () => call<Today>('/today'),
   formula: (id: string) => call<Formula>(`/formulas/${encodeURIComponent(id)}`),
-  review: (id: string, rating: Rating, direction: Direction, durationMs: number | null) =>
+  check: (id: string, turn: Turn) =>
+    call<Checked>(`/formulas/${encodeURIComponent(id)}/check`, { method: 'POST', body: JSON.stringify(turn) }),
+  /** Saying it: the typed turns are the answer, and the server grades them. */
+  reviewSaid: (id: string, turns: Turn[], easy: boolean, durationMs: number | null) =>
     call<Reviewed>(`/formulas/${encodeURIComponent(id)}/review`, {
       method: 'POST',
-      body: JSON.stringify({ rating, direction, duration_ms: durationMs }),
+      body: JSON.stringify({ direction: 'produce', turns, easy, duration_ms: durationMs }),
+    }),
+  /** Understanding it: heard, and graded by the learner. */
+  reviewHeard: (id: string, rating: Rating, durationMs: number | null) =>
+    call<Reviewed>(`/formulas/${encodeURIComponent(id)}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ direction: 'recognise', rating, duration_ms: durationMs }),
     }),
   word: (id: string) => call<Word>(`/words/${encodeURIComponent(id)}`),
   reviewWord: (id: string, rating: Rating, durationMs: number | null) =>
@@ -307,6 +398,17 @@ export const api = {
       body: JSON.stringify({ engine: voice.engine, voice: voice.id }),
     }),
   listen: () => call<{ sentences: Heard[] }>('/listen').then((body) => body.sentences),
+  ownWords: () => call<{ words: OwnWord[] }>('/own-words').then((body) => body.words),
+  addOwnWord: (kind: OwnKind, native: string, target: string) =>
+    call<OwnWord>('/own-words', { method: 'POST', body: JSON.stringify({ kind, native, target }) }),
+  removeOwnWord: (id: number) => remove(`/own-words/${id}`),
+}
+
+/** A DELETE, which answers with no body. */
+async function remove(path: string): Promise<void> {
+  const response = await fetch(`/api${path}`, { method: 'DELETE' })
+  if (response.status === 401) throw new Unauthorized()
+  if (!response.ok) throw new Error(`the server answered ${response.status}`)
 }
 
 /**

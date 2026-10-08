@@ -6,7 +6,7 @@
  * point: you learn a formula by assembling it, not by recognising it.
  */
 
-import type { Direction, Form, Formula, Pace, Slot, Stitch, Value } from '@/api'
+import type { Asked, Checked, Direction, Failure, Form, Formula, Pace, Rating, Slot, Stitch, Value } from '@/api'
 
 /** One question: a prompt in the learner's language and the answer expected. */
 export interface Prompt {
@@ -16,6 +16,8 @@ export interface Prompt {
   target: string
   /** Where it came from, so the screen can say "an example" or "your own". */
   source: 'sample' | 'substitution'
+  /** The question, as the server is told it when the answer is checked. */
+  asked: Asked
 }
 
 /** A source of randomness, passed in so a test can hand over a fixed one. */
@@ -54,6 +56,19 @@ export function render(say: string, chosen: ReadonlyMap<string, Value>): string 
 }
 
 /**
+ * The value for one slot. A slot that takes the learner's own words draws
+ * from them half the time and from the pack's the other half: the words of
+ * one's own life are the point, and the pack's are the ones the formula's
+ * examples were written around.
+ */
+function choose(slot: Slot, random: Random): Value | undefined {
+  const own = slot.values.filter((value) => value.own)
+  const pack = slot.values.filter((value) => !value.own)
+  if (own.length > 0 && pack.length > 0) return pick(random() < 0.5 ? own : pack, random)
+  return pick(slot.values, random)
+}
+
+/**
  * Picks a value for every slot and says the sentence.
  *
  * The prompt is the scaffold filled in the learner's own words - "я + am/is/are
@@ -72,7 +87,7 @@ export function substitute(formula: Formula, random: Random): Prompt | null {
   const chosen = new Map<string, Value>()
 
   for (const slot of formula.slots) {
-    const value = pick(slot.values, random)
+    const value = choose(slot, random)
     if (!value) return null
     chosen.set(slot.name, value)
     const hole = `<${slot.name}>`
@@ -82,7 +97,8 @@ export function substitute(formula: Formula, random: Random): Prompt | null {
 
   const target = render(formula.say, chosen)
   if (target === null) return null
-  return { native, target, source: 'substitution' }
+  const values = Object.fromEntries([...chosen].map(([slot, value]) => [slot, value.target]))
+  return { native, target, source: 'substitution', asked: { values } }
 }
 
 /**
@@ -97,18 +113,19 @@ export function nextPrompt(formula: Formula, turn: number, random: Random): Prom
   const sample = formula.samples.length > 0 ? formula.samples[turn % formula.samples.length] : undefined
 
   if (wantsSample && sample) {
-    return { native: sample.native, target: sample.target, source: 'sample' }
+    return { native: sample.native, target: sample.target, source: 'sample', asked: { sample: sample.sentence } }
   }
 
   const substituted = substitute(formula, random)
   if (substituted) return substituted
 
   // A formula with no usable slots is drilled on its samples alone.
-  if (sample) return { native: sample.native, target: sample.target, source: 'sample' }
+  if (sample) return { native: sample.native, target: sample.target, source: 'sample', asked: { sample: sample.sentence } }
 
   // Neither: the pack validator rejects this, so it can only happen to a
-  // database edited by hand. Show the pattern rather than an empty card.
-  return { native: formula.pattern, target: formula.pattern, source: 'sample' }
+  // database edited by hand. Show the pattern rather than an empty card; the
+  // server will refuse to check it, which is the truth about it.
+  return { native: formula.pattern, target: formula.pattern, source: 'sample', asked: { values: {} } }
 }
 
 /**
@@ -121,12 +138,54 @@ export function nextPrompt(formula: Formula, turn: number, random: Random): Prom
  */
 export function ask(prompt: Prompt, direction: Direction): Prompt {
   if (direction === 'produce') return prompt
-  return { native: prompt.target, target: prompt.native, source: prompt.source }
+  return { ...prompt, native: prompt.target, target: prompt.native }
 }
 
 /** What the learner is being asked to do, in the drill's own words. */
 export function instruction(direction: Direction): string {
-  return direction === 'produce' ? 'Say it in English, then look' : 'What does it mean? Then look'
+  return direction === 'produce' ? 'Type it in English' : 'What does it mean? Then look'
+}
+
+/** What a checked turn found, in a phrase. */
+export function verdictLine(checked: Pick<Checked, 'correct' | 'failure' | 'missed'>): string {
+  if (checked.correct) return 'Right.'
+  return failureLine(checked.failure ?? 'formula', checked.missed)
+}
+
+function failureLine(failure: Failure, missed: readonly string[]): string {
+  switch (failure) {
+    case 'formula':
+      return missed.length === 0 ? 'The shape slipped.' : `The shape slipped, and ${quoted(missed)} did not come.`
+    case 'order':
+      return 'The right words, in the wrong order.'
+    case 'word':
+      return missed.length === 0 ? 'A word did not come.' : `The shape came - ${quoted(missed)} did not.`
+  }
+}
+
+function quoted(words: readonly string[]): string {
+  const marked = words.map((word) => `"${word}"`)
+  return marked.length === 1 ? marked[0]! : `${marked.slice(0, -1).join(', ')} and ${marked.at(-1)!}`
+}
+
+/** How the typed turns went, before they are graded. */
+export function tally(checked: readonly Pick<Checked, 'correct'>[]): string {
+  const right = checked.filter((turn) => turn.correct).length
+  if (right === checked.length) return checked.length === 1 ? 'Right.' : `All ${checked.length} right.`
+  return `${right} of ${checked.length} right.`
+}
+
+/** The grade the turns earned, said after it is recorded. */
+export function gradeLine(rating: Rating, words: readonly string[]): string {
+  const grade = {
+    again: 'Again - the shape is not there yet.',
+    hard: 'Hard - it came, with a slip.',
+    good: 'Good.',
+    easy: 'Easy.',
+  }[rating]
+  if (words.length === 0) return grade
+  const lemmas = words.map((word) => word.replace(/^[a-z]+:/, ''))
+  return `${grade} ${lemmas.length === 1 ? 'The word' : 'The words'} ${quoted(lemmas)} ${lemmas.length === 1 ? 'goes' : 'go'} back to your words.`
 }
 
 /**

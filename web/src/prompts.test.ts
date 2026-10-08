@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Formula } from '@/api'
-import { ask, formLabels, instruction, ladder, nextPrompt, paceLine, render, seconds, substitute, tabs, whenBack } from '@/prompts'
+import { ask, formLabels, gradeLine, instruction, ladder, nextPrompt, paceLine, render, seconds, substitute, tabs, tally, verdictLine, whenBack } from '@/prompts'
 
 const formula: Formula = {
   id: 'be-present',
@@ -10,18 +10,19 @@ const formula: Formula = {
   say: '<pronoun> <pronoun:be> <rest>.',
   explanation: 'explained',
   samples: [
-    { sentence: 1, native: 'prompt one', target: 'I am at home.', words: [] },
-    { sentence: 2, native: 'prompt two', target: 'He is a doctor.', words: [] },
+    { sentence: 1, native: 'prompt one', target: 'I am at home.', words: [], accept: ["I'm at home."] },
+    { sentence: 2, native: 'prompt two', target: 'He is a doctor.', words: [], accept: [] },
   ],
   slots: [
     {
       name: 'pronoun',
+      takes: null,
       values: [
-        { native: 'first', target: 'I', forms: { be: 'am' } },
-        { native: 'second', target: 'you', forms: { be: 'are' } },
+        { native: 'first', target: 'I', forms: { be: 'am' }, own: false },
+        { native: 'second', target: 'you', forms: { be: 'are' }, own: false },
       ],
     },
-    { name: 'rest', values: [{ native: 'third', target: 'at home', forms: {} }] },
+    { name: 'rest', takes: 'noun', values: [{ native: 'third', target: 'at home', forms: {}, own: false }] },
   ],
   family: 'be-present',
   form: 'statement',
@@ -30,6 +31,8 @@ const formula: Formula = {
     { id: 'be-present-negation', form: 'negation', name: 'not', pattern: 'x', stitch: 'basted' },
     { id: 'be-present-question', form: 'question', name: 'am?', pattern: 'y', stitch: 'new' },
   ],
+  accept: ['<pronoun:short> <rest>.'],
+  parents: [],
 }
 
 /** Always the first value of every slot, so a test can name the answer. */
@@ -43,6 +46,7 @@ describe('substitute', () => {
       native: 'first + am/is/are + third',
       target: 'I am at home.',
       source: 'substitution',
+      asked: { values: { pronoun: 'I', rest: 'at home' } },
     })
   })
 
@@ -67,19 +71,19 @@ describe('substitute', () => {
   })
 
   it('refuses a slot with no values', () => {
-    expect(substitute({ ...formula, slots: [{ name: 'pronoun', values: [] }] }, first)).toBeNull()
+    expect(substitute({ ...formula, slots: [{ name: 'pronoun', takes: null, values: [] }] }, first)).toBeNull()
   })
 
   it('refuses a slot the pattern never mentions', () => {
-    const wrong = { ...formula, slots: [{ name: 'verb', values: [{ native: 'a', target: 'b', forms: {} }] }] }
+    const wrong = { ...formula, slots: [{ name: 'verb', takes: null, values: [{ native: 'a', target: 'b', forms: {}, own: false }] }] }
     expect(substitute(wrong, first)).toBeNull()
   })
 })
 
 describe('render', () => {
-  const he = { native: 'он', target: 'he', forms: { be: 'is', s: 's' } }
-  const i = { native: 'я', target: 'I', forms: { be: 'am', s: '' } }
-  const home = { native: 'дома', target: 'at home', forms: {} }
+  const he = { native: 'он', target: 'he', forms: { be: 'is', s: 's' }, own: false }
+  const i = { native: 'я', target: 'I', forms: { be: 'am', s: '' }, own: false }
+  const home = { native: 'дома', target: 'at home', forms: {}, own: false }
 
   // The same cases as src/say.rs: the server checks the client's sentence
   // against its own rendering before speaking it, so the two must agree.
@@ -108,6 +112,7 @@ describe('nextPrompt', () => {
       native: 'prompt one',
       target: 'I am at home.',
       source: 'sample',
+      asked: { sample: 1 },
     })
   })
 
@@ -143,7 +148,7 @@ describe('whenBack', () => {
 })
 
 describe('ask', () => {
-  const prompt = { native: 'Я дома.', target: 'I am at home.', source: 'sample' } as const
+  const prompt = { native: 'Я дома.', target: 'I am at home.', source: 'sample', asked: { sample: 1 } } as const
 
   it('leaves a producing prompt as it is', () => {
     expect(ask(prompt, 'produce')).toEqual(prompt)
@@ -156,6 +161,7 @@ describe('ask', () => {
       native: 'I am at home.',
       target: 'Я дома.',
       source: 'sample',
+      asked: { sample: 1 },
     })
   })
 
@@ -186,9 +192,10 @@ describe('ladder', () => {
         formula.slots[0]!,
         {
           name: 'rest',
+          takes: null,
           values: [
-            { native: 'third', target: 'at home', forms: {} },
-            { native: 'fourth', target: 'tired', forms: {} },
+            { native: 'third', target: 'at home', forms: {}, own: false },
+            { native: 'fourth', target: 'tired', forms: {}, own: false },
           ],
         },
       ],
@@ -197,7 +204,7 @@ describe('ladder', () => {
   })
 
   it('offers no ladder for a formula with no person to run through', () => {
-    const lets = { ...formula, pattern: "Let's + <verb>", say: "Let's <verb>.", slots: [{ name: 'verb', values: [{ native: 'идти', target: 'go', forms: {} }] }] }
+    const lets = { ...formula, pattern: "Let's + <verb>", say: "Let's <verb>.", slots: [{ name: 'verb', takes: 'verb' as const, values: [{ native: 'идти', target: 'go', forms: {}, own: false }] }] }
     expect(ladder(lets)).toEqual([])
   })
 
@@ -272,5 +279,54 @@ describe('tabs', () => {
     for (const label of Object.values(formLabels)) {
       expect(label).not.toMatch(/\bam\b|\bis\b|\bare\b/i)
     }
+  })
+})
+
+describe('own words in a substitution', () => {
+  const car = { native: 'машина', target: 'a car', forms: {}, own: true }
+  const withOwn: Formula = {
+    ...formula,
+    slots: [formula.slots[0]!, { ...formula.slots[1]!, values: [...formula.slots[1]!.values, car] }],
+  }
+
+  it("draws from the learner's own words half the time", () => {
+    // The pronoun takes no own words, so it draws once; the rest tosses a
+    // coin first - below a half is your own - then draws.
+    const draws = [0, 0.2, 0]
+    const fromOwn = substitute(withOwn, () => draws.shift() ?? 0)
+    expect(fromOwn?.target).toBe('I am a car.')
+    expect(fromOwn?.asked).toEqual({ values: { pronoun: 'I', rest: 'a car' } })
+
+    const fromPack = [0, 0.7, 0]
+    expect(substitute(withOwn, () => fromPack.shift() ?? 0)?.target).toBe('I am at home.')
+  })
+
+  it('names a sample by its sentence and a substitution by its values', () => {
+    expect(nextPrompt(withOwn, 3, first).asked).toEqual({ sample: 2 })
+  })
+})
+
+describe('verdictLine', () => {
+  it('says what went wrong in the three ways the drill tells apart', () => {
+    expect(verdictLine({ correct: true, failure: null, missed: [] })).toBe('Right.')
+    expect(verdictLine({ correct: false, failure: 'formula', missed: [] })).toBe('The shape slipped.')
+    expect(verdictLine({ correct: false, failure: 'formula', missed: ['ready'] })).toBe('The shape slipped, and "ready" did not come.')
+    expect(verdictLine({ correct: false, failure: 'order', missed: [] })).toBe('The right words, in the wrong order.')
+    expect(verdictLine({ correct: false, failure: 'word', missed: ['busy'] })).toBe('The shape came - "busy" did not.')
+    expect(verdictLine({ correct: false, failure: 'word', missed: ['a', 'coffee'] })).toBe('The shape came - "a" and "coffee" did not.')
+  })
+})
+
+describe('tally and gradeLine', () => {
+  it('counts the right turns before grading', () => {
+    expect(tally([{ correct: true }])).toBe('Right.')
+    expect(tally([{ correct: true }, { correct: true }])).toBe('All 2 right.')
+    expect(tally([{ correct: true }, { correct: false }, { correct: true }])).toBe('2 of 3 right.')
+  })
+
+  it('says the grade and where the missed words went', () => {
+    expect(gradeLine('hard', [])).toBe('Hard - it came, with a slip.')
+    expect(gradeLine('good', ['en:busy'])).toBe('Good. The word "busy" goes back to your words.')
+    expect(gradeLine('good', ['en:busy', 'en:tea'])).toBe('Good. The words "busy" and "tea" go back to your words.')
   })
 })

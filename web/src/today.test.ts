@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Due, Formula, Word } from '@/api'
-import { describeQueue } from '@/today'
+import { describeQueue, nextLine } from '@/today'
 
 const formula = { id: 'f' } as Formula
 const word = { id: 'en:doctor' } as Word
@@ -38,5 +38,20 @@ describe('describeQueue', () => {
   it('says where new words come from when they are all there is', () => {
     expect(describeQueue([aWord(true), aWord(true)])).toBe('2 new words from the sentences you have met.')
     expect(describeQueue([aWord(false)])).toBe('1 word to come back to.')
+  })
+})
+
+describe('nextLine', () => {
+  it('says which formula is next and which parents hold it', () => {
+    expect(nextLine(null)).toBeNull()
+    expect(nextLine({ id: 'want', name: 'want to', waits_for: [] })).toBe('Next: "want to", on the next day with room for a new formula.')
+    expect(nextLine({ id: 'like', name: 'would like', waits_for: [{ id: 'want', name: 'want to', stitch: 'basted' }] })).toBe(
+      'Next: "would like", once "want to" is sewn.',
+    )
+    const two = [
+      { id: 'a', name: 'can', stitch: 'new' as const },
+      { id: 'b', name: 'want to', stitch: 'basted' as const },
+    ]
+    expect(nextLine({ id: 'like', name: 'would like', waits_for: two })).toBe('Next: "would like", once "can" and "want to" are sewn.')
   })
 })
