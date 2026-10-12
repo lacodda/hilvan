@@ -52,4 +52,6 @@ commit_parsers = [
   # requirement. `chore(release)` and the rest stay out.
   { message = "^chore\\(deps\\)", group = "Dependencies" },
   { message = "^chore", skip = true },
+  # Formatting changes nothing a reader of the changelog can notice.
+  { message = "^style", skip = true },
 ]
