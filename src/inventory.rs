@@ -511,6 +511,17 @@ order = 1
         assert!(known, "a second answer to the same word should change nothing");
         let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
         assert_eq!(reviews, 1);
+
+        // A no, then a yes sent again by a screen that lost its connection:
+        // the first answer stands, and no card is made behind it.
+        answer(&pool, &[said("en:ship", false)], at(0)).await.unwrap();
+        answer(&pool, &[said("en:ship", true)], at(1)).await.unwrap();
+        let known: bool = sqlx::query_scalar("SELECT known FROM inventory WHERE word_id = 'en:ship'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(!known, "a no should not be turned into a yes by a second answer");
+        assert_eq!(stitch(&pool, "en:ship").await, None);
     }
 
     #[tokio::test]

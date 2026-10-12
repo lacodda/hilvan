@@ -479,11 +479,32 @@ async fn a_snapshot_of_a_past_day_is_the_tutor_as_it_was_that_day() {
     let then = start() + by + Duration::days(20) - Duration::hours(1);
     let snapshot = model::standing_at(&pool, then).await.unwrap();
     let past = model::as_of(&pool, then, now()).await.unwrap();
-    assert!(
-        past.cards.len() < model::export(&pool, now()).await.unwrap().cards.len(),
-        "the past should hold less than now"
-    );
+    let present = model::export(&pool, now()).await.unwrap();
+    assert!(past.cards.len() < present.cards.len(), "the past should hold less than now");
     assert!(past.cards.iter().flat_map(|card| &card.reviews).all(|review| review.at <= then));
+
+    // Each card as it stood then is what its answers by then leave - not the
+    // card as it stands now with its later answers cut off.
+    let mut moved_since = 0;
+    for card in &past.cards {
+        let replayed = Scheduler::new().replay(card.reviews.iter().map(|review| (review.rating, review.at))).unwrap();
+        assert_eq!(
+            (replayed.stitch, replayed.due, replayed.reps),
+            (card.state, card.due, card.reps),
+            "{} {}",
+            card.kind,
+            card.subject
+        );
+        let now_card = present
+            .cards
+            .iter()
+            .find(|other| other.kind == card.kind && other.subject == card.subject)
+            .unwrap();
+        if now_card.due != card.due {
+            moved_since += 1;
+        }
+    }
+    assert!(moved_since > 0, "some card should have been answered since, or the comparison proves nothing");
     assert_eq!(
         complaints(&serde_json::to_value(&past).unwrap()),
         Vec::<String>::new(),
