@@ -192,10 +192,14 @@ export interface Level {
 
 /** Where the learner stands with words. */
 export interface Words {
+  /** The pack's words, by state. */
   counts: Counts
+  /** Every word in hand against the levels, the pack's and those declared known. */
   levels: Level[]
   /** Met in a sentence and not started yet. */
   waiting: number
+  /** Held on the learner's word alone: declared known and not asked since. */
+  declared: number
 }
 
 /** The formula next in line, and the parents it is waiting on. */
@@ -336,6 +340,61 @@ export interface Heard {
   language: string
 }
 
+/** A word the inventory asks about. */
+export interface InventoryItem {
+  /** `en:house`: what the answer is sent back under. */
+  word: string
+  lemma: string
+  /** How it sounds, IPA, when the lexicon has it. */
+  ipa: string | null
+  /** Its place in the frequency list, 1 the commonest. */
+  rank: number
+}
+
+/** One level, and how far the inventory has gone through it. */
+export interface Reach {
+  size: number
+  /** Words of the level still to be asked. */
+  left: number
+  /** Words of the level answered "I know it". */
+  known: number
+}
+
+/** Where the inventory stands, and what it asks next. */
+export interface InventoryRun {
+  /** The language being learnt; null before a pack is loaded. */
+  language: string | null
+  /** The next words to ask, commonest first. */
+  next: InventoryItem[]
+  levels: Reach[]
+  /** Answers given, either way. */
+  answered: number
+  known: number
+}
+
+/** One answer of the inventory. */
+export interface InventoryAnswer {
+  word: string
+  known: boolean
+}
+
+/** Where the learner stood at a moment, counted the way Today counts. */
+export interface Snapshot {
+  at: string
+  progress: Progress
+  words: Words
+  /** Answers given by then, asked ones. */
+  answers: number
+}
+
+/** Where the learner stood at a moment, beside where they stand now. */
+export interface Standings {
+  then: Snapshot
+  now: Snapshot
+  /** The first answer the tutor asked for, if any. */
+  began: string | null
+}
+
 /** Whether the door is locked, and whether this browser is through it. */
 export interface Session {
   required: boolean
@@ -402,6 +461,22 @@ export const api = {
   addOwnWord: (kind: OwnKind, native: string, target: string) =>
     call<OwnWord>('/own-words', { method: 'POST', body: JSON.stringify({ kind, native, target }) }),
   removeOwnWord: (id: number) => remove(`/own-words/${id}`),
+  inventory: () => call<InventoryRun>('/inventory'),
+  /** Answers, oldest first; the run as it stands after them. */
+  answerInventory: (answers: InventoryAnswer[]) =>
+    call<InventoryRun>('/inventory', { method: 'POST', body: JSON.stringify({ answers }) }),
+  /** Takes an answer back; the run as it stands after. */
+  undoInventory: (word: string) => call<InventoryRun>(`/inventory/${encodeURIComponent(word)}`, { method: 'DELETE' }),
+  /** Where the learner stood at `at`, an ISO moment, and stands now. */
+  standing: (at: string) => call<Standings>(`/model/standing?${new URLSearchParams({ at }).toString()}`),
+}
+
+/**
+ * Where the learner model downloads from: as it stands, or as it stood at
+ * `at`. A URL rather than a call, so a link can save it as a file.
+ */
+export function modelUrl(at?: string): string {
+  return at ? `/api/model?${new URLSearchParams({ at }).toString()}` : '/api/model'
 }
 
 /** A DELETE, which answers with no body. */

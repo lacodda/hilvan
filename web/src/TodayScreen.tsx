@@ -26,6 +26,8 @@ export function TodayScreen({
   onListen,
   onVoices,
   onOwnWords,
+  onInventory,
+  onThen,
   onSignOut,
 }: {
   today: Today
@@ -33,6 +35,8 @@ export function TodayScreen({
   onListen: () => void
   onVoices: () => void
   onOwnWords: () => void
+  onInventory: () => void
+  onThen: () => void
   onSignOut: () => void
 }) {
   const started = today.progress.produce.basted + today.progress.produce.sewn + today.progress.recognise.basted + today.progress.recognise.sewn > 0
@@ -66,6 +70,16 @@ export function TodayScreen({
         <Button onClick={onListen} variant="ghost" size={null} className="flex-col items-start px-4 py-3 text-left whitespace-normal text-text">
           <span className="block text-xl font-medium">Listen</span>
           <span className="block text-base text-faint">Hear a sentence, recall what it means, then look. Nothing is graded.</span>
+        </Button>
+      )}
+
+      {/* Starting from what is known: the commonest words, one question
+          each. Offered here for the start; once a word is declared known,
+          "Word check" in the footer is the way back to it. */}
+      {inventoryOpen(today.words) && (
+        <Button onClick={onInventory} variant="ghost" size={null} className="flex-col items-start px-4 py-3 text-left whitespace-normal text-text">
+          <span className="block text-xl font-medium">What you already know</span>
+          <span className="block text-base text-faint">The commonest words, one at a time. The ones you know start sewn.</span>
         </Button>
       )}
 
@@ -105,6 +119,12 @@ export function TodayScreen({
         <Button onClick={onOwnWords} variant="link" className="text-base text-faint underline">
           Your own words
         </Button>
+        <Button onClick={onInventory} variant="link" className="text-base text-faint underline">
+          Word check
+        </Button>
+        <Button onClick={onThen} variant="link" className="text-base text-faint underline">
+          Then and now
+        </Button>
         <Button onClick={onVoices} variant="link" className="text-base text-faint underline">
           Voices
         </Button>
@@ -136,6 +156,15 @@ function Row({
       <span className="text-right font-mono text-xl tabular-nums text-dim">{recognise}</span>
     </>
   )
+}
+
+/**
+ * Whether the inventory is offered on Today: to a learner who has not yet
+ * said they know a word, while the commonest thousand are not all in hand.
+ */
+function inventoryOpen(words: Words): boolean {
+  const first = words.levels[0]
+  return first !== undefined && first.sewn + first.basted < first.size && words.declared === 0
 }
 
 /** Whether understanding has genuinely pulled ahead of saying. */
@@ -172,6 +201,11 @@ function YourWords({ words }: { words: Words }) {
           </Progress>
         ))}
       </div>
+      {words.declared > 0 && (
+        <p className="text-base text-faint">
+          {words.declared} of them on your word alone - each is asked when a sentence brings it.
+        </p>
+      )}
       {words.waiting > 0 && (
         <p className="text-base text-faint">
           {words.waiting} met in a sentence and waiting their turn - a few open each day.

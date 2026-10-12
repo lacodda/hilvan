@@ -1,11 +1,14 @@
 import { Component, use, useCallback, useState, Suspense, type ReactNode } from 'react'
 
-import { api, Unauthorized, type Heard, type OwnWord, type Today, type VoicesScreen as Voices } from '@/api'
+import { api, Unauthorized, type Heard, type InventoryRun, type OwnWord, type Standings, type Today, type VoicesScreen as Voices } from '@/api'
 import { Drill } from '@/Drill'
+import { InventoryScreen } from '@/InventoryScreen'
 import { ListenScreen } from '@/ListenScreen'
 import { Mark } from '@/Mark'
 import { OwnWordsScreen } from '@/OwnWordsScreen'
 import { SignIn } from '@/SignIn'
+import { opening } from '@/then'
+import { ThenAndNowScreen } from '@/ThenAndNowScreen'
 import { TodayScreen } from '@/TodayScreen'
 import { VoicesScreen } from '@/VoicesScreen'
 import { WordCard } from '@/WordCard'
@@ -22,6 +25,8 @@ type View =
   | { kind: 'listening'; sentences: Promise<Heard[]> }
   | { kind: 'voices'; screen: Promise<Voices> }
   | { kind: 'own-words'; words: Promise<OwnWord[]> }
+  | { kind: 'inventory'; run: Promise<InventoryRun> }
+  | { kind: 'then'; standings: Promise<Standings> }
 
 /**
  * The tutor.
@@ -90,6 +95,22 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
     )
   }
 
+  if (view.kind === 'inventory') {
+    return (
+      <Suspense fallback={<Shell>Finding the commonest words…</Shell>}>
+        <InventoryScreen run={view.run} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
+  if (view.kind === 'then') {
+    return (
+      <Suspense fallback={<Shell>Looking back…</Shell>}>
+        <ThenAndNowScreen first={view.standings} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
   if (view.kind === 'drilling') {
     const due = today.queue[view.index]
     if (!due) {
@@ -123,6 +144,8 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
       onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
       onVoices={() => setView({ kind: 'voices', screen: api.voices() })}
       onOwnWords={() => setView({ kind: 'own-words', words: api.ownWords() })}
+      onInventory={() => setView({ kind: 'inventory', run: api.inventory() })}
+      onThen={() => setView({ kind: 'then', standings: opening(api.standing, new Date()) })}
       onSignOut={() => void api.logOut().then(reload)}
     />
   )
