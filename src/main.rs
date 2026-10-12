@@ -263,7 +263,8 @@ async fn import(config: &config::Config, path: &std::path::Path) -> Result<()> {
             &config.database_url,
             &format!("hilvan-model-before-import-{}.json", now.format("%Y%m%dT%H%M%SZ")),
         )?;
-        std::fs::write(&aside, serde_json::to_string_pretty(&before)? + "\n").with_context(|| format!("failed to keep the model being replaced in {}", aside.display()))?;
+        std::fs::write(&aside, serde_json::to_string_pretty(&before)? + "\n")
+            .with_context(|| format!("failed to keep the model being replaced in {}", aside.display()))?;
         println!("the learner model this replaces is kept in {}", aside.display());
     }
 
