@@ -12,3 +12,17 @@ cargo run -- serve                        # the API on :8086; /api/health report
 cd web && pnpm install && pnpm dev        # the app on :5173, proxying /api to the server
 cd docs/site && pnpm install && pnpm dev  # the documentation site
 ```
+
+## The demo learner
+
+`demo/learner.json` is three weeks of a fictional learner, built into the binary for `hilvan load-demo` and the screenshots in the docs. It is not edited by hand: a test drives the tutor's own code through those weeks and writes it.
+
+```sh
+cargo test --test demo -- --ignored    # writes demo/learner.json
+```
+
+Run it when the pack renames what the demo learnt or the learner model changes shape; the gate fails until it is run. The same output comes out every time - the generator has a fixed seed of its own.
+
+## The learner model format
+
+The schema of the learner model file is `docs/site/public/schema/learner-model-1.json`, published with the docs. A change to the model that a reader of format 1 would misread is a new format and a new schema file beside it; the tests hold every export to the schema.

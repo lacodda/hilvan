@@ -40,6 +40,16 @@ cargo run -- load-pack packs/en-from-ru/pack.toml
 
 See [Formula packs](/hilvan/reference/packs/) for the file format and what loading a changed pack does.
 
+## A learner to look at
+
+An empty tutor shows little. A fictional learner three weeks into English - formulas basted and sewn, a thousand words gone through in the inventory, slips in the typed answers - is built in:
+
+```sh
+cargo run -- load-demo
+```
+
+It goes only onto a tutor that holds no learner, so give it a database of its own (`HILVAN_DATABASE_URL=sqlite://data/demo.db?mode=rwc`). See [The learner model file](/hilvan/reference/learner-model/#the-demo-learner).
+
 ## The app
 
 ```sh
@@ -68,3 +78,4 @@ There are no accounts - hilvan serves one learner. Run `hilvan hash`, put the st
 - [Running on a Raspberry Pi](/hilvan/guides/running-on-a-pi/) - the stand.
 - [Configuration](/hilvan/reference/configuration/) - every variable the server reads.
 - [HTTP API](/hilvan/reference/api/) - every endpoint under `/api`.
+- [The learner model file](/hilvan/reference/learner-model/) - export, import and the schema.

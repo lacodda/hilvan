@@ -40,6 +40,22 @@ docker compose -f docker-compose.prod.yml cp server:/data/hilvan.db ./hilvan-bac
 
 Copying while the server runs is safe: the database is in WAL mode. Restoring is copying the file back and restarting the container.
 
+The learner alone - every answer, own word and inventory answer, without the material or the cached sound - is a file of its own, in a format with a [published schema](/hilvan/reference/learner-model/):
+
+```sh
+docker compose exec -T server hilvan export > hilvan-model.json
+```
+
+On another stand, load the pack first, then copy the file into the container and import it; the model it replaces is kept beside the database:
+
+```sh
+docker compose exec server hilvan load-pack packs/en-from-ru/pack.toml
+docker compose cp hilvan-model.json server:/data/hilvan-model.json
+docker compose exec server hilvan import /data/hilvan-model.json
+```
+
+To check a new stand before any learner is on it, `hilvan load-demo` puts a fictional one there - on a database of its own, since it refuses one that holds a learner.
+
 ## The voice
 
 The compose files run a second container beside the server: `piper`, the local voice that speaks the learner's own language. Its image carries its voices, so it needs no network at start, and it is published at the tutor's own version - pinning `HILVAN_VERSION` pins both. On a Pi 4 it answers a sentence in one to two seconds once a voice is loaded, and takes about 150 MB plus 130 MB for each voice in use.

@@ -25,6 +25,10 @@ A formula drilled once is forgotten on a predictable schedule; recalling it righ
 
 Every formula sits in one of three states - new, basted, sewn, the basting-stitch metaphor the product is named for - and reviews always come before new material. See [Your first week](/hilvan/guides/your-first-week/) for what this looks like day to day, and [ADR 0003](https://github.com/lacodda/hilvan/blob/main/docs/adr/0003-fsrs-scheduler.md) for why FSRS.
 
+### Starting from what you know - built
+
+A learner never starts from nothing, and a schedule that treats *house* as new in the third week wastes the sitting it spends on it. From v0.6.0 an inventory walks the commonest words and asks of each whether you know it. A yes is a declaration, not an answer: the word starts sewn, with the schedule an easy first answer would give it, and the first sentence that brings it is its test. Declarations are kept apart from answers everywhere answers are counted - the day's tally, the day's new words, and the fitting of the memory model to you when that comes - because "I know it" is worth something, but it is not recall under a prompt ([ADR 0008](https://github.com/lacodda/hilvan/blob/main/docs/adr/0008-declared-knowledge-and-the-learner-model-file.md)).
+
 ### Two directions, counted apart
 
 Understanding a sentence and producing one are different skills, and recognition always runs ahead. From v0.2.0 each formula is scheduled twice - saying it, and understanding it - so the two are never averaged into a number that describes neither. The Today screen shows both columns, and the gap between them is the point: you will understand more than you can say, and seeing by how much is more useful than a single figure that hides it.

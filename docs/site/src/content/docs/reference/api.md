@@ -7,7 +7,7 @@ All endpoints are under `/api` and speak JSON. A path outside `/api` that does n
 
 ## Sessions
 
-Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}` with its `/check` and `/review`, `/api/words/{id}` and its `/review`, `/api/own-words`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
+Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}` with its `/check` and `/review`, `/api/words/{id}` and its `/review`, `/api/own-words`, `/api/inventory`, `/api/model`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
 
 ```json
 { "error": "sign in first" }
@@ -143,7 +143,8 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
       { "size": 2000, "basted": 5, "sewn": 1 },
       { "size": 5000, "basted": 5, "sewn": 1 }
     ],
-    "waiting": 3
+    "waiting": 3,
+    "declared": 0
   },
   "next": {
     "id": "be-present-negation",
@@ -164,12 +165,13 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
 | `queue[].is_new` | boolean | Whether this has never been answered - a formula in this direction, or a word. |
 | `queue[].due` | string (RFC 3339) | When this item became due; for a new item, the time of the request. |
 | `queue[].pace` | object \| null | How fast this card usually comes; `null` until three timed answers. |
-| `reviewed_today` | integer | Answers recorded since midnight UTC, formulas both ways and words. |
+| `reviewed_today` | integer | Answers recorded since midnight UTC, formulas both ways and words. A word declared known in the [inventory](#inventory) is not an answer and is not counted. |
 | `counts.new` \| `counts.basted` \| `counts.sewn` | integer | How many formulas stand in each state, producing side. |
 | `progress.produce` \| `progress.recognise` | object | The same counts, one per direction. |
 | `words.counts` | object | Every word of the loaded packs, by state. |
-| `words.levels[]` | array | The [levels](/hilvan/reference/lexicon/#levels): `size` lemmas of the language, and how many of the learner's words in it are basted and sewn. Cumulative. |
+| `words.levels[]` | array | The [levels](/hilvan/reference/lexicon/#levels): `size` lemmas of the language, and how many of the learner's words in it are basted and sewn - the pack's and those declared known in the inventory. Cumulative. |
 | `words.waiting` | integer | Words met in a sentence, not started, and not in today's queue: what later days will open. |
+| `words.declared` | integer | Words held on the learner's word alone: declared known and not asked since. Counted in the levels. |
 | `next` | object \| null | The first formula of the pack's sequence that has not started and is not opening today; `null` once every formula has. |
 | `next.waits_for` | array | Its [parents](/hilvan/reference/packs/#parents) not yet sewn, each with its `stitch`. Empty when it waits only for a day with room for a new formula. |
 
@@ -179,7 +181,7 @@ A formula opens only once every parent named in the pack is sewn on its producin
 
 #### Words in the queue
 
-A word opens only once a sentence that holds it has been met - once the formula that sentence belongs to has been answered. Of the words that have, the commonest open first, at most ten a day; a word started earlier the same day uses up a place.
+A word opens only once a sentence that holds it has been met - once the formula that sentence belongs to has been answered. Of the words that have, the commonest open first, at most ten a day; a word started earlier the same day uses up a place, a word declared known in the inventory does not. A word comes back for review only once a sentence holding it has been met, too: a word declared known waits, sewn, until the drill brings one.
 
 #### Directions
 
@@ -481,6 +483,77 @@ Nouns and verbs from the learner's own life, put into the slots of the pack that
 ### `DELETE /api/own-words/{id}`
 
 **Response** `204`, whether or not the word was there.
+
+## Inventory
+
+The commonest words of the language being learnt, each asked once: do you know it? A yes declares the word known on its card - sewn at once, checked when a sentence of the drill brings it - and is not counted as an answer; a no is kept so the word is not asked again. See [What you already know](/hilvan/guides/your-first-week/#what-you-already-know).
+
+### `GET /api/inventory`
+
+**Response** `200`: the next fifty words to ask, commonest first, and how far the run has gone through each level.
+
+```json
+{
+  "language": "en",
+  "next": [{ "word": "en:african", "lemma": "African", "ipa": "ˈæfɹəkən", "rank": 1301 }],
+  "levels": [
+    { "size": 1000, "left": 0, "known": 758 },
+    { "size": 2000, "left": 694, "known": 854 },
+    { "size": 5000, "left": 3694, "known": 854 }
+  ],
+  "answered": 1294,
+  "known": 854
+}
+```
+
+`left` is how many words of the level are still to be asked; a word already being learnt in the drill is not asked. The run goes as far as the 5,000 level. `language` is `null` before a pack is loaded; `levels` is empty for a language hilvan has no lexicon for.
+
+### `POST /api/inventory`
+
+Answers, oldest first - a list, so a screen that lost its connection can send what it holds at once.
+
+```json
+{ "answers": [{ "word": "en:african", "known": true }, { "word": "en:mobile", "known": false }] }
+```
+
+**Response** `200`: the run as it stands after them, as `GET`. An answer to a word already answered, or already being learnt, changes nothing. **Response** `422` when a word is not a lemma of the language being learnt.
+
+### `DELETE /api/inventory/{word}`
+
+Takes an answer back: the word is asked again, and a yes leaves the word's card as it was before - new for a word a pack teaches, gone otherwise. Taking back an answer never given is fine.
+
+**Response** `200`: the run as it stands after. **Response** `409` when the word has been answered in the drill since the yes - that history stands on it.
+
+## Learner model
+
+The whole of what the tutor knows about the learner, as one file - see [The learner model file](/hilvan/reference/learner-model/).
+
+### `GET /api/model`
+
+**Response** `200`: the [learner model](/hilvan/reference/learner-model/), with `Content-Disposition: attachment; filename="hilvan-model-<day>.json"`, so a link saves it as a file.
+
+`?at=` with an RFC 3339 moment gives the model as it stood then: the answers given by then, played through the scheduler again. A moment still to come is now.
+
+### `GET /api/model/standing`
+
+Where the learner stood at a moment, beside where they stand now, counted the way [`GET /api/today`](#get-apitoday) counts.
+
+`?at=` an RFC 3339 moment; now when left out.
+
+```json
+{
+  "then": {
+    "at": "2026-09-18T23:59:59.999Z",
+    "progress": { "produce": { "new": 29, "basted": 1, "sewn": 0 }, "recognise": { "new": 30, "basted": 0, "sewn": 0 } },
+    "words": { "counts": { "new": 81, "basted": 0, "sewn": 45 }, "levels": [{ "size": 1000, "basted": 0, "sewn": 756 }], "waiting": 0, "declared": 756 },
+    "answers": 1
+  },
+  "now": { "...": "the same, now" },
+  "began": "2026-09-18T19:01:40Z"
+}
+```
+
+`answers` counts asked answers only. `began` is the first of them - how far back there is anything to look at - or `null`. `waiting` is not told of the past.
 
 ## Voice
 

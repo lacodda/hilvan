@@ -42,3 +42,32 @@
 .hero .tagline {
 	max-width: 44ch;
 }
+
+/* --------------------------------------------------------------- screens -- */
+
+/* Phone screenshots in a row that wraps: two across on a phone, four on a
+ * wide screen, never wider than the phone they were taken on. */
+.screens {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+	gap: 1rem;
+}
+
+/* Starlight spaces the blocks of a page apart with a top margin; inside the
+ * grid that would push every figure but the first out of line. */
+.sl-markdown-content .screens > figure {
+	margin: 0;
+}
+
+.screens img {
+	width: 100%;
+	height: auto;
+	border-radius: 0.75rem;
+	border: 1px solid var(--sl-color-gray-5);
+}
+
+.screens figcaption {
+	margin-top: 0.4rem;
+	font-size: var(--sl-text-sm);
+	color: var(--sl-color-gray-3);
+}

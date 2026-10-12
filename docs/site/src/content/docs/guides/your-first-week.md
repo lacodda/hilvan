@@ -19,6 +19,14 @@ This is a one-time step (or one you repeat only when the pack file itself change
 
 If the stand has [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password) set, the app asks for the password once; the session then lasts 90 days and every visit pushes that out, so this is not a daily step - and it survives the stand being updated. On an open stand - no password set - there is nothing to sign into at all.
 
+## What you already know
+
+Before the first formula, the tutor can learn what you bring. **What you already know** on Today - **Word check** in its footer later - walks the commonest words of English one at a time and asks one thing of each: do you know it? Tap **I know it** if you would understand the word in a sentence, **No** if not; on a keyboard, right and left (or Y and N), and backspace takes the last answer back.
+
+A word you know starts **sewn**, and the levels on Today count it at once. It is your word against the schedule, not a free pass: the first time a formula's sentence brings it, it is asked like any other word, and if it does not hold it comes loose. A word you do not know is never asked here again, and nothing about it changes. Neither answer counts among the day's answers, and neither takes a place from the day's new words.
+
+The commonest thousand go by in an evening. The run goes on to the 5,000 level when you want it to; it is not something to finish before starting.
+
 ## A sitting
 
 Open the app and it shows you today's queue: whatever is due for review, and - if the day has room - one new formula. That "one new formula a day" limit is deliberate. A formula is a shape you assemble until it stops needing thought, and starting two on the same day means neither gets that.
@@ -86,6 +94,10 @@ Every formula is in one of three states - the basting-stitch metaphor the produc
 - **Sewn** - holding over long stretches of time. It still comes back, just rarely.
 
 A formula moves from new to basted the first time you answer it, and from basted to sewn once it has held over long enough intervals. A forgotten formula that had been sewn goes back to basted, not to new - the stitch came loose, but you have not lost everything you knew about it.
+
+## Then and now
+
+**Then and now**, in the footer of Today, sets a day of your choosing beside today: formulas started, formulas you can say and understand, the words of each level, the answers given. Nothing is stored for it - the tutor plays your answers up to that evening through the schedule again - so any day since the first answer can be looked at. The same screen downloads your [learner model](/hilvan/reference/learner-model/) as a file, as it stands or as it stood that day.
 
 ## What the first week looks like
 
