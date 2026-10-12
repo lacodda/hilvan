@@ -18,7 +18,7 @@ use crate::lexicon;
 use crate::own;
 use crate::pack::{Form, OwnKind};
 use crate::say::{Filling, Template};
-use crate::scheduling::{Card, Direction, Kind, Rating, Scheduled, Scheduler, Stitch};
+use crate::scheduling::{Card, Direction, Kind, Rating, Scheduled, Scheduler, Source, Stitch};
 use crate::words::{self, Standing, Word};
 
 /// How many formulas start on any one day.
@@ -226,6 +226,17 @@ pub struct Counts {
     pub new: i64,
     pub basted: i64,
     pub sewn: i64,
+}
+
+impl Counts {
+    /// Counts one more card in the state it stands in.
+    pub const fn add(&mut self, stitch: Stitch) {
+        match stitch {
+            Stitch::New => self.new += 1,
+            Stitch::Basted => self.basted += 1,
+            Stitch::Sewn => self.sewn += 1,
+        }
+    }
 }
 
 /// The same counts told twice, once per direction.
@@ -560,11 +571,11 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
             // or the other way round, would be a sitting half remembered.
             let kind = Kind::Formula(Direction::Produce);
             let mut tx = pool.begin().await.context("failed to open a transaction")?;
-            let next = apply(&mut tx, kind, formula_id, rating, duration_ms, now, &attempts)
+            let next = apply(&mut tx, kind, formula_id, Given::asked(rating, duration_ms, &attempts), now)
                 .await?
                 .ok_or_else(not_found)?;
             for word in &words {
-                apply(&mut tx, Kind::Word, word, Rating::Again, None, now, &[]).await?;
+                apply(&mut tx, Kind::Word, word, Given::asked(Rating::Again, None, &[]), now).await?;
             }
             tx.commit().await.context("failed to commit the review")?;
 
@@ -719,6 +730,131 @@ pub async fn review_word(pool: &SqlitePool, word_id: &str, graded: Graded, now: 
     Ok(reviewed)
 }
 
+/// Records that the learner knows a word without being asked: an easy,
+/// declared, on the word's card - made first when the word has none, as a
+/// word of the language that no pack teaches has not. Inside the caller's
+/// transaction; the card as the declaration leaves it.
+///
+/// # Errors
+///
+/// Fails when the database rejects a statement.
+pub(crate) async fn declare(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, word_id: &str, now: DateTime<Utc>) -> Result<Card> {
+    sqlx::query(
+        "INSERT INTO card (kind, subject_id, state, stability, difficulty, due, reps, lapses)
+         VALUES ('word', ?, 'new', 0.0, 0.0, ?, 0, 0)
+         ON CONFLICT (kind, subject_id) DO NOTHING",
+    )
+    .bind(word_id)
+    .bind(now.to_rfc3339())
+    .execute(&mut **tx)
+    .await
+    .context("failed to make a card for a declared word")?;
+    let given = Given {
+        rating: Rating::Easy,
+        source: Source::Declared,
+        duration_ms: None,
+        attempts: &[],
+    };
+    apply(tx, Kind::Word, word_id, given, now)
+        .await?
+        .with_context(|| format!("the card of {word_id} vanished while it was declared"))
+}
+
+/// Sets a card back to what the answers it still has leave: the history
+/// played through the scheduler again, after some of it was taken back.
+/// With no answers left the card is new again - or gone, when it schedules
+/// a word no pack teaches, which only a declaration had made it for.
+///
+/// # Errors
+///
+/// Fails when the database rejects a statement or holds a rating the
+/// scheduler does not know.
+pub(crate) async fn rebuild(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, now: DateTime<Utc>) -> Result<()> {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT r.rating, r.reviewed_at FROM review r JOIN card c ON c.id = r.card_id
+         WHERE c.kind = ? AND c.subject_id = ? ORDER BY r.reviewed_at, r.id",
+    )
+    .bind(kind.as_str())
+    .bind(subject)
+    .fetch_all(&mut **tx)
+    .await
+    .context("failed to read the answers of a card")?;
+    let answers = rows
+        .iter()
+        .map(|(rating, at)| Ok((Rating::from_i64(*rating)?, parse_stamp(at)?)))
+        .collect::<Result<Vec<_>>>()?;
+    let first = answers.first().map(|(_, at)| *at);
+
+    let Some(card) = Scheduler::new().replay(answers) else {
+        let taught: bool = match kind {
+            Kind::Word => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM word WHERE id = ?)"),
+            Kind::Formula(_) => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM formula WHERE id = ?)"),
+        }
+        .bind(subject)
+        .fetch_one(&mut **tx)
+        .await
+        .context("failed to ask whether a pack teaches a card's subject")?;
+        let query = if taught {
+            sqlx::query(
+                "UPDATE card SET state = 'new', stability = 0.0, difficulty = 0.0, due = ?, reps = 0, lapses = 0,
+                     last_reviewed = NULL, introduced_at = NULL
+                 WHERE kind = ? AND subject_id = ?",
+            )
+            .bind(now.to_rfc3339())
+        } else {
+            sqlx::query("DELETE FROM card WHERE kind = ? AND subject_id = ?")
+        };
+        query
+            .bind(kind.as_str())
+            .bind(subject)
+            .execute(&mut **tx)
+            .await
+            .context("failed to set a card back to new")?;
+        return Ok(());
+    };
+
+    sqlx::query(
+        "UPDATE card SET state = ?, stability = ?, difficulty = ?, due = ?, reps = ?, lapses = ?,
+             last_reviewed = ?, introduced_at = ?
+         WHERE kind = ? AND subject_id = ?",
+    )
+    .bind(card.stitch.as_str())
+    .bind(card.stability)
+    .bind(card.difficulty)
+    .bind(card.due.to_rfc3339())
+    .bind(card.reps)
+    .bind(card.lapses)
+    .bind(card.last_reviewed.map(|at| at.to_rfc3339()))
+    .bind(first.map(|at| at.to_rfc3339()))
+    .bind(kind.as_str())
+    .bind(subject)
+    .execute(&mut **tx)
+    .await
+    .context("failed to save a rebuilt card")?;
+    Ok(())
+}
+
+/// One answer, as it is applied to a card.
+struct Given<'a> {
+    rating: Rating,
+    source: Source,
+    /// How long it took, when the client measured it.
+    duration_ms: Option<i64>,
+    /// The turns typed for it; none for an answer that was not typed.
+    attempts: &'a [Attempt],
+}
+
+impl<'a> Given<'a> {
+    const fn asked(rating: Rating, duration_ms: Option<i64>, attempts: &'a [Attempt]) -> Self {
+        Self {
+            rating,
+            source: Source::Asked,
+            duration_ms,
+            attempts,
+        }
+    }
+}
+
 /// A typed turn, as it is kept with the review it belongs to.
 struct Attempt {
     prompt: String,
@@ -740,7 +876,7 @@ async fn record(
     attempts: &[Attempt],
 ) -> Result<Option<Reviewed>> {
     let mut tx = pool.begin().await.context("failed to open a transaction")?;
-    let Some(next) = apply(&mut tx, kind, subject, rating, duration_ms, now, attempts).await? else {
+    let Some(next) = apply(&mut tx, kind, subject, Given::asked(rating, duration_ms, attempts), now).await? else {
         return Ok(None);
     };
     tx.commit().await.context("failed to commit the review")?;
@@ -762,15 +898,13 @@ async fn reviewed(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, 
 /// Applies an answer to a card inside a transaction: the new schedule, and
 /// the review kept whole with the turns typed for it. The card as it now
 /// stands, or `None` when there is no such card.
-async fn apply(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    kind: Kind,
-    subject: &str,
-    rating: Rating,
-    duration_ms: Option<i64>,
-    now: DateTime<Utc>,
-    attempts: &[Attempt],
-) -> Result<Option<Card>> {
+async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, given: Given<'_>, now: DateTime<Utc>) -> Result<Option<Card>> {
+    let Given {
+        rating,
+        source,
+        duration_ms,
+        attempts,
+    } = given;
     let Some(card) = card(&mut **tx, kind, subject).await? else {
         return Ok(None);
     };
@@ -799,8 +933,8 @@ async fn apply(
     // The history is kept in full so the schedule can be recomputed when the
     // memory model changes (ADR 0003).
     let review: i64 = sqlx::query_scalar(
-        "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms)
-         SELECT id, ?, ?, ?, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?
+        "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source)
+         SELECT id, ?, ?, ?, ?, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?
          RETURNING id",
     )
     .bind(rating.as_i64())
@@ -809,6 +943,7 @@ async fn apply(
     .bind(next.stability)
     .bind(next.difficulty)
     .bind(duration_ms)
+    .bind(source.as_str())
     .bind(kind.as_str())
     .bind(subject)
     .fetch_one(&mut **tx)
@@ -1125,12 +1260,19 @@ async fn card<'e, E: sqlx::SqliteExecutor<'e>>(executor: E, kind: Kind, subject:
 
 fn timestamp(row: &SqliteRow, column: &str) -> Result<Option<DateTime<Utc>>> {
     let raw: Option<String> = row.get(column);
-    raw.map(|text| {
-        DateTime::parse_from_rfc3339(&text)
-            .map(|at| at.with_timezone(&Utc))
-            .with_context(|| format!("{column} is not a timestamp: {text}"))
-    })
-    .transpose()
+    raw.map(|text| parse_stamp(&text).with_context(|| format!("{column} is not a timestamp")))
+        .transpose()
+}
+
+/// A moment as the database keeps it: RFC 3339, written by `to_rfc3339`.
+///
+/// # Errors
+///
+/// Fails on text that is not RFC 3339.
+pub(crate) fn parse_stamp(text: &str) -> Result<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(text)
+        .map(|at| at.with_timezone(&Utc))
+        .with_context(|| format!("{text:?} is not a timestamp"))
 }
 
 /// The first formula of the pack's sequence never answered whose parents
@@ -1160,16 +1302,22 @@ async fn next_new(pool: &SqlitePool) -> Result<Option<String>> {
 /// new formula is about new shapes, and the recognising card of a shape
 /// already being drilled is not a new shape.
 async fn introduced_since(pool: &SqlitePool, kind: Kind, since: DateTime<Utc>) -> Result<i64> {
-    sqlx::query_scalar("SELECT count(*) FROM card WHERE kind = ? AND introduced_at >= ?")
-        .bind(kind.as_str())
-        .bind(since.to_rfc3339())
-        .fetch_one(pool)
-        .await
-        .context("failed to count what was started today")
+    // A card the learner declared known was not started by the tutor: the
+    // day's room is for material the drill opens, and an inventory of a
+    // thousand words in one evening must not close it for the day.
+    sqlx::query_scalar(
+        "SELECT count(*) FROM card c WHERE c.kind = ? AND c.introduced_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM review r WHERE r.card_id = c.id AND r.source = 'declared')",
+    )
+    .bind(kind.as_str())
+    .bind(since.to_rfc3339())
+    .fetch_one(pool)
+    .await
+    .context("failed to count what was started today")
 }
 
 async fn reviewed_since(pool: &SqlitePool, since: DateTime<Utc>) -> Result<i64> {
-    sqlx::query_scalar("SELECT count(*) FROM review WHERE reviewed_at >= ?")
+    sqlx::query_scalar("SELECT count(*) FROM review WHERE reviewed_at >= ? AND source = 'asked'")
         .bind(since.to_rfc3339())
         .fetch_one(pool)
         .await

@@ -108,13 +108,7 @@ pub async fn add(pool: &SqlitePool, word: &NewWord, now: DateTime<Utc>) -> Resul
     if native.chars().count() > LONGEST || target.chars().count() > LONGEST {
         return Err(Refused::TooLong);
     }
-    // One learner, one language being learnt today: the pack's. A second
-    // language will name it in the request.
-    let language: Option<String> = sqlx::query_scalar("SELECT target FROM pack ORDER BY loaded_at, id LIMIT 1")
-        .fetch_optional(pool)
-        .await
-        .context("failed to find the language being learnt")?;
-    let Some(language) = language else {
+    let Some(language) = crate::pack::language_being_learnt(pool).await? else {
         return Err(Refused::NoLanguage);
     };
 

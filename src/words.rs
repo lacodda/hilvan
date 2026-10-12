@@ -64,17 +64,75 @@ pub struct Context {
 }
 
 /// Where the learner stands with words.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Standing {
     /// Every word of the loaded packs, by state.
     pub counts: Counts,
     /// The levels a learner aims at - the commonest 1000, 2000 and 5000
-    /// lemmas of the language - and how many of each are in hand.
+    /// lemmas of the language - and how many of each are in hand: every word
+    /// with a card, the pack's and those declared known in the inventory.
     pub levels: Vec<Level>,
     /// Words met in a sentence and not started yet. Told on Today without
     /// those already in the day's queue: what later days will open, at most
     /// [`crate::study::NEW_WORDS_PER_DAY`] a day.
     pub waiting: i64,
+    /// Words held on the learner's word alone: declared known and not asked
+    /// since. Counted in the levels, and said apart, because a level is only
+    /// as honest as the words in it.
+    pub declared: i64,
+}
+
+/// One word's card, as the standing counts it.
+#[derive(Debug, Clone)]
+pub struct Held {
+    /// `en:house`.
+    pub id: String,
+    pub stitch: Stitch,
+    /// Whether a loaded pack teaches it.
+    pub taught: bool,
+    /// Whether it was declared known and never asked.
+    pub declared: bool,
+}
+
+impl Standing {
+    /// The standing a set of word cards makes. `waiting` is left at zero for
+    /// the caller: it is about the queue, not about the cards.
+    #[must_use]
+    pub fn tally(cards: &[Held]) -> Self {
+        let mut counts = Counts::default();
+        let mut levels: Vec<Level> = LEVELS.iter().map(|&size| Level { size, basted: 0, sewn: 0 }).collect();
+        let mut declared = 0;
+        for card in cards {
+            if card.taught {
+                counts.add(card.stitch);
+            }
+            if card.declared && card.stitch != Stitch::New {
+                declared += 1;
+            }
+            let Some(rank) = rank(&card.id) else { continue };
+            for level in levels.iter_mut().filter(|level| rank <= level.size) {
+                match card.stitch {
+                    Stitch::New => {}
+                    Stitch::Basted => level.basted += 1,
+                    Stitch::Sewn => level.sewn += 1,
+                }
+            }
+        }
+        Self {
+            counts,
+            levels,
+            waiting: 0,
+            declared,
+        }
+    }
+}
+
+/// Where a word stands in its language's frequency list, read off its id:
+/// `en:house` is "house" in the English lexicon.
+#[must_use]
+pub fn rank(id: &str) -> Option<u32> {
+    let (language, lemma) = id.split_once(':')?;
+    lexicon::of(language)?.entry(lemma).map(|entry| entry.rank)
 }
 
 /// One level, and the learner's words in it.
@@ -222,6 +280,11 @@ pub async fn anchor(pool: &SqlitePool, id: &str) -> Result<()> {
 
 /// Words that have come due by `now`, oldest first.
 ///
+/// Only words met in a sentence: a word is asked in a sentence the learner
+/// has seen. One answered in its sentence always has been; one declared
+/// known in the inventory waits, sewn, until the drill brings a sentence
+/// that holds it.
+///
 /// # Errors
 ///
 /// Fails when the database rejects the query.
@@ -229,6 +292,11 @@ pub async fn due(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<String>> {
     sqlx::query_scalar(
         "SELECT c.subject_id FROM card c JOIN word w ON w.id = c.subject_id
          WHERE c.kind = 'word' AND c.state != 'new' AND c.due <= ?
+           AND EXISTS (
+               SELECT 1 FROM sentence_word sw
+               JOIN formula_sentence fs ON fs.sentence_id = sw.sentence_id
+               JOIN card fc ON fc.kind = 'formula' AND fc.subject_id = fs.formula_id AND fc.state != 'new'
+               WHERE sw.word_id = w.id)
          ORDER BY c.due, c.subject_id",
     )
     .bind(now.to_rfc3339())
@@ -286,13 +354,18 @@ pub async fn waiting(pool: &SqlitePool) -> Result<Vec<String>> {
 ///
 /// Fails when the database rejects a query.
 pub async fn standing(pool: &SqlitePool) -> Result<Standing> {
-    let rows = sqlx::query("SELECT c.state, w.lemma, w.language FROM card c JOIN word w ON w.id = c.subject_id WHERE c.kind = 'word'")
-        .fetch_all(pool)
-        .await
-        .context("failed to count the words")?;
+    let rows = sqlx::query(
+        "SELECT c.subject_id, c.state, w.id IS NOT NULL AS taught,
+                EXISTS (SELECT 1 FROM review r WHERE r.card_id = c.id AND r.source = 'declared')
+                AND NOT EXISTS (SELECT 1 FROM review r WHERE r.card_id = c.id AND r.source = 'asked') AS declared
+         FROM card c LEFT JOIN word w ON w.id = c.subject_id
+         WHERE c.kind = 'word'",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to count the words")?;
 
-    let mut counts = Counts::default();
-    let mut levels: Vec<Level> = LEVELS.iter().map(|&size| Level { size, basted: 0, sewn: 0 }).collect();
+    let mut held = Vec::with_capacity(rows.len());
     for row in rows {
         let stitch = match Stitch::parse(row.get::<String, _>("state").as_str()) {
             Ok(stitch) => stitch,
@@ -302,28 +375,16 @@ pub async fn standing(pool: &SqlitePool) -> Result<Standing> {
                 continue;
             }
         };
-        match stitch {
-            Stitch::New => counts.new += 1,
-            Stitch::Basted => counts.basted += 1,
-            Stitch::Sewn => counts.sewn += 1,
-        }
-        let lemma: String = row.get("lemma");
-        let language: String = row.get("language");
-        let Some(rank) = lexicon::of(&language).and_then(|lexicon| lexicon.entry(&lemma)).map(|entry| entry.rank) else {
-            continue;
-        };
-        for level in levels.iter_mut().filter(|level| rank <= level.size) {
-            match stitch {
-                Stitch::New => {}
-                Stitch::Basted => level.basted += 1,
-                Stitch::Sewn => level.sewn += 1,
-            }
-        }
+        held.push(Held {
+            id: row.get("subject_id"),
+            stitch,
+            taught: row.get("taught"),
+            declared: row.get("declared"),
+        });
     }
 
     Ok(Standing {
-        counts,
-        levels,
         waiting: i64::try_from(waiting(pool).await?.len()).unwrap_or(i64::MAX),
+        ..Standing::tally(&held)
     })
 }

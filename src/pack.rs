@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
@@ -871,12 +871,17 @@ async fn insert_sample(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack
 /// pack is usually an editing mistake, and the learner's history is worth
 /// more than the tidiness. Reported so a later version can offer the choice.
 ///
+/// A word no pack teaches that the learner holds is not an orphan while its
+/// language's lexicon knows it: the inventory declares words of the
+/// language, not of a pack. Its card is the learner's, as a card never
+/// answered is nobody's.
+///
 /// # Errors
 ///
 /// Fails when the database rejects the query.
 pub async fn orphaned_cards(pool: &SqlitePool) -> Result<Vec<String>> {
     let rows = sqlx::query(
-        "SELECT DISTINCT subject_id FROM card
+        "SELECT DISTINCT kind, subject_id, state FROM card
          WHERE (kind IN ('formula', 'formula-recognise') AND subject_id NOT IN (SELECT id FROM formula))
             OR (kind = 'word' AND subject_id NOT IN (SELECT id FROM word))
          ORDER BY subject_id",
@@ -884,7 +889,55 @@ pub async fn orphaned_cards(pool: &SqlitePool) -> Result<Vec<String>> {
     .fetch_all(pool)
     .await
     .context("failed to look for orphaned cards")?;
-    Ok(rows.iter().map(|row| row.get::<String, _>("subject_id")).collect())
+    let mut orphans: Vec<String> = Vec::new();
+    for row in rows {
+        let subject: String = row.get("subject_id");
+        let held = row.get::<String, _>("state") != "new";
+        if row.get::<String, _>("kind") == Kind::Word.as_str() && held && crate::words::rank(&subject).is_some() {
+            continue;
+        }
+        if !orphans.contains(&subject) {
+            orphans.push(subject);
+        }
+    }
+    Ok(orphans)
+}
+
+/// The language being learnt: the target of the first pack loaded. One
+/// learner, one language today; a second will be named in each request.
+///
+/// # Errors
+///
+/// Fails when the database rejects the query.
+pub async fn language_being_learnt(pool: &SqlitePool) -> Result<Option<String>> {
+    sqlx::query_scalar("SELECT target FROM pack ORDER BY loaded_at, id LIMIT 1")
+        .fetch_optional(pool)
+        .await
+        .context("failed to find the language being learnt")
+}
+
+/// Makes the card every loaded formula and word is owed, new, where it has
+/// none: what a load does for its own pack, done for all of them - after
+/// the learner model was replaced, say, by one that never met some of them.
+///
+/// # Errors
+///
+/// Fails when the database rejects the statement.
+pub async fn give_every_subject_a_card(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, now: DateTime<Utc>) -> Result<u64> {
+    let made = sqlx::query(
+        "INSERT INTO card (kind, subject_id, state, stability, difficulty, due, reps, lapses)
+         SELECT kind, id, 'new', 0.0, 0.0, ?1, 0, 0 FROM (
+             SELECT 'formula' AS kind, id FROM formula
+             UNION ALL SELECT 'formula-recognise', id FROM formula
+             UNION ALL SELECT 'word', id FROM word)
+         WHERE true
+         ON CONFLICT (kind, subject_id) DO NOTHING",
+    )
+    .bind(now.to_rfc3339())
+    .execute(&mut **tx)
+    .await
+    .context("failed to give the loaded material its cards")?;
+    Ok(made.rows_affected())
 }
 
 #[cfg(test)]
@@ -1899,5 +1952,22 @@ parents = [{like_parents}]
         shrunk.formulas[0].samples[1].words.retain(|word| word != "go");
         load(&pool, &shrunk).await.unwrap();
         assert_eq!(orphaned_cards(&pool).await.unwrap(), vec!["en:go".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_word_the_learner_declared_is_theirs_not_an_orphan() {
+        let pool = pool().await;
+        load(&pool, &worded(1, "врач", "Он врач.")).await.unwrap();
+        crate::inventory::answer(
+            &pool,
+            &[crate::inventory::Answer {
+                word: "en:house".to_string(),
+                known: true,
+            }],
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(orphaned_cards(&pool).await.unwrap(), Vec::<String>::new());
     }
 }

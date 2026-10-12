@@ -62,6 +62,51 @@ impl Rating {
 #[error("{0} is not a rating: expected 1 (again), 2 (hard), 3 (good) or 4 (easy)")]
 pub struct InvalidRating(i64);
 
+/// Where an answer came from.
+///
+/// Both move the card through the same scheduler, so a declared word has a
+/// schedule that can be checked later; only an asked answer is evidence of
+/// recall, and everything that counts or measures answers - the day's tally,
+/// the day's room for new material, pace, fitting the memory model - counts
+/// only those.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    /// The tutor asked, the learner answered.
+    Asked,
+    /// The learner said they know it, unasked: the inventory, as an easy.
+    Declared,
+}
+
+impl Source {
+    /// The word stored in the review row.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Asked => "asked",
+            Self::Declared => "declared",
+        }
+    }
+
+    /// Reads a source back from a review row.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the word is neither of the two.
+    pub fn parse(value: &str) -> Result<Self, UnknownSource> {
+        match value {
+            "asked" => Ok(Self::Asked),
+            "declared" => Ok(Self::Declared),
+            other => Err(UnknownSource(other.to_string())),
+        }
+    }
+}
+
+/// A source that is neither of the two.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} is not where an answer comes from: expected asked or declared")]
+pub struct UnknownSource(String);
+
 /// How far along a formula is, in the product's own vocabulary: the stitch the
 /// name comes from. FSRS's four internal states collapse to three because the
 /// learner has no use for the difference between learning something new and
@@ -326,6 +371,24 @@ impl Scheduler {
             (rating, scheduled.card.due - now)
         })
     }
+
+    /// The card a history of answers leaves, oldest answer first; `None` for
+    /// no answers at all, which is a card still new.
+    ///
+    /// The review log is kept whole so this is possible: what the learner
+    /// held on any day is the log up to that day played through the
+    /// scheduler, and the card row is only the last step of the same walk.
+    #[must_use]
+    pub fn replay(&self, answers: impl IntoIterator<Item = (Rating, DateTime<Utc>)>) -> Option<Card> {
+        let mut card: Option<Card> = None;
+        for (rating, at) in answers {
+            // What a new card was due at does not enter the first answer:
+            // FSRS starts a new card from the rating alone.
+            let before = card.unwrap_or_else(|| Card::new(at));
+            card = Some(self.review(&before, rating, at).card);
+        }
+        card
+    }
 }
 
 #[cfg(test)]
@@ -421,6 +484,37 @@ mod tests {
             assert_eq!(Kind::parse(kind.as_str()).unwrap(), kind);
         }
         assert!(Kind::parse("sentence").is_err());
+    }
+
+    #[test]
+    fn sources_survive_the_round_trip_through_the_database() {
+        for source in [Source::Asked, Source::Declared] {
+            assert_eq!(Source::parse(source.as_str()).unwrap(), source);
+        }
+        assert!(Source::parse("imported").is_err());
+    }
+
+    #[test]
+    fn replaying_the_answers_walks_the_card_the_way_answering_did() {
+        // The snapshots of the model rest on this: the card a history leaves
+        // is the card the answers left one by one.
+        let scheduler = Scheduler::new();
+        let answers = [(Rating::Good, at(0)), (Rating::Good, at(1)), (Rating::Again, at(9)), (Rating::Easy, at(10))];
+        let mut card = Card::new(at(0));
+        for (rating, when) in answers {
+            card = scheduler.review(&card, rating, when).card;
+        }
+        assert_eq!(scheduler.replay(answers), Some(card));
+        assert_eq!(scheduler.replay([]), None, "no answers is a card still new");
+    }
+
+    #[test]
+    fn an_easy_first_answer_sews_at_once() {
+        // What a declared word rests on: "I know it" lands as sewn, with a
+        // schedule that comes back to check, not as a card still loose.
+        let card = Scheduler::new().replay([(Rating::Easy, at(0))]).unwrap();
+        assert_eq!(card.stitch, Stitch::Sewn);
+        assert!(card.due > at(7), "a word declared known should not be back within the week, due {}", card.due);
     }
 
     #[test]
