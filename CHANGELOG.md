@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-10-12
+
+### Dependencies
+- Update the dependencies and move to pnpm 10.34.5
+
+### Documentation
+- Explain the inventory, the learner model file and the demo, and bump to 0.6.0
+
+### Features
+- Declare the words a learner knows in an inventory
+- Keep the learner model in one file, and replay any past day
+- Go through the commonest words, and set any day beside today
+
+### Testing
+- Hold a first no and a past card's replay to account
+
 ## [0.5.0] - 2026-10-08
 
 ### Documentation
