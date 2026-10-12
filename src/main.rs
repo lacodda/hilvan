@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, NaiveDate, Utc};
 use clap::{Parser, Subcommand};
-use hilvan::{app, auth, config, db, pack, voice};
+use hilvan::{app, auth, config, db, model, pack, voice};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -37,6 +38,31 @@ enum Command {
         /// Path to the pack file, e.g. packs/en-from-ru/pack.toml.
         path: PathBuf,
     },
+    /// Write the learner model to a file: everything the tutor knows about
+    /// the learner, in the format the docs publish a schema for.
+    Export {
+        /// The model as it stood at this moment instead of as it stands: a
+        /// day (YYYY-MM-DD, its end, UTC) or an RFC 3339 date and time.
+        #[arg(long)]
+        at: Option<String>,
+        /// Where to write it; standard output when left out.
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+    },
+    /// Replace the learner model with one from a file.
+    ///
+    /// The model it replaces is written next to the database first, so an
+    /// import is never the end of anything. The packs stay; load the ones
+    /// the model was learnt on before importing it.
+    Import {
+        /// A file `hilvan export` wrote.
+        path: PathBuf,
+    },
+    /// Load a fictional learner, three weeks into English, onto a tutor that
+    /// holds no learner: for a look around, the docs, a check of a new stand.
+    ///
+    /// Refuses a tutor that holds a learner already. Load the pack first.
+    LoadDemo,
     /// Drop sounds nobody has asked for in a while.
     ///
     /// Explicit rather than automatic: a paid sound dropped is a sound paid
@@ -57,8 +83,11 @@ async fn main() -> Result<()> {
         Err(error) => return Err(error).context("failed to read .env"),
     }
 
+    // The log goes to standard error: standard output is what `export`
+    // writes the learner model to, and a line of log in it is a broken file.
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("hilvan=info,tower_http=info")))
+        .with_writer(std::io::stderr)
         .init();
 
     let config = config::Config::from_env()?;
@@ -70,6 +99,9 @@ async fn main() -> Result<()> {
         None | Some(Command::Serve) => serve(&config).await,
         Some(Command::LoadPack { path }) => load_pack(&config, &path).await,
         Some(Command::PruneAudio { unused_days }) => prune_audio(&config, unused_days).await,
+        Some(Command::Export { at, out }) => export(&config, at.as_deref(), out.as_deref()).await,
+        Some(Command::Import { path }) => import(&config, &path).await,
+        Some(Command::LoadDemo) => load_demo(&config).await,
         Some(Command::Hash { password }) => {
             let password = match password {
                 Some(password) => password,
@@ -171,6 +203,116 @@ async fn load_pack(config: &config::Config, path: &PathBuf) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// A moment as the command line takes it: a day, meaning its end in UTC -
+/// "how I knew it on 1 March" is the evening of the first - or an RFC 3339
+/// date and time.
+fn moment(text: &str) -> Result<DateTime<Utc>> {
+    if let Ok(at) = DateTime::parse_from_rfc3339(text) {
+        return Ok(at.with_timezone(&Utc));
+    }
+    let day = NaiveDate::parse_from_str(text, "%Y-%m-%d").with_context(|| format!("{text:?} is neither a day (YYYY-MM-DD) nor an RFC 3339 moment"))?;
+    day.and_hms_milli_opt(23, 59, 59, 999)
+        .map(|end| end.and_utc())
+        .with_context(|| format!("{text:?} has no end"))
+}
+
+async fn export(config: &config::Config, at: Option<&str>, out: Option<&std::path::Path>) -> Result<()> {
+    let pool = db::connect(&config.database_url).await?;
+    let now = Utc::now();
+    let model = match at.map(moment).transpose()? {
+        Some(at) => model::as_of(&pool, at.min(now), now).await?,
+        None => model::export(&pool, now).await?,
+    };
+    let text = serde_json::to_string_pretty(&model).context("failed to write the learner model")? + "\n";
+    let Some(path) = out else {
+        use std::io::Write as _;
+        // A reader that stops early - `| head` - closes the pipe: it has what
+        // it wanted, and that is not a failure of the export.
+        if let Err(error) = std::io::stdout().lock().write_all(text.as_bytes())
+            && error.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            return Err(error).context("failed to write the learner model");
+        }
+        return Ok(());
+    };
+    std::fs::write(path, text).with_context(|| format!("failed to write {}", path.display()))?;
+    eprintln!(
+        "wrote the learner model as of {} to {}: {} cards, {} own words, {} inventory answers",
+        model.as_of.format("%Y-%m-%d %H:%M UTC"),
+        path.display(),
+        model.cards.len(),
+        model.own_words.len(),
+        model.inventory.len()
+    );
+    Ok(())
+}
+
+async fn import(config: &config::Config, path: &std::path::Path) -> Result<()> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let incoming = model::Model::parse(&text).with_context(|| format!("{} is not a learner model hilvan can read", path.display()))?;
+    let pool = db::connect(&config.database_url).await?;
+    let now = Utc::now();
+
+    // The model being replaced goes to a file first, beside the database:
+    // in the data volume on a stand, where a backup already looks.
+    if model::holds_a_learner(&pool).await? {
+        let before = model::export(&pool, now).await?;
+        let aside = beside_the_database(
+            &config.database_url,
+            &format!("hilvan-model-before-import-{}.json", now.format("%Y%m%dT%H%M%SZ")),
+        )?;
+        std::fs::write(&aside, serde_json::to_string_pretty(&before)? + "\n").with_context(|| format!("failed to keep the model being replaced in {}", aside.display()))?;
+        println!("the learner model this replaces is kept in {}", aside.display());
+    }
+
+    let imported = model::import(&pool, &incoming, now).await?;
+    println!(
+        "imported the learner model as of {}: {} cards with {} answers, {} own words, {} inventory answers",
+        incoming.as_of.format("%Y-%m-%d %H:%M UTC"),
+        imported.cards,
+        imported.reviews,
+        incoming.own_words.len(),
+        incoming.inventory.len()
+    );
+    report(&imported);
+    Ok(())
+}
+
+async fn load_demo(config: &config::Config) -> Result<()> {
+    let pool = db::connect(&config.database_url).await?;
+    let imported = model::load_demo(&pool, Utc::now()).await?;
+    println!(
+        "loaded the demo learner: three weeks into English, last studied yesterday evening - {} cards with {} answers",
+        imported.cards, imported.reviews
+    );
+    report(&imported);
+    Ok(())
+}
+
+/// What an import could not carry over, said rather than lost quietly.
+fn report(imported: &model::Imported) {
+    if imported.anchors_dropped > 0 {
+        println!(
+            "note: {} word(s) were heard in sentences no loaded pack shows; each is heard in the first sentence it is met in until it is answered again",
+            imported.anchors_dropped
+        );
+    }
+    if !imported.packs_missing.is_empty() {
+        println!(
+            "note: the model was learnt on {}, not loaded here; cards of formulas and words this stand does not have are kept and wait for the pack",
+            imported.packs_missing.join(", ")
+        );
+    }
+}
+
+/// A file in the directory the database lives in.
+fn beside_the_database(url: &str, name: &str) -> Result<PathBuf> {
+    use std::str::FromStr as _;
+    let options = sqlx::sqlite::SqliteConnectOptions::from_str(url).with_context(|| format!("HILVAN_DATABASE_URL is not a valid SQLite URL: {url}"))?;
+    let directory = options.get_filename().parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+    Ok(directory.join(name))
 }
 
 async fn shutdown_signal() {

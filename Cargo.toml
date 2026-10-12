@@ -54,6 +54,9 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
+# Holds the exported learner model to its published JSON Schema. No HTTP or
+# file resolution: the schema is one self-contained file.
+jsonschema = { version = "0.58.6", default-features = false }
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
 

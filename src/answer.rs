@@ -14,7 +14,7 @@
 //! Case, punctuation and the kind of apostrophe do not matter; spelling
 //! does - a misspelt word is a word that did not come.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::say::{Marked, Role};
 
@@ -67,7 +67,7 @@ impl Variant {
 }
 
 /// What went wrong, in the three ways the drill tells apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Failure {
     /// The formula's own pieces did not come.

@@ -227,3 +227,69 @@ async fn a_locked_stand_keeps_the_learner_model_to_itself() {
     let (status, _) = json(&app, Request::get("/api/health").body(Body::empty()).unwrap()).await;
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn the_inventory_asks_the_commonest_words_and_takes_answers_back() {
+    let (app, _data, _web) = taught().await;
+    let (status, run) = json(&app, Request::get("/api/inventory").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(run["language"], "en");
+    let first = run["next"][0]["word"].as_str().unwrap().to_string();
+    let second = run["next"][1]["word"].as_str().unwrap().to_string();
+    assert_eq!(run["next"][0]["rank"], 1);
+
+    let answers = serde_json::json!({ "answers": [{ "word": first, "known": true }, { "word": second, "known": false }] });
+    let (status, run) = post(&app, "/api/inventory", &answers).await;
+    assert_eq!(status, StatusCode::OK, "{run}");
+    assert_eq!((run["answered"].as_i64(), run["known"].as_i64()), (Some(2), Some(1)));
+    assert_ne!(run["next"][0]["word"], first.as_str(), "an answered word should not be asked again");
+
+    let (_, today) = json(&app, Request::get("/api/today").body(Body::empty()).unwrap()).await;
+    assert_eq!(today["words"]["declared"], 1);
+    assert_eq!(today["reviewed_today"], 0, "a declaration is not an answer");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/api/inventory/{first}"))
+        .body(Body::empty())
+        .unwrap();
+    let (status, run) = json(&app, request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(run["answered"], 1);
+    assert_eq!(run["next"][0]["word"], first.as_str(), "a word taken back should be asked first again");
+
+    let (status, refused) = post(
+        &app,
+        "/api/inventory",
+        &serde_json::json!({ "answers": [{ "word": "en:qwzx", "known": true }] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused["error"].as_str().unwrap().contains("en:qwzx"));
+}
+
+#[tokio::test]
+async fn the_learner_model_downloads_as_a_file_and_looks_back() {
+    let (app, _data, _web) = taught().await;
+    let answers = serde_json::json!({ "answers": [{ "word": "en:house", "known": true }] });
+    let (status, _) = post(&app, "/api/inventory", &answers).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let response = app.clone().oneshot(Request::get("/api/model").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let disposition = response.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().to_string();
+    assert!(disposition.starts_with("attachment; filename=\"hilvan-model-"), "{disposition}");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let model = hilvan::model::Model::parse(std::str::from_utf8(&body).unwrap()).expect("the download should be a model hilvan reads back");
+    assert_eq!(model.inventory.len(), 1);
+
+    // Before the first answer, nothing was held; now one word is.
+    let (status, standing) = json(&app, Request::get("/api/model/standing?at=2020-01-01T00:00:00Z").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "{standing}");
+    assert_eq!(standing["then"]["words"]["levels"][0]["sewn"], 0);
+    assert_eq!(standing["now"]["words"]["levels"][0]["sewn"], 1);
+    assert_eq!(standing["began"], Value::Null, "a declaration is not the first answer");
+
+    let (status, _) = json(&app, Request::get("/api/model?at=2020-01-01T00:00:00Z").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+}

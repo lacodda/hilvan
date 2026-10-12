@@ -12,7 +12,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -20,6 +20,8 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::auth;
+use crate::inventory;
+use crate::model;
 use crate::own::{self, NewWord, Refused};
 use crate::study::{self, Answer, AnswerError, Graded, Turn};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
@@ -63,6 +65,10 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
         .route("/listen", get(listen))
         .route("/voices", get(voices_screen))
         .route("/voices/{language}", put(choose_voice))
+        .route("/inventory", get(inventory_run).post(inventory_answer))
+        .route("/inventory/{word}", delete(inventory_undo))
+        .route("/model", get(model_file))
+        .route("/model/standing", get(model_standing))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_session));
 
     let api = Router::new()
@@ -499,6 +505,98 @@ async fn choose_voice(State(state): State<AppState>, UrlPath(language): UrlPath<
     }
 }
 
+/// What the inventory screen sends: its answers, oldest first. A list, so a
+/// screen that lost its connection can send what it holds in one go.
+#[derive(Deserialize)]
+struct Answers {
+    answers: Vec<inventory::Answer>,
+}
+
+async fn inventory_run(State(state): State<AppState>) -> Response {
+    match inventory::run(&state.pool, inventory::BATCH).await {
+        Ok(run) => Json(run).into_response(),
+        Err(error) => failed("the inventory could not be read", &error),
+    }
+}
+
+async fn inventory_answer(State(state): State<AppState>, Json(body): Json<Answers>) -> Response {
+    match inventory::answer(&state.pool, &body.answers, Utc::now()).await {
+        Ok(()) => inventory_run(State(state)).await,
+        Err(error) => inventory_refused(error),
+    }
+}
+
+async fn inventory_undo(State(state): State<AppState>, UrlPath(word): UrlPath<String>) -> Response {
+    match inventory::undo(&state.pool, &word, Utc::now()).await {
+        Ok(()) => inventory_run(State(state)).await,
+        Err(error) => inventory_refused(error),
+    }
+}
+
+fn inventory_refused(error: inventory::Refused) -> Response {
+    let status = match error {
+        inventory::Refused::NotAWord(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        inventory::Refused::Asked(_) => StatusCode::CONFLICT,
+        inventory::Refused::Database(error) => return failed("the inventory could not be saved", &error),
+    };
+    (status, Json(json!({ "error": error.to_string() }))).into_response()
+}
+
+/// A moment the model is asked about; now when left out. A moment still to
+/// come is now as well: the model cannot be told ahead of the answers.
+#[derive(Deserialize)]
+struct At {
+    at: Option<DateTime<Utc>>,
+}
+
+impl At {
+    fn or_now(&self, now: DateTime<Utc>) -> DateTime<Utc> {
+        self.at.map_or(now, |at| at.min(now))
+    }
+}
+
+/// The learner model as a file to keep: everything the tutor knows of the
+/// learner, as of now or of the moment asked.
+async fn model_file(State(state): State<AppState>, Query(at): Query<At>) -> Response {
+    let now = Utc::now();
+    let read = match at.at {
+        Some(_) => model::as_of(&state.pool, at.or_now(now), now).await,
+        None => model::export(&state.pool, now).await,
+    };
+    match read {
+        Ok(model) => {
+            let name = format!("attachment; filename=\"hilvan-model-{}.json\"", model.as_of.format("%Y-%m-%d"));
+            ([(header::CONTENT_DISPOSITION, name)], Json(model)).into_response()
+        }
+        Err(error) => failed("the learner model could not be read", &error),
+    }
+}
+
+/// Where the learner stood at a moment, beside where they stand now.
+#[derive(Serialize)]
+struct Standings {
+    then: model::Snapshot,
+    now: model::Snapshot,
+    /// The first answer the tutor asked for, if any: how far back there is
+    /// anything to look at.
+    began: Option<DateTime<Utc>>,
+}
+
+async fn model_standing(State(state): State<AppState>, Query(at): Query<At>) -> Response {
+    let now = Utc::now();
+    let read = async {
+        Ok::<_, anyhow::Error>(Standings {
+            then: model::standing_at(&state.pool, at.or_now(now)).await?,
+            now: model::standing_at(&state.pool, now).await?,
+            began: model::began(&state.pool).await?,
+        })
+    };
+    match read.await {
+        Ok(standings) => Json(standings).into_response(),
+        Err(error) => failed("the standing could not be read", &error),
+    }
+}
+
 /// A failure that is the server's own: logged in full, answered without
 /// detail, because the detail is a database error the browser cannot act on.
 fn failed(message: &str, error: &anyhow::Error) -> Response {
@@ -700,10 +798,28 @@ gloss = "дом"
         // The one thing the password is actually for.
         let dir = web_root();
         let app = locked(taught().await, &dir);
-        for uri in ["/api/today", "/api/formulas/be-present", "/api/words/en:home"] {
+        for uri in [
+            "/api/today",
+            "/api/formulas/be-present",
+            "/api/words/en:home",
+            "/api/inventory",
+            "/api/model",
+            "/api/model/standing",
+        ] {
             let response = app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri} was readable without signing in");
         }
+
+        let response = app
+            .clone()
+            .oneshot(json_request("POST", "/api/inventory", r#"{"answers":[{"word":"en:house","known":true}]}"#))
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "a stranger could tell the tutor what the learner knows"
+        );
 
         let response = app
             .clone()
