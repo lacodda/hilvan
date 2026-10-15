@@ -29,6 +29,14 @@ Every formula sits in one of three states - new, basted, sewn, the basting-stitc
 
 A learner never starts from nothing, and a schedule that treats *house* as new in the third week wastes the sitting it spends on it. From v0.6.0 an inventory walks the commonest words and asks of each whether you know it. A yes is a declaration, not an answer: the word starts sewn, with the schedule an easy first answer would give it, and the first sentence that brings it is its test. Declarations are kept apart from answers everywhere answers are counted - the day's tally, the day's new words, and the fitting of the memory model to you when that comes - because "I know it" is worth something, but it is not recall under a prompt ([ADR 0008](https://github.com/lacodda/hilvan/blob/main/docs/adr/0008-declared-knowledge-and-the-learner-model-file.md)).
 
+### A schedule that lives with you - built
+
+A spaced-repetition schedule assumes you come every day, and most people who stop using one stop the same way: a few missed days, a wall of reviews on the way back, a second look at the wall, and no third. From v0.7.0 the schedule bends where a life does.
+
+A day that begins with cards left over from earlier days opens less that is new - one new word fewer for each leftover, and no new formula once they have taken all ten places - so the way back is reviews, not reviews and a full day's new material on top. A break stops the schedule's clock: nothing comes due while you are away, and on the way back everything picks up where it was rather than all at once. An absence you did not announce can be counted as a break afterwards, in one tap. Memory itself is not paused - the memory model is told every day that passed, holiday included - only the tutor's claim on your time is ([ADR 0009](https://github.com/lacodda/hilvan/blob/main/docs/adr/0009-breaks-leftovers-and-what-slipped.md)).
+
+What you had and lost is named: each week's slips - a card you came up with on one day and could not on a later one - are listed, and the first sitting of a week opens with last week's. How firmly each card holds is on the card as a bar from hours to a year, not as a number of days.
+
 ### Two directions, counted apart
 
 Understanding a sentence and producing one are different skills, and recognition always runs ahead. From v0.2.0 each formula is scheduled twice - saying it, and understanding it - so the two are never averaged into a number that describes neither. The Today screen shows both columns, and the gap between them is the point: you will understand more than you can say, and seeing by how much is more useful than a single figure that hides it.

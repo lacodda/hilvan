@@ -88,7 +88,7 @@ Everything below requires a valid session when `HILVAN_PASSWORD_HASH` is set.
 
 ### `GET /api/today`
 
-Today's queue: formulas, then words. In each, everything due for review comes first, then the new ones the day has room for - at most one formula and ten words. Reviews are never crowded out by new material.
+Today's queue: formulas, then words. In each, everything due for review comes first, then the new ones the day has room for - at most one formula and ten words, fewer on a day that begins owing cards left over from earlier ones. Reviews are never crowded out by new material. On a [break](#breaks) the queue is empty.
 
 **Response** `200`:
 
@@ -119,7 +119,8 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
       "stitch": "basted",
       "is_new": false,
       "due": "2026-09-03T09:00:00Z",
-      "pace": { "typical_ms": 3800, "last_ms": 9100, "answers": 6 }
+      "pace": { "typical_ms": 3800, "last_ms": 9100, "answers": 6 },
+      "stability": 8.06
     },
     {
       "kind": "word",
@@ -127,7 +128,8 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
       "stitch": "new",
       "is_new": true,
       "due": "2026-09-03T09:00:00Z",
-      "pace": null
+      "pace": null,
+      "stability": 0
     }
   ],
   "reviewed_today": 1,
@@ -150,7 +152,11 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
     "id": "be-present-negation",
     "name": "...",
     "waits_for": [{ "id": "be-present-statement", "name": "...", "stitch": "basted" }]
-  }
+  },
+  "room": { "debt": 3, "words": 7, "formulas": 1 },
+  "on_break": null,
+  "away_since": null,
+  "last_week": { "starts_on": "2026-08-24", "slipped": 2, "names": ["I am / you are", "home"] }
 }
 ```
 
@@ -165,6 +171,7 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
 | `queue[].is_new` | boolean | Whether this has never been answered - a formula in this direction, or a word. |
 | `queue[].due` | string (RFC 3339) | When this item became due; for a new item, the time of the request. |
 | `queue[].pace` | object \| null | How fast this card usually comes; `null` until three timed answers. |
+| `queue[].stability` | number | How firmly it holds: FSRS's stability, the days until recall is predicted to fall to 90%. `0` for a card never answered. The app draws it as a bar on a scale of hours to a year, never as the number. |
 | `reviewed_today` | integer | Answers recorded since midnight UTC, formulas both ways and words. A word declared known in the [inventory](#inventory) is not an answer and is not counted. |
 | `counts.new` \| `counts.basted` \| `counts.sewn` | integer | How many formulas stand in each state, producing side. |
 | `progress.produce` \| `progress.recognise` | object | The same counts, one per direction. |
@@ -174,6 +181,16 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
 | `words.declared` | integer | Words held on the learner's word alone: declared known and not asked since. Counted in the levels. |
 | `next` | object \| null | The first formula of the pack's sequence that has not started and is not opening today; `null` once every formula has. |
 | `next.waits_for` | array | Its [parents](/hilvan/reference/packs/#parents) not yet sewn, each with its `stitch`. Empty when it waits only for a day with room for a new formula. |
+| `room.debt` | integer | Cards the queue asks that had waited through a whole day they could have been answered on - come due before the start of yesterday, the breaks counted - as the day began. |
+| `room.words` | integer | New words the day opens, all told: ten, one fewer for every card of debt. Words started earlier the same day use up places. |
+| `room.formulas` | integer | New formulas the day opens: `1` while the debt leaves room for a word, `0` once it has taken all ten. |
+| `on_break` | object \| null | The [break](#breaks) going on - `id`, `starts_at`, `ends_at` (`null` until the learner is back). While there is one, `queue` is empty and `room` is all zeros. |
+| `away_since` | string (RFC 3339) \| null | The last answer, when it was three days ago or more, no break covers the time since, and something is waiting: an absence the learner can count as a break with [`POST /api/breaks/away`](#post-apibreaksaway). |
+| `last_week` | object \| null | What slipped last week (`starts_on` its Monday, `slipped` how many, `names` the first three), while this week has had no answer yet; `null` when nothing slipped. See [`GET /api/drift`](#get-apidrift). |
+
+#### What the day began owing
+
+A card the learner could have answered on an earlier day and did not takes the place of a new one: a day that begins owing three cards opens seven new words, one that owes ten or more opens none, and the formula of the day with them. The debt is counted as the day began - a card answered since midnight is set back to how it stood then, its earlier answers played through the scheduler again - so clearing it does not open another round the same day. A card that came due less than a day before the day began is not owed: it may have come due an hour after yesterday's sitting. A word counts from when a sentence that holds it was first met, not from a due date it had before that.
 
 #### Parents
 
@@ -200,6 +217,10 @@ A formula's recognising side opens only once the formula has been produced at le
 | `answers` | integer | How many timed answers the median rests on - at least three. |
 
 It is **reported and never scheduled on**: the same answer given in 0.9s and in 45s produces the same next due date.
+
+#### Breaks
+
+A break stops the schedule's clock. An interval runs only in time outside a break, so a card whose interval spans one comes back that much later - all of them, not only those that fell due during it, which would leave the weeks after a fortnight away at twice the load. Each card keeps the due date FSRS gave it; the breaks are counted when the queue is read. The memory model is not told anything: the next answer counts every day since the last one, holiday included.
 
 ### `GET /api/formulas/{id}`
 
@@ -371,7 +392,9 @@ Only the card in the direction named is graded: answering `"recognise"` leaves t
   "interval_days": 1,
   "pace": { "typical_ms": 3800, "last_ms": 4200, "answers": 6 },
   "rating": "hard",
-  "words": ["en:ready"]
+  "words": ["en:ready"],
+  "stability": 2.3,
+  "stability_before": 3.1
 }
 ```
 
@@ -383,6 +406,9 @@ Only the card in the direction named is graded: answering `"recognise"` leaves t
 | `due` | string (RFC 3339) | When the formula comes back in this direction. |
 | `interval_days` | integer | Days between now and `due`. |
 | `pace` | object \| null | How this answer compared with the usual; `null` until three timed answers. |
+| `stability` \| `stability_before` | number | How firmly the card holds after the answer and held before it, in days: what the bar on the card moves between. |
+
+An answer given during a [break](#breaks) ends it.
 
 **Response** `404` when `{id}` names no formula:
 
@@ -452,9 +478,58 @@ Records an answer to a word and reschedules it through FSRS. A word has one card
 { "rating": "good", "duration_ms": 2400 }
 ```
 
-**Response** `200`: the same shape as a formula's review - `stitch`, `due`, `interval_days`, `pace`, `rating`, `words`. The first answer fixes the word's anchor.
+**Response** `200`: the same shape as a formula's review - `stitch`, `due`, `interval_days`, `pace`, `rating`, `words`, `stability`, `stability_before`. The first answer fixes the word's anchor.
 
 **Response** `404` when `{id}` names no word.
+
+## Breaks
+
+### `POST /api/breaks`
+
+Starts a break now. **Request**: `{ "until": "2026-11-01T00:00:00Z" }`, or `{}` for a break that lasts until the learner is back. **Response** `201`: the break - `{ "id": 3, "starts_at": "...", "ends_at": null }`. `409` while another break is going on; `422` for an `until` that is not after now.
+
+### `POST /api/breaks/away`
+
+Counts the time since the last answer as a break that ended now - the absence `away_since` on [`GET /api/today`](#get-apitoday) offers. **Response** `201`: the break. `409` when there is no such absence: an answer within the last three days, or a break already reaching past the last answer.
+
+### `POST /api/breaks/{id}/end`
+
+The learner is back: ends the break now. **Response** `200`: the break, with its `ends_at`. `404` for no such break, `409` for one that is not going on. An answer given during a break ends it the same way.
+
+### `DELETE /api/breaks/{id}`
+
+Removes a break as if it had never been taken - what it held comes due again where FSRS put it. **Response** `204`; `404` for no such break.
+
+## What slipped
+
+### `GET /api/drift`
+
+What slipped this week and last week, Monday to Sunday, UTC. A slip is an asked *again* on a card whose answer before it was not one and was given at least a day earlier: the shape that held and would not come, the word met last week and gone, the word declared known and not known after all. Learning steps within one day are not slips.
+
+**Response** `200`:
+
+```json
+{
+  "this_week": { "starts_on": "2026-10-12", "slips": [] },
+  "last_week": {
+    "starts_on": "2026-10-05",
+    "slips": [
+      {
+        "kind": "word",
+        "id": "en:house",
+        "name": "house",
+        "direction": null,
+        "gloss": "...",
+        "at": "2026-10-07T18:52:10Z",
+        "stitch": "sewn",
+        "declared": true
+      }
+    ]
+  }
+}
+```
+
+Each card is listed once a week, at its first slip. `direction` says which way round a formula slipped; `stitch` is where it stands now; `declared` is true when the answer it slipped from was the learner's declaration in the inventory.
 
 ## Own words
 

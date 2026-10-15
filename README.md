@@ -67,7 +67,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.6.0**: the learner model in your hands. An inventory of the commonest words starts you where you are, kept apart from real answers; the model exports and imports as one file with a published JSON Schema; any past day is the answers up to it, replayed; and `hilvan load-demo` loads a fictional learner three weeks in. Thirty formulas for a Russian speaker, every sentence heard, on a phone. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
+**v0.7.0**: a schedule that lives with you. A break stops its clock and an absence can be counted as one afterwards, so coming back is not a wall of reviews; cards left over from earlier days take the places of new ones; what slipped is listed by week and opens the first sitting of the next; and each card shows how firmly it holds as a bar. Thirty formulas for a Russian speaker, an inventory of the words you know, the learner model as one file, every sentence heard, on a phone. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
 
 ## Documentation
 

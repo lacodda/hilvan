@@ -25,4 +25,4 @@ Run it when the pack renames what the demo learnt or the learner model changes s
 
 ## The learner model format
 
-The schema of the learner model file is `docs/site/public/schema/learner-model-1.json`, published with the docs. A change to the model that a reader of format 1 would misread is a new format and a new schema file beside it; the tests hold every export to the schema.
+The schema of the learner model file is `docs/site/public/schema/learner-model-2.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.

@@ -1,6 +1,6 @@
 ---
 title: Your first week
-description: Loading the pack, signing in, what a sitting looks like, and what to expect as new formulas turn into basted ones and basted ones into sewn.
+description: Loading the pack, signing in, what a sitting looks like, what happens when you miss days or go away, and what to expect as new formulas turn into basted ones and basted ones into sewn.
 ---
 
 This is what actually happens once the tutor has material in it: loading a pack, signing in, and the shape of a sitting from the first day through the first week.
@@ -81,9 +81,33 @@ The sentence it was first met in stays its sentence - you will hear the word in 
 
 Under **Your words** on Today, three bars show the levels - the commonest 1,000, 2,000 and 5,000 words of English - and how many of yours are sewn in each. They start near zero and fill slowly; they are measured against the language, not against the pack.
 
+### How firmly it holds
+
+Under the name of a card you have answered before runs a thin bar: how long it holds, on a scale of hours, days, weeks, months and a year, with a hairline where each begins. It is FSRS's stability - the time until you would recall it nine times out of ten - drawn rather than printed, and said in words underneath: "Holds for weeks". After you grade it the bar shows what the answer did: the stretch it grew by bright, or the stretch it lost as a warning.
+
 ### How long it took
 
 Under the turn counter, a card that has been drilled a few times says how fast it usually comes - "usually 3.8s" - and after you grade it, whether this answer was quicker or slower than that. It is there to be noticed, nothing more: the schedule is not affected by how long you took. A formula that arrives after eight seconds of assembly is still on its way to being yours, and the number is how you watch that happen.
+
+## Missed days
+
+A day you miss leaves its cards waiting, and they are asked first when you come back. What they also do is take places from the new material: every card left over from before yesterday takes one of the day's ten new words, and once all ten are taken the new formula waits too. Today says so - "3 cards were left over from earlier days, so 7 new words open today instead of 10" - and the next formula's line says it is waiting for a day that begins with fewer left over.
+
+The count is made as the day begins, so clearing the leftovers does not open another round of new material the same day: a day of catching up stays a day of catching up, and the next one starts fresh. A card that came due less than a day ago is never counted - it may have come due an hour after yesterday's sitting.
+
+## A break
+
+**Take a break**, in the footer of Today, stops the schedule's clock while you are away: a holiday, a busy fortnight. Give the day you will be back, or leave it empty and tap **I'm back** on Today when you are. While the break lasts Today asks for nothing, and when it ends everything picks up where it was - the same cards in the same order at the same pace - instead of a fortnight's reviews landing on the first evening home. An answer given during a break ends it.
+
+Memory does not stop for a holiday, and the tutor does not pretend it does: the first answer after a break counts every day since the one before, so some cards come back loose. That is what the first days back are for.
+
+If you were away without saying so - three days or more since your last answer, with cards waiting - Today offers to count it as a break: **Count it as a break** stops the clock from your last answer to now, what was owed is owed no longer, and the toast that confirms it has an **Undo**. A weekend is not offered: what came due over two days is a sitting's worth, and it should be done.
+
+## What slipped
+
+A card slips when you had it - you came up with it on an earlier day - and then could not: the formula that was sewn and would not come, the word met last week and gone, the word you said you knew in the inventory and did not. Learning something new in a sitting, failing it and getting it right ten minutes later is not slipping.
+
+**What slipped**, in the footer of Today, lists this week's and last week's, each with where it stands now. On the first sitting of a week - until your first answer of it - a note comes up by itself with last week's: how many slipped and the first few by name. There is nothing to do about them; they come back sooner on their own. A formula that slips week after week is worth a second look at its explanation.
 
 ## New, basted, sewn
 

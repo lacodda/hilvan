@@ -3,7 +3,7 @@
   "format": 2,
   "exported_at": "2026-01-29T08:40:00Z",
   "as_of": "2026-01-29T08:40:00Z",
-  "app": {"name":"hilvan","version":"0.6.0"},
+  "app": {"name":"hilvan","version":"0.7.0"},
   "languages": [
     {"code":"ru","native":true},
     {"code":"en","native":false}
