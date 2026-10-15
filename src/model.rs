@@ -2,7 +2,8 @@
 //!
 //! Everything the tutor knows about its learner - each card and every answer
 //! behind it with the turns typed for it, the words they brought, the voices
-//! they chose, the inventory they went through - as one JSON document. It
+//! they chose, the inventory they went through, the breaks they took - as
+//! one JSON document. It
 //! moves a learner to another stand, shows a fictional one in the docs, and
 //! tells the model as it stood on any day: a snapshot is the review log up
 //! to that day played through the scheduler again, never a stored copy.
@@ -26,19 +27,20 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
 use crate::answer::Failure;
+use crate::breaks;
 use crate::pack::{self, OwnKind};
-use crate::scheduling::{Direction, Kind, Rating, Scheduler, Source, Stitch};
+use crate::scheduling::{Break, Direction, Kind, Rating, Scheduler, Source, Stitch};
 use crate::study::{self, Counts, Progress};
 use crate::voice::Engine;
 use crate::words::{Held, Standing};
 
 /// The version of the file's shape. Read files of this one; a file of
 /// another is refused rather than guessed at.
-pub const FORMAT: u32 = 1;
+pub const FORMAT: u32 = 2;
 
 /// Where the JSON Schema of [`FORMAT`] is published, and what a file says
 /// it follows.
-pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-1.json";
+pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-2.json";
 
 /// A fictional learner, three weeks into English from Russian on the shipped
 /// pack: what `hilvan load-demo` loads, what the docs are shown with. Made by
@@ -75,6 +77,9 @@ pub struct Model {
     pub voices: Vec<VoiceChoice>,
     /// Every answer of the inventory, either way.
     pub inventory: Vec<Inventoried>,
+    /// The breaks taken, the earliest first: the stretches the schedule's
+    /// clock stood still.
+    pub breaks: Vec<BreakRecord>,
 }
 
 /// The program that wrote a model.
@@ -196,6 +201,15 @@ pub struct Inventoried {
     pub at: DateTime<Utc>,
 }
 
+/// One break: the schedule's clock stopped from `from` until `until`, or
+/// until the learner is back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BreakRecord {
+    pub from: DateTime<Utc>,
+    pub until: Option<DateTime<Utc>>,
+}
+
 impl Model {
     /// Reads a model file.
     ///
@@ -287,6 +301,38 @@ impl Model {
             known_language(language, &format!("inventory word {}", answer.word))?;
             ensure!(inventoried.insert(answer.word.as_str()), "inventory word {} is answered twice", answer.word);
         }
+
+        self.check_breaks()
+    }
+
+    /// Whether the breaks are what the tutor keeps: each ends after it
+    /// starts, they come in order without overlapping, only the last may
+    /// still be going on, and none holds an answer the tutor asked for.
+    fn check_breaks(&self) -> Result<()> {
+        for stop in &self.breaks {
+            ensure!(
+                stop.until.is_none_or(|until| until > stop.from),
+                "the break from {} ends before it starts",
+                stop.from
+            );
+        }
+        for pair in self.breaks.windows(2) {
+            let ends = pair[0]
+                .until
+                .with_context(|| format!("the break from {} has no end, and another follows it", pair[0].from))?;
+            ensure!(
+                ends <= pair[1].from,
+                "the breaks from {} and {} overlap, or are out of order",
+                pair[0].from,
+                pair[1].from
+            );
+        }
+        let asked = self.cards.iter().flat_map(|card| &card.reviews).filter(|review| review.source == Source::Asked);
+        for review in asked {
+            if let Some(stop) = self.breaks.iter().find(|stop| stop.as_break().holds(review.at) && stop.from != review.at) {
+                bail!("the break from {} holds an answer given at {}", stop.from, review.at);
+            }
+        }
         Ok(())
     }
 
@@ -310,7 +356,22 @@ impl Model {
         for answer in &mut self.inventory {
             answer.at += by;
         }
+        for stop in &mut self.breaks {
+            stop.from += by;
+            stop.until = stop.until.map(|at| at + by);
+        }
         self
+    }
+}
+
+impl BreakRecord {
+    /// The break as the schedule counts it.
+    #[must_use]
+    pub const fn as_break(&self) -> Break {
+        Break {
+            starts_at: self.from,
+            ends_at: self.until,
+        }
     }
 }
 
@@ -421,6 +482,7 @@ async fn read(pool: &SqlitePool, at: Option<DateTime<Utc>>, now: DateTime<Utc>) 
     let cards = read_cards(pool, at, answers).await?;
     let anchors = read_anchors(pool, &cards).await?;
     let Belongings { own_words, voices, inventory } = read_belongings(pool, at).await?;
+    let breaks = read_breaks(pool, at).await?;
 
     Ok(Model {
         schema: SCHEMA.to_string(),
@@ -438,7 +500,22 @@ async fn read(pool: &SqlitePool, at: Option<DateTime<Utc>>, now: DateTime<Utc>) 
         own_words,
         voices,
         inventory,
+        breaks,
     })
+}
+
+/// The breaks taken by `at`. One still to end at that moment is told as
+/// going on: what came after, the model as of then could not know.
+async fn read_breaks(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Vec<BreakRecord>> {
+    Ok(breaks::all(pool)
+        .await?
+        .into_iter()
+        .filter(|taken| at.is_none_or(|at| taken.starts_at <= at))
+        .map(|taken| BreakRecord {
+            from: taken.starts_at,
+            until: taken.ends_at.filter(|until| at.is_none_or(|at| *until <= at)),
+        })
+        .collect())
 }
 
 /// Every answer given by `at`, with the turns typed for it, by card.
@@ -646,8 +723,8 @@ fn failure(word: &str) -> Result<Failure> {
 }
 
 /// Whether the tutor holds anything of a learner: an answer, an own word, a
-/// chosen voice, an answer of the inventory. A stand with only packs loaded
-/// holds nothing.
+/// chosen voice, an answer of the inventory, a break. A stand with only
+/// packs loaded holds nothing.
 ///
 /// # Errors
 ///
@@ -655,7 +732,8 @@ fn failure(word: &str) -> Result<Failure> {
 pub async fn holds_a_learner(pool: &SqlitePool) -> Result<bool> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM review) OR EXISTS (SELECT 1 FROM own_word)
-             OR EXISTS (SELECT 1 FROM voice_choice) OR EXISTS (SELECT 1 FROM inventory)",
+             OR EXISTS (SELECT 1 FROM voice_choice) OR EXISTS (SELECT 1 FROM inventory)
+             OR EXISTS (SELECT 1 FROM break)",
     )
     .fetch_one(pool)
     .await
@@ -699,6 +777,7 @@ pub async fn import(pool: &SqlitePool, model: &Model, now: DateTime<Utc>) -> Res
         "DELETE FROM own_word",
         "DELETE FROM voice_choice",
         "DELETE FROM inventory",
+        "DELETE FROM break",
     ] {
         sqlx::query(statement)
             .execute(&mut *tx)
@@ -855,6 +934,14 @@ async fn write_belongings(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, model: &
             .execute(&mut **tx)
             .await
             .with_context(|| format!("failed to write the inventory answer for {}", answer.word))?;
+    }
+    for stop in &model.breaks {
+        sqlx::query("INSERT INTO break (starts_at, ends_at) VALUES (?, ?)")
+            .bind(stamp(stop.from))
+            .bind(stop.until.map(stamp))
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("failed to write the break from {}", stop.from))?;
     }
 
     Ok(anchors_dropped)

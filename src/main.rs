@@ -239,12 +239,13 @@ async fn export(config: &config::Config, at: Option<&str>, out: Option<&std::pat
     };
     std::fs::write(path, text).with_context(|| format!("failed to write {}", path.display()))?;
     eprintln!(
-        "wrote the learner model as of {} to {}: {} cards, {} own words, {} inventory answers",
+        "wrote the learner model as of {} to {}: {} cards, {} own words, {} inventory answers, {} breaks",
         model.as_of.format("%Y-%m-%d %H:%M UTC"),
         path.display(),
         model.cards.len(),
         model.own_words.len(),
-        model.inventory.len()
+        model.inventory.len(),
+        model.breaks.len()
     );
     Ok(())
 }
@@ -270,12 +271,13 @@ async fn import(config: &config::Config, path: &std::path::Path) -> Result<()> {
 
     let imported = model::import(&pool, &incoming, now).await?;
     println!(
-        "imported the learner model as of {}: {} cards with {} answers, {} own words, {} inventory answers",
+        "imported the learner model as of {}: {} cards with {} answers, {} own words, {} inventory answers, {} breaks",
         incoming.as_of.format("%Y-%m-%d %H:%M UTC"),
         imported.cards,
         imported.reviews,
         incoming.own_words.len(),
-        incoming.inventory.len()
+        incoming.inventory.len(),
+        incoming.breaks.len()
     );
     report(&imported);
     Ok(())

@@ -5,7 +5,8 @@
 //! shown with. `cargo test --test demo -- --ignored` makes it, by driving the
 //! tutor's own code through those weeks - the inventory on the first evening,
 //! a sitting most days, typed turns with the slips a learner makes, words of
-//! their own - and writes `demo/learner.json`.
+//! their own, a long weekend away and a few days that went missing - and
+//! writes `demo/learner.json`.
 //!
 //! The other tests hold that file, and every model file, to what the format
 //! promises: it follows the published schema, it learns from the pack that
@@ -17,6 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, Utc};
+use hilvan::breaks;
 use hilvan::inventory;
 use hilvan::model::{self, Model};
 use hilvan::own::{self, NewWord};
@@ -46,7 +48,7 @@ async fn tutor() -> (SqlitePool, tempfile::TempDir) {
 }
 
 fn schema() -> jsonschema::Validator {
-    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-1.json")).expect("the schema should be in the docs");
+    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-2.json")).expect("the schema should be in the docs");
     let schema: Json = serde_json::from_str(&text).expect("the schema should be JSON");
     jsonschema::options()
         .should_validate_formats(true)
@@ -120,6 +122,13 @@ fn start() -> DateTime<Utc> {
 
 /// How long the demo learner has been at it.
 const DAYS: i64 = 24;
+
+/// The long weekend away: Saturday and Sunday of the second week, said so
+/// after the Friday's sitting.
+const AWAY: std::ops::Range<i64> = 12..14;
+
+/// The evenings of the third week that went missing with nothing said.
+const MISSING: std::ops::Range<i64> = 17..20;
 
 /// How likely the learner is to know a word of this rank: a few years of
 /// school English, most of the first few hundred, fewer after.
@@ -251,6 +260,24 @@ async fn three_weeks() -> Model {
 
     for day in 0..DAYS {
         let mut now = start() + Duration::days(day) + Duration::minutes(dice.ms(0, 100));
+        // The long weekend: the drill waits, and on the Sunday train the
+        // inventory goes on - the next three hundred.
+        if AWAY.contains(&day) {
+            if day == AWAY.end - 1 {
+                inventory_to(&pool, &mut dice, 1300, &mut now).await;
+            }
+            continue;
+        }
+        // Evenings that went missing with nothing said; on the next one the
+        // tutor offers to count them as a break, and the learner does.
+        if MISSING.contains(&day) {
+            continue;
+        }
+        if day == MISSING.end {
+            let today = study::today(&pool, now).await.unwrap();
+            assert!(today.away_since.is_some(), "days away with something waiting should be offered as a break");
+            breaks::count_away(&pool, now).await.unwrap();
+        }
         match day {
             // The first evening: the commonest thousand words, then the
             // first formula.
@@ -260,17 +287,21 @@ async fn three_weeks() -> Model {
                 own_word(&pool, OwnKind::Noun, "велосипед", "a bicycle", now).await;
             }
             9 => own_word(&pool, OwnKind::Verb, "водить", "drive", now).await,
-            17 => own_word(&pool, OwnKind::Noun, "сад", "a garden", now).await,
-            // A slow Sunday: the next three hundred.
-            13 => inventory_to(&pool, &mut dice, 1300, &mut now).await,
+            21 => own_word(&pool, OwnKind::Noun, "сад", "a garden", now).await,
             _ => {}
         }
         // Most evenings, not all of them; always the last, so the demo's
-        // next day follows an evening of study.
-        if day > 0 && day < DAYS - 1 && dice.chance(0.16) {
+        // next day follows an evening of study, and always the Friday the
+        // learner leaves on.
+        if day > 0 && day < DAYS - 1 && day != AWAY.start - 1 && dice.chance(0.16) {
             continue;
         }
         sitting(&pool, &mut dice, &mut now).await;
+        if day == AWAY.start - 1 {
+            // Said on the way out: back on Monday morning.
+            let back = start() + Duration::days(AWAY.end) + Duration::hours(-10);
+            breaks::start(&pool, Some(back), now).await.unwrap();
+        }
     }
 
     let morning = start() + Duration::days(DAYS) - Duration::hours(10);
@@ -306,6 +337,7 @@ fn lines(model: &Model) -> String {
         list("own_words", &model.own_words),
         list("voices", &model.voices),
         list("inventory", &model.inventory),
+        list("breaks", &model.breaks),
     ];
     format!("{{\n{}\n}}\n", body.join(",\n"))
 }
@@ -380,6 +412,7 @@ fn the_demo_learner_learns_from_the_pack_that_ships() {
             .any(|attempt| !attempt.correct),
         "the demo should slip now and then"
     );
+    assert_eq!(demo.breaks.len(), 2, "the demo should take a break, and count one afterwards");
 }
 
 #[test]
@@ -429,6 +462,7 @@ async fn the_demo_loads_onto_an_empty_tutor_and_comes_back_out_the_same() {
     assert_eq!(out.inventory, moved.inventory);
     assert_eq!(out.voices, moved.voices);
     assert_eq!(out.packs, moved.packs);
+    assert_eq!(out.breaks, moved.breaks);
 
     let document = serde_json::to_value(&out).unwrap();
     assert_eq!(complaints(&document), Vec::<String>::new(), "an export should follow the schema");
@@ -593,7 +627,8 @@ fn broken() -> Vec<(&'static str, Json)> {
         cases.push((what, document));
     };
     case("a field the format does not have", &|d| d["streak"] = 3.into());
-    case("another format", &|d| d["format"] = 2.into());
+    case("another format", &|d| d["format"] = 1.into());
+    case("a break with no start", &|d| d["breaks"][0] = serde_json::json!({ "until": null }));
     case("a card still new", &|d| d["cards"][0]["state"] = "new".into());
     case("a state FSRS calls it", &|d| d["cards"][0]["state"] = "review".into());
     case("a rating past easy", &|d| d["cards"][0]["reviews"][0]["rating"] = "perfect".into());
@@ -634,6 +669,38 @@ fn import_refuses_what_a_schema_cannot_say() {
     let mut unlisted = demo();
     unlisted.languages.retain(|language| language.native);
     assert!(unlisted.check().is_err(), "a word of a language the file does not list");
+
+    let mut backwards = demo();
+    backwards.breaks[0].until = Some(backwards.breaks[0].from - Duration::hours(1));
+    assert!(backwards.check().is_err(), "a break that ends before it starts");
+
+    let mut overlapping = demo();
+    // Inside the first, where there is no answer to hold: only the overlap
+    // is wrong with it.
+    let first = overlapping.breaks[0].from;
+    overlapping.breaks[1] = model::BreakRecord {
+        from: first + Duration::hours(1),
+        until: Some(first + Duration::hours(2)),
+    };
+    assert!(overlapping.check().is_err(), "two breaks at once");
+
+    let mut endless = demo();
+    endless.breaks[0].until = None;
+    assert!(endless.check().is_err(), "a break with no end and another after it");
+
+    let mut holding = demo();
+    let answer = holding
+        .cards
+        .iter()
+        .flat_map(|card| &card.reviews)
+        .find(|review| review.source == Source::Asked)
+        .unwrap()
+        .at;
+    holding.breaks = vec![model::BreakRecord {
+        from: answer - Duration::hours(1),
+        until: Some(answer + Duration::hours(1)),
+    }];
+    assert!(holding.check().is_err(), "a break holding an answer");
 }
 
 #[test]
@@ -658,6 +725,9 @@ fn a_model_moved_in_time_keeps_its_gaps() {
                 .iter()
                 .zip(&demo.own_words)
                 .all(|(after, before)| after.created_at - before.created_at == Duration::days(300))
+            && moved.breaks.iter().zip(&demo.breaks).all(|(after, before)| {
+                after.from - before.from == Duration::days(300) && after.until.zip(before.until).is_none_or(|(a, b)| a - b == Duration::days(300))
+            })
     );
 }
 

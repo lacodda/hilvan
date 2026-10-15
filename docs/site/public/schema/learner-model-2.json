@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lacodda.github.io/hilvan/schema/learner-model-2.json",
+  "title": "hilvan learner model, format 2",
+  "description": "Everything hilvan knows about one learner: each card with every answer behind it, the learner's own words, the voices they chose, the answers of the inventory and the breaks they took. Material - packs, the lexicon - is not in it; everything keys on what outlives a reload of a pack: a formula's id, a word's lemma, a sentence's text. Written by `hilvan export` and GET /api/model, read by `hilvan import`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "format", "exported_at", "as_of", "app", "languages", "packs", "cards", "anchors", "own_words", "voices", "inventory", "breaks"],
+  "properties": {
+    "$schema": {
+      "description": "The schema the file follows: this one.",
+      "const": "https://lacodda.github.io/hilvan/schema/learner-model-2.json"
+    },
+    "format": {
+      "description": "The version of the file's shape. A change that would break a reader of this format is a new one.",
+      "const": 2
+    },
+    "exported_at": {
+      "description": "When the file was written.",
+      "$ref": "#/$defs/moment"
+    },
+    "as_of": {
+      "description": "The moment the model is told as of: when it was written, or an earlier one for a snapshot - the answers given by then, played through the scheduler again.",
+      "$ref": "#/$defs/moment"
+    },
+    "app": {
+      "description": "What wrote the file.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "languages": {
+      "description": "The languages the learner has to do with. Every language named elsewhere in the file is listed here.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "native"],
+        "properties": {
+          "code": { "$ref": "#/$defs/language" },
+          "native": { "description": "Whether it is the learner's own language. At most one is.", "type": "boolean" }
+        }
+      }
+    },
+    "packs": {
+      "description": "The packs the learner was learning from, and their versions. A reader that has other versions loaded can still read the model: cards key on ids, not on rows.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "version": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "cards": {
+      "description": "Every card that has been answered. A card never answered is new and carries nothing of the learner; a loaded pack makes those.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/card" }
+    },
+    "anchors": {
+      "description": "The one sentence each word is heard in, fixed by its first answer. A sentence no loaded pack shows any more is dropped on import, and the word is heard in the first sentence it is met in until it is answered again.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["word", "sentence"],
+        "properties": {
+          "word": { "$ref": "#/$defs/word" },
+          "sentence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["language", "text"],
+            "properties": {
+              "language": { "$ref": "#/$defs/language" },
+              "text": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "own_words": {
+      "description": "Nouns and verbs from the learner's own life, substituted into the slots of the drill that take them.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["language", "kind", "native", "target", "created_at"],
+        "properties": {
+          "language": { "description": "The language being learnt that the word is of.", "$ref": "#/$defs/language" },
+          "kind": { "enum": ["noun", "verb"] },
+          "native": { "description": "What it means, in the learner's own language.", "type": "string", "minLength": 1 },
+          "target": { "description": "As it is said in a sentence: \"a car\", \"swim\".", "type": "string", "minLength": 1 },
+          "created_at": { "$ref": "#/$defs/moment" }
+        }
+      }
+    },
+    "voices": {
+      "description": "The voice the learner chose for a language, where they chose one. A snapshot carries the voices chosen when it was written: a choice keeps no date.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["language", "engine", "voice"],
+        "properties": {
+          "language": { "$ref": "#/$defs/language" },
+          "engine": { "enum": ["piper", "elevenlabs"] },
+          "voice": { "description": "The engine's own id of the voice.", "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "inventory": {
+      "description": "Every answer of the inventory, either way: the commonest words of the language, each asked once - do you know it? A yes is also a declared review on the word's card.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["word", "known", "at"],
+        "properties": {
+          "word": { "$ref": "#/$defs/word" },
+          "known": { "type": "boolean" },
+          "at": { "$ref": "#/$defs/moment" }
+        }
+      }
+    },
+    "breaks": {
+      "description": "The breaks the learner took, the earliest first: stretches the schedule's clock stood still. A card's interval runs only in time outside a break, so one that spans a break comes back that much later; a break with no end lasts until the learner is back. Breaks do not overlap, only the last may lack an end, and none holds an answer the tutor asked for - one may start at the moment of the last answer, which is how an absence is counted afterwards.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "until"],
+        "properties": {
+          "from": {
+            "$ref": "#/$defs/moment"
+          },
+          "until": {
+            "description": "When the learner was back; null while the break is going on.",
+            "oneOf": [{ "$ref": "#/$defs/moment" }, { "type": "null" }]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "moment": {
+      "description": "An RFC 3339 date and time.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "language": {
+      "description": "An ISO 639-1 code, lowercase.",
+      "type": "string",
+      "pattern": "^[a-z]{2,3}$"
+    },
+    "word": {
+      "description": "A word of a language: its code and its lemma, lowercase - en:house, en:i.",
+      "type": "string",
+      "pattern": "^[a-z]{2,3}:[^A-Z]+$"
+    },
+    "number": {
+      "type": "number",
+      "minimum": 0
+    },
+    "card": {
+      "description": "One card: what it schedules, where it stands, and the answers that put it there. Its state is what its answers leave when played through FSRS in order; the fields are kept so a reader need not replay to know it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subject", "state", "stability", "difficulty", "due", "reps", "lapses", "last_reviewed", "introduced_at", "reviews"],
+      "properties": {
+        "kind": {
+          "description": "formula: saying a formula, prompted in the learner's own language. formula-recognise: understanding it, prompted in the language being learnt. word: a word, asked in a sentence.",
+          "enum": ["formula", "formula-recognise", "word"]
+        },
+        "subject": { "description": "A formula's id, or a word: en:house.", "type": "string", "minLength": 1 },
+        "state": {
+          "description": "basted: answered, still loose. sewn: holding over long intervals. A card with answers is never new.",
+          "enum": ["basted", "sewn"]
+        },
+        "stability": { "description": "FSRS: days until recall is predicted to fall to 90%.", "$ref": "#/$defs/number" },
+        "difficulty": { "description": "FSRS: how hard the card is for this learner, 1 to 10.", "$ref": "#/$defs/number" },
+        "due": { "description": "When it comes back.", "$ref": "#/$defs/moment" },
+        "reps": { "type": "integer", "minimum": 0 },
+        "lapses": { "description": "How many times it was forgotten once sewn.", "type": "integer", "minimum": 0 },
+        "last_reviewed": { "oneOf": [{ "$ref": "#/$defs/moment" }, { "type": "null" }] },
+        "introduced_at": { "description": "When it stopped being new.", "oneOf": [{ "$ref": "#/$defs/moment" }, { "type": "null" }] },
+        "reviews": {
+          "description": "Every answer, oldest first.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/review" }
+        }
+      },
+      "if": { "properties": { "kind": { "const": "word" } } },
+      "then": { "properties": { "subject": { "$ref": "#/$defs/word" } } }
+    },
+    "review": {
+      "description": "One answer, and the card as it left it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "rating", "source", "elapsed_days", "stability", "difficulty", "duration_ms", "attempts"],
+      "properties": {
+        "at": { "$ref": "#/$defs/moment" },
+        "rating": { "enum": ["again", "hard", "good", "easy"] },
+        "source": {
+          "description": "asked: the tutor asked and the learner answered. declared: the learner said they know it unasked - the inventory - which moves the card as an easy would and is not counted as an answer.",
+          "enum": ["asked", "declared"]
+        },
+        "elapsed_days": { "description": "Days since the answer before, as FSRS counted them.", "$ref": "#/$defs/number" },
+        "stability": { "$ref": "#/$defs/number" },
+        "difficulty": { "$ref": "#/$defs/number" },
+        "duration_ms": { "description": "How long the answer took, when the app measured it.", "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "attempts": {
+          "description": "The turns typed for the answer, in order; empty for one that was not typed.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/attempt" }
+        }
+      }
+    },
+    "attempt": {
+      "description": "One typed turn, as the server read it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "expected", "typed", "correct", "failure", "missed"],
+      "properties": {
+        "prompt": { "description": "What the learner read, in their own language.", "type": "string" },
+        "expected": { "description": "The right answer closest to what was typed.", "type": "string" },
+        "typed": { "description": "What the learner typed, as typed.", "type": "string" },
+        "correct": { "type": "boolean" },
+        "failure": {
+          "description": "formula: the formula's own pieces did not come. order: every word came, in the wrong order. word: the shape came, a word it carries did not. Null when the turn was right.",
+          "oneOf": [{ "enum": ["formula", "order", "word"] }, { "type": "null" }]
+        },
+        "missed": { "description": "The words of the answer that did not come.", "type": "array", "items": { "type": "string" } }
+      },
+      "if": { "properties": { "correct": { "const": true } } },
+      "then": { "properties": { "failure": { "type": "null" } } },
+      "else": { "properties": { "failure": { "type": "string" } } }
+    }
+  }
+}
