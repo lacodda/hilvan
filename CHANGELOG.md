@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-10-15
+
+### Breaking Changes
+- The learner model file is format 2, described by learner-model-2.json, and carries `breaks`; files of format 1 are refused. The demo learner is made again with a long weekend away and an absence counted as a break.
+
+### Documentation
+- Explain breaks, leftovers and what slipped, and bump to 0.7.0
+
+### Features
+- Stop the clock for a break and let leftovers take new places
+- Keep breaks in the learner model file, format 2
+- Take breaks, see what slipped and how firmly a card holds
+
 ## [0.6.0] - 2026-10-12
 
 ### Dependencies
