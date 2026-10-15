@@ -288,6 +288,14 @@ impl Card {
         self.due <= now
     }
 
+    /// When the card comes back once the breaks are counted: see
+    /// [`comes_back`]. A card never answered is new, and comes when the day
+    /// has room for it rather than at a moment.
+    #[must_use]
+    pub fn back_at(&self, breaks: &[Break]) -> Option<DateTime<Utc>> {
+        self.last_reviewed.map_or(Some(self.due), |answered| comes_back(answered, self.due, breaks))
+    }
+
     fn to_fsrs(&self) -> rs_fsrs::Card {
         let last_review = self.last_reviewed.unwrap_or(self.due);
         rs_fsrs::Card {
@@ -310,6 +318,61 @@ impl Card {
             last_review,
         }
     }
+}
+
+/// A stretch of time the schedule's clock stood still: the learner away,
+/// and saying so.
+///
+/// Memory does not stop for a holiday, and FSRS is told the truth about it:
+/// the next answer counts every day since the last one. What stops is the
+/// tutor's claim on the learner's time - nothing comes due during a break,
+/// and what would have come back comes back after it, in the same order and
+/// at the same pace, instead of all of it on the first day home.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Break {
+    pub starts_at: DateTime<Utc>,
+    /// `None` while it lasts until the learner says they are back.
+    pub ends_at: Option<DateTime<Utc>>,
+}
+
+impl Break {
+    /// Whether the break is going on at `at`.
+    #[must_use]
+    pub fn holds(&self, at: DateTime<Utc>) -> bool {
+        self.starts_at <= at && self.ends_at.is_none_or(|end| at < end)
+    }
+}
+
+/// When a card answered at `answered`, and given `due` by FSRS, comes back
+/// once the breaks are counted: its interval runs only in time outside a
+/// break, so a break inside it moves it by the break's length, and one that
+/// starts after it is due does not touch it.
+///
+/// `None` while a break with no end yet has swallowed what was left of the
+/// interval: it comes back that much after the learner does.
+///
+/// Every interval that spans a break moves, not only the ones that fell due
+/// during it. Moving only those would put the fortnight's reviews on the
+/// fortnight after the break on top of that fortnight's own - twice the
+/// load for as long as the learner was away, which is the avalanche spread
+/// thinner rather than gone.
+#[must_use]
+pub fn comes_back(answered: DateTime<Utc>, due: DateTime<Utc>, breaks: &[Break]) -> Option<DateTime<Utc>> {
+    let mut left = (due - answered).max(Duration::zero());
+    let mut cursor = answered;
+    let mut ahead: Vec<&Break> = breaks.iter().filter(|stop| stop.ends_at.is_none_or(|end| end > answered)).collect();
+    ahead.sort_by_key(|stop| stop.starts_at);
+    for stop in ahead {
+        // A break already going on when the card was answered - a word
+        // declared on holiday - holds it from the start.
+        let starts = stop.starts_at.max(cursor);
+        if starts - cursor >= left {
+            break;
+        }
+        left -= starts - cursor;
+        cursor = stop.ends_at?;
+    }
+    Some(cursor + left)
 }
 
 /// What an answer did to a card.
@@ -515,6 +578,69 @@ mod tests {
         let card = Scheduler::new().replay([(Rating::Easy, at(0))]).unwrap();
         assert_eq!(card.stitch, Stitch::Sewn);
         assert!(card.due > at(7), "a word declared known should not be back within the week, due {}", card.due);
+    }
+
+    fn away(from: i64, to: Option<i64>) -> Break {
+        Break {
+            starts_at: at(from),
+            ends_at: to.map(at),
+        }
+    }
+
+    #[test]
+    fn without_a_break_a_card_comes_back_when_it_is_due() {
+        assert_eq!(comes_back(at(0), at(10), &[]), Some(at(10)));
+        // Before the answer, or after the card was due: neither is in its way.
+        assert_eq!(comes_back(at(5), at(10), &[away(1, Some(3))]), Some(at(10)));
+        assert_eq!(comes_back(at(5), at(10), &[away(12, Some(20))]), Some(at(10)));
+    }
+
+    #[test]
+    fn a_break_inside_the_interval_moves_it_by_the_break() {
+        // The clock stops: four days away, four days later.
+        assert_eq!(comes_back(at(0), at(10), &[away(3, Some(7))]), Some(at(14)));
+        // Due during the break: what was left of the interval runs after it.
+        assert_eq!(comes_back(at(0), at(10), &[away(8, Some(12))]), Some(at(14)));
+        // Two breaks add up, whatever order they are listed in.
+        assert_eq!(comes_back(at(0), at(10), &[away(6, Some(8)), away(2, Some(3))]), Some(at(13)));
+    }
+
+    #[test]
+    fn a_break_with_no_end_holds_what_it_swallows() {
+        assert_eq!(comes_back(at(0), at(10), &[away(4, None)]), None, "the card waits for the learner to be back");
+        assert_eq!(
+            comes_back(at(0), at(10), &[away(11, None)]),
+            Some(at(10)),
+            "a card due before the break is not held by it"
+        );
+    }
+
+    #[test]
+    fn a_card_answered_during_a_break_starts_its_interval_when_the_break_ends() {
+        // A word declared known on holiday: its fortnight starts at home.
+        assert_eq!(comes_back(at(5), at(20), &[away(3, Some(9))]), Some(at(24)));
+    }
+
+    #[test]
+    fn a_break_never_brings_a_card_back_sooner() {
+        let breaks = [away(1, Some(2)), away(4, Some(9)), away(15, Some(16))];
+        for answered in 0..12 {
+            for interval in 0..12 {
+                let due = at(answered + interval);
+                let back = comes_back(at(answered), due, &breaks).unwrap();
+                assert!(back >= due, "answered on day {answered}, due {interval} later, back {back}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_break_holds_from_its_start_until_its_end() {
+        let stop = away(3, Some(5));
+        assert!(!stop.holds(at(2)));
+        assert!(stop.holds(at(3)));
+        assert!(stop.holds(at(4)));
+        assert!(!stop.holds(at(5)), "the moment it ends the learner is back");
+        assert!(away(3, None).holds(at(300)));
     }
 
     #[test]

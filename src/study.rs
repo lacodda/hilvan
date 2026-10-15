@@ -9,16 +9,18 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
 use crate::answer::{self, Checked, Failure, Variant};
+use crate::breaks::{self, Taken};
+use crate::drift::{self, Note};
 use crate::lexicon;
 use crate::own;
 use crate::pack::{Form, OwnKind};
 use crate::say::{Filling, Template};
-use crate::scheduling::{Card, Direction, Kind, Rating, Scheduled, Scheduler, Source, Stitch};
+use crate::scheduling::{self, Break, Card, Direction, Kind, Rating, Scheduled, Scheduler, Source, Stitch};
 use crate::words::{self, Standing, Word};
 
 /// How many formulas start on any one day.
@@ -35,7 +37,18 @@ pub const NEW_FORMULAS_PER_DAY: usize = 1;
 /// rarely held back, and few enough that a pack with a long list cannot
 /// bury a sitting in vocabulary. A product decision, like the formula's one;
 /// the queue opens the commonest first.
+///
+/// The most a day opens, not what it always opens: what is left over from
+/// earlier days takes its places first (see [`Room`]).
 pub const NEW_WORDS_PER_DAY: usize = 10;
+
+/// How long a card may wait after it comes due before it is owed.
+///
+/// A day: a card that came due an hour after yesterday's sitting could not
+/// have been answered in it, and the learner who studies every evening must
+/// never be in debt for the clock drifting past their sitting. One that has
+/// waited through a whole day the learner could have answered it on is.
+const GRACE: Duration = Duration::days(1);
 
 /// A formula with everything the drill needs to run it.
 #[derive(Debug, Clone, Serialize)]
@@ -189,6 +202,10 @@ pub struct Due {
     /// How fast this card usually comes, when it has come often enough to
     /// say. Shown on the card; the scheduler does not read it.
     pub pace: Option<Pace>,
+    /// How firmly it holds: FSRS's stability, the days until recall is
+    /// predicted to fall to 90%. 0 for a card never answered. The card draws
+    /// it as a bar, not as the number.
+    pub stability: f64,
 }
 
 /// How quickly a card is answered, as the second dimension of knowing it.
@@ -270,6 +287,41 @@ pub struct Today {
     /// today's queue, and the parents it is waiting on. `None` once every
     /// formula is started.
     pub next: Option<Next>,
+    /// What the day has room for that is new, and what took the rest.
+    pub room: Room,
+    /// The break the learner is on. While there is one the queue is empty:
+    /// the schedule waits.
+    pub on_break: Option<Taken>,
+    /// The last answer, when the learner has been away since it for
+    /// [`breaks::AWAY_DAYS`] or more, no break covers the time, and
+    /// something is waiting: an absence the learner can count as a break.
+    pub away_since: Option<DateTime<Utc>>,
+    /// What slipped last week, while this week has had no answer yet: the
+    /// note the first sitting of a week opens on.
+    pub last_week: Option<Note>,
+}
+
+/// What a day has room for that is new.
+///
+/// A card left over from an earlier day takes the place of a new one: a
+/// learner who missed two evenings comes back to the cards they missed, not
+/// to those and ten new words on top - the slide every course product
+/// starts down, where the reviews outgrow the sitting and the learner stops
+/// coming. Counted as the day began, so a day's room is the day's: clearing
+/// what was owed does not open another round, and "done for today" stays
+/// done.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Room {
+    /// Cards that had waited through a whole day they could have been
+    /// answered on, as the day began.
+    pub debt: i64,
+    /// New words the day opens, all told: [`NEW_WORDS_PER_DAY`], one fewer
+    /// for every card of debt.
+    pub words: i64,
+    /// New formulas the day opens: the formula of the day while the debt
+    /// leaves room for a word, none once it has taken all ten - a new shape
+    /// brings its sentences' words, and there would be no room for them.
+    pub formulas: i64,
 }
 
 /// The formula next in line, and what holds it.
@@ -363,6 +415,10 @@ pub struct Reviewed {
     /// The words whose failure was sent to their own cards: a typed answer
     /// that got the shape right and a word wrong.
     pub words: Vec<String>,
+    /// How firmly it holds now, and how firmly it held before the answer:
+    /// FSRS's stability, in days. The card shows the bar move.
+    pub stability: f64,
+    pub stability_before: f64,
 }
 
 /// Today's queue: formulas, then words; in each, everything due and then
@@ -384,14 +440,33 @@ pub struct Reviewed {
 pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
     let counts = counts(pool).await?;
     let progress = progress(pool).await?;
-    let mut queue = formulas_today(pool, now).await?;
-    queue.extend(words_today(pool, now).await?);
+    let taken = breaks::all(pool).await?;
+    let stops = breaks::of(&taken);
+    let on_break = breaks::in_force(&taken, now);
+
+    // On a break the schedule waits: nothing comes back, nothing opens.
+    let (room, queue) = if on_break.is_some() {
+        (Room::default(), Vec::new())
+    } else {
+        let room = room(pool, now, &stops).await?;
+        let mut queue = formulas_today(pool, now, &stops, room).await?;
+        queue.extend(words_today(pool, now, &stops, room).await?);
+        (room, queue)
+    };
 
     // Waiting means waiting for a later day: the new words already in
     // today's queue are not waiting, they are next.
     let mut words = words::standing(pool).await?;
     let opened = queue.iter().filter(|due| due.is_new && matches!(due.subject, Subject::Word { .. })).count();
     words.waiting -= i64::try_from(opened).unwrap_or(0);
+
+    // Counting time away as a break moves what came due in it; with
+    // nothing waiting there is nothing to move, and nothing to offer.
+    let away_since = if queue.iter().any(|due| !due.is_new) {
+        breaks::away(pool, &taken, now).await?
+    } else {
+        None
+    };
 
     Ok(Today {
         next: next_in_line(pool, &queue).await?,
@@ -400,6 +475,113 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
         counts,
         progress,
         words,
+        room,
+        last_week: if on_break.is_some() { None } else { drift::note(pool, now).await? },
+        on_break,
+        away_since,
+    })
+}
+
+/// What the day has room for that is new, from what it began owing.
+async fn room(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result<Room> {
+    let debt = debt(pool, now, breaks).await?;
+    let words = (i64::try_from(NEW_WORDS_PER_DAY).unwrap_or(i64::MAX) - debt).max(0);
+    Ok(Room {
+        debt,
+        words,
+        formulas: if words > 0 {
+            i64::try_from(NEW_FORMULAS_PER_DAY).unwrap_or(i64::MAX)
+        } else {
+            0
+        },
+    })
+}
+
+/// How many cards the day began owing: cards the queue would ask that had
+/// come due - the breaks counted - before the start of yesterday, and so
+/// had waited through a whole day they could have been answered on.
+///
+/// As the day began: a card answered since midnight is taken as it stood
+/// then, its answers before midnight played through the scheduler again. A
+/// word counts from when it could first be asked - when a sentence that
+/// holds it was met - and not from a due date it had long before that, as a
+/// word declared known has.
+async fn debt(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result<i64> {
+    let midnight = start_of_day(now);
+    let line = midnight - GRACE;
+
+    let rows = sqlx::query(
+        "SELECT c.id, c.kind, c.due, c.last_reviewed, NULL AS met_at FROM card c
+         WHERE c.kind IN ('formula', 'formula-recognise') AND c.state != 'new'
+         UNION ALL
+         SELECT c.id, c.kind, c.due, c.last_reviewed,
+                (SELECT min(fc.introduced_at) FROM sentence_word sw
+                 JOIN formula_sentence fs ON fs.sentence_id = sw.sentence_id
+                 JOIN card fc ON fc.kind = 'formula' AND fc.subject_id = fs.formula_id AND fc.state != 'new'
+                 WHERE sw.word_id = w.id) AS met_at
+         FROM card c JOIN word w ON w.id = c.subject_id
+         WHERE c.kind = 'word' AND c.state != 'new'",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to read the cards the queue can ask")?;
+
+    // The answers before midnight of the cards answered since, to set them
+    // back to the start of the day.
+    let mut before: HashMap<i64, Vec<(Rating, DateTime<Utc>)>> = HashMap::new();
+    for (card, rating, at) in sqlx::query_as::<_, (i64, i64, String)>(
+        "SELECT r.card_id, r.rating, r.reviewed_at FROM review r JOIN card c ON c.id = r.card_id
+         WHERE c.last_reviewed >= ? AND r.reviewed_at < ?
+         ORDER BY r.card_id, r.reviewed_at, r.id",
+    )
+    .bind(midnight.to_rfc3339())
+    .bind(midnight.to_rfc3339())
+    .fetch_all(pool)
+    .await
+    .context("failed to read the answers before today")?
+    {
+        before.entry(card).or_default().push((Rating::from_i64(rating)?, parse_stamp(&at)?));
+    }
+
+    let scheduler = Scheduler::new();
+    let mut owed = 0;
+    for row in rows {
+        // A word whose sentence has not been met cannot be asked yet.
+        let met_at = row.get::<Option<String>, _>("met_at").map(|at| parse_stamp(&at)).transpose()?;
+        if row.get::<&str, _>("kind") == Kind::Word.as_str() && met_at.is_none() {
+            continue;
+        }
+        let last: Option<String> = row.get("last_reviewed");
+        let answered_today = last.as_deref().map(parse_stamp).transpose()?.is_some_and(|at| at >= midnight);
+        let back = if answered_today {
+            // New at midnight is not owed; otherwise the card as it was then.
+            let Some(card) = before.remove(&row.get::<i64, _>("id")).and_then(|answers| scheduler.replay(answers)) else {
+                continue;
+            };
+            card.back_at(breaks)
+        } else {
+            back_at(&row.get::<String, _>("due"), last, breaks)?
+        };
+        let Some(back) = back else { continue };
+        let askable = met_at.map_or(back, |met| back.max(met));
+        if askable < line {
+            owed += 1;
+        }
+    }
+    Ok(owed)
+}
+
+/// When a card comes back, from its row as the database keeps it: its FSRS
+/// due and its last answer, with the breaks counted.
+///
+/// # Errors
+///
+/// Fails on a moment that is not one.
+pub(crate) fn back_at(due: &str, last_reviewed: Option<String>, breaks: &[Break]) -> Result<Option<DateTime<Utc>>> {
+    let due = parse_stamp(due)?;
+    Ok(match last_reviewed {
+        Some(last) => scheduling::comes_back(parse_stamp(&last)?, due, breaks),
+        None => Some(due),
     })
 }
 
@@ -434,11 +616,13 @@ async fn next_in_line(pool: &SqlitePool, queue: &[Due]) -> Result<Option<Next>> 
 }
 
 /// The formulas of today's queue.
-async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due>> {
+async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break], room: Room) -> Result<Vec<Due>> {
     let mut queue = Vec::new();
 
+    // FSRS's due is never later than the moment a card comes back, so the
+    // query narrows to the candidates and the breaks decide among them.
     let due_rows = sqlx::query(
-        "SELECT c.kind, f.id FROM card c
+        "SELECT c.kind, f.id, c.due, c.last_reviewed FROM card c
          JOIN formula f ON f.id = c.subject_id
          WHERE c.kind IN ('formula', 'formula-recognise') AND c.state != 'new' AND c.due <= ?
          ORDER BY c.due, f.position, c.kind",
@@ -449,6 +633,9 @@ async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due
     .context("failed to read the review queue")?;
 
     for row in due_rows {
+        if back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)?.is_none_or(|back| back > now) {
+            continue;
+        }
         let id: String = row.get("id");
         let direction = Direction::parse(row.get::<String, _>("kind").as_str())?;
         queue.push(due(pool, &id, direction, false, now).await?);
@@ -462,7 +649,7 @@ async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due
     }
 
     let started_today = introduced_since(pool, Kind::Formula(Direction::Produce), start_of_day(now)).await?;
-    if usize::try_from(started_today).unwrap_or(usize::MAX) < NEW_FORMULAS_PER_DAY {
+    if started_today < room.formulas {
         // The next formula is the first one in the pack's own sequence that
         // has never been answered and whose parents are all sewn: the pack
         // decides the order, the tree decides what is ready, not the clock.
@@ -474,15 +661,15 @@ async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due
 }
 
 /// The words of today's queue: those due, then as many met words as the
-/// day's budget of new ones has room for.
-async fn words_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due>> {
+/// day's room for new ones holds.
+async fn words_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break], room: Room) -> Result<Vec<Due>> {
     let mut queue = Vec::new();
-    for id in words::due(pool, now).await? {
+    for id in words::due(pool, now, breaks).await? {
         queue.push(word_due(pool, &id, false, now).await?);
     }
-    let started_today = usize::try_from(introduced_since(pool, Kind::Word, start_of_day(now)).await?).unwrap_or(usize::MAX);
-    let room = NEW_WORDS_PER_DAY.saturating_sub(started_today);
-    for id in words::waiting(pool).await?.into_iter().take(room) {
+    let started_today = introduced_since(pool, Kind::Word, start_of_day(now)).await?;
+    let left = usize::try_from((room.words - started_today).max(0)).unwrap_or(0);
+    for id in words::waiting(pool).await?.into_iter().take(left) {
         queue.push(word_due(pool, &id, true, now).await?);
     }
     Ok(queue)
@@ -491,12 +678,14 @@ async fn words_today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due>> 
 /// One queue entry, with the formula, its sisters and its pace.
 async fn due(pool: &SqlitePool, id: &str, direction: Direction, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
     let kind = Kind::Formula(direction);
+    let card = card(pool, kind, id).await?;
     Ok(Due {
         subject: Subject::Formula {
             formula: formula(pool, id).await?,
             direction,
         },
-        stitch: card(pool, kind, id).await?.map_or(Stitch::New, |card| card.stitch),
+        stitch: card.as_ref().map_or(Stitch::New, |card| card.stitch),
+        stability: card.map_or(0.0, |card| card.stability),
         is_new,
         due: now,
         pace: pace(pool, kind, id).await?,
@@ -505,11 +694,13 @@ async fn due(pool: &SqlitePool, id: &str, direction: Direction, is_new: bool, no
 
 /// One queue entry for a word, with its contexts and its pace.
 async fn word_due(pool: &SqlitePool, id: &str, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
+    let card = card(pool, Kind::Word, id).await?;
     Ok(Due {
         subject: Subject::Word {
             word: words::word(pool, id).await?,
         },
-        stitch: card(pool, Kind::Word, id).await?.map_or(Stitch::New, |card| card.stitch),
+        stitch: card.as_ref().map_or(Stitch::New, |card| card.stitch),
+        stability: card.map_or(0.0, |card| card.stability),
         is_new,
         due: now,
         pace: pace(pool, Kind::Word, id).await?,
@@ -571,7 +762,7 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
             // or the other way round, would be a sitting half remembered.
             let kind = Kind::Formula(Direction::Produce);
             let mut tx = pool.begin().await.context("failed to open a transaction")?;
-            let next = apply(&mut tx, kind, formula_id, Given::asked(rating, duration_ms, &attempts), now)
+            let (before, next) = apply(&mut tx, kind, formula_id, Given::asked(rating, duration_ms, &attempts), now)
                 .await?
                 .ok_or_else(not_found)?;
             for word in &words {
@@ -584,7 +775,7 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
                 // it stands in, like one opened by its own answer.
                 words::anchor(pool, word).await?;
             }
-            let mut reviewed = reviewed(pool, kind, formula_id, rating, &next, now).await?;
+            let mut reviewed = reviewed(pool, kind, formula_id, rating, (&before, &next), now).await?;
             reviewed.words = words;
             Ok(reviewed)
         }
@@ -757,6 +948,7 @@ pub(crate) async fn declare(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, word_i
     };
     apply(tx, Kind::Word, word_id, given, now)
         .await?
+        .map(|(_, next)| next)
         .with_context(|| format!("the card of {word_id} vanished while it was declared"))
 }
 
@@ -876,15 +1068,20 @@ async fn record(
     attempts: &[Attempt],
 ) -> Result<Option<Reviewed>> {
     let mut tx = pool.begin().await.context("failed to open a transaction")?;
-    let Some(next) = apply(&mut tx, kind, subject, Given::asked(rating, duration_ms, attempts), now).await? else {
+    let Some((before, next)) = apply(&mut tx, kind, subject, Given::asked(rating, duration_ms, attempts), now).await? else {
         return Ok(None);
     };
     tx.commit().await.context("failed to commit the review")?;
-    Ok(Some(reviewed(pool, kind, subject, rating, &next, now).await?))
+    Ok(Some(reviewed(pool, kind, subject, rating, (&before, &next), now).await?))
 }
 
-/// What an answer did to a card, as the app is told.
-async fn reviewed(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, next: &Card, now: DateTime<Utc>) -> Result<Reviewed> {
+/// What an answer did to a card, as the app is told: the card before it
+/// and after it.
+///
+/// The due is FSRS's own: an asked answer ends any break going on, and a
+/// break cannot start later than now, so nothing stands between the answer
+/// and the day it comes back.
+async fn reviewed(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, (before, next): (&Card, &Card), now: DateTime<Utc>) -> Result<Reviewed> {
     Ok(Reviewed {
         stitch: next.stitch,
         due: next.due,
@@ -892,13 +1089,18 @@ async fn reviewed(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, 
         pace: pace(pool, kind, subject).await?,
         rating,
         words: Vec::new(),
+        stability: next.stability,
+        stability_before: before.stability,
     })
 }
 
 /// Applies an answer to a card inside a transaction: the new schedule, and
-/// the review kept whole with the turns typed for it. The card as it now
-/// stands, or `None` when there is no such card.
-async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, given: Given<'_>, now: DateTime<Utc>) -> Result<Option<Card>> {
+/// the review kept whole with the turns typed for it. The card before the
+/// answer and as it now stands, or `None` when there is no such card.
+///
+/// An asked answer ends any break going on: the learner who answers is
+/// back, and a break never holds an answer.
+async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, given: Given<'_>, now: DateTime<Utc>) -> Result<Option<(Card, Card)>> {
     let Given {
         rating,
         source,
@@ -908,6 +1110,9 @@ async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject
     let Some(card) = card(&mut **tx, kind, subject).await? else {
         return Ok(None);
     };
+    if source == Source::Asked {
+        breaks::end_by_answer(tx, now).await?;
+    }
 
     let Scheduled { card: next, elapsed_days } = Scheduler::new().review(&card, rating, now);
 
@@ -969,7 +1174,7 @@ async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject
         .await
         .context("failed to record a typed turn")?;
     }
-    Ok(Some(next))
+    Ok(Some((card, next)))
 }
 
 /// One formula with its samples and slots.
@@ -2434,5 +2639,271 @@ gloss = "занятой"
         // home and doctor are in the first thousand; umbrella is past 5k and
         // counted in no level.
         assert_eq!(held, vec![(1000, 2), (2000, 2), (5000, 2)]);
+    }
+
+    // ------------------------------------------------ the schedule lives
+
+    /// Twelve common nouns met in one formula, and a second formula with no
+    /// words: room enough to see the day's ten new words shrink, and a
+    /// formula of the day to hold back.
+    async fn crowded() -> SqlitePool {
+        use std::fmt::Write as _;
+        let nouns = [
+            "cat", "dog", "house", "car", "book", "tree", "water", "city", "door", "table", "chair", "window",
+        ];
+        let mut toml = String::from(
+            "id = \"many\"\nversion = 1\nnative = \"ru\"\ntarget = \"en\"\n\n[[formula]]\nid = \"f0\"\nname = \"n\"\npattern = \"x\"\nexplanation = \"e\"\norder = 10\n",
+        );
+        for noun in nouns {
+            let _ = write!(
+                toml,
+                "\n  [[formula.sample]]\n  native = \"{noun}\"\n  target = \"I see the {noun}.\"\n  words = [\"{noun}\"]\n"
+            );
+        }
+        toml.push_str("\n[[formula]]\nid = \"f1\"\nname = \"m\"\npattern = \"y\"\nexplanation = \"e\"\norder = 20\n\n  [[formula.sample]]\n  native = \"a\"\n  target = \"b\"\n");
+        for noun in nouns {
+            let _ = write!(toml, "\n[[word]]\nlemma = \"{noun}\"\ngloss = \"x\"\n");
+        }
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        pack::load(&pool, &toml::from_str(&toml).unwrap()).await.unwrap();
+        pool
+    }
+
+    /// The first evening of `crowded`: the formula drilled and `words` of the
+    /// words it opened answered, all at `at(0)`.
+    async fn first_evening(pool: &SqlitePool, words: usize) -> Vec<String> {
+        review(pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let opened: Vec<String> = words_in(&today(pool, at(0)).await.unwrap()).into_iter().map(str::to_string).collect();
+        for id in opened.iter().take(words) {
+            review_word(pool, id, graded(Rating::Good), at(0)).await.unwrap();
+        }
+        opened
+    }
+
+    fn new_words_in(today: &Today) -> usize {
+        today.queue.iter().filter(|due| due.is_new && due.word_id().is_some()).count()
+    }
+
+    #[tokio::test]
+    async fn what_the_clock_drifts_past_a_sitting_is_not_owed() {
+        // A card that came due ten minutes after yesterday's sitting could
+        // not have been answered in it: the next day owes nothing.
+        let pool = crowded().await;
+        first_evening(&pool, 4).await;
+        let next_day = today(&pool, at(1)).await.unwrap();
+        assert_eq!(
+            next_day.room,
+            Room {
+                debt: 0,
+                words: 10,
+                formulas: 1
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_card_left_from_an_earlier_day_takes_a_new_words_place() {
+        let pool = crowded().await;
+        first_evening(&pool, 4).await;
+
+        // A day missed: the formula and four words waited through it.
+        let back = today(&pool, at(2)).await.unwrap();
+        assert_eq!(
+            back.room,
+            Room {
+                debt: 5,
+                words: 5,
+                formulas: 1
+            }
+        );
+        assert_eq!(new_words_in(&back), 5, "five places were taken by what was owed");
+        assert_eq!(new_formulas(&back), vec!["f1"], "room for a word is room for the formula of the day");
+
+        // Paying the debt does not open another round: the day's room is
+        // what the day began with.
+        for due in back.queue.iter().filter(|due| !due.is_new) {
+            match &due.subject {
+                Subject::Word { word } => review_word(&pool, &word.id, graded(Rating::Good), at(2)).await.map(|_| ()),
+                Subject::Formula { formula, direction } => {
+                    let said = Said {
+                        direction: *direction,
+                        ..said(Rating::Good)
+                    };
+                    review(&pool, &formula.id, said, at(2)).await.map(|_| ())
+                }
+            }
+            .unwrap();
+        }
+        let later = today(&pool, at(2) + Duration::hours(2)).await.unwrap();
+        assert_eq!(later.room.debt, 5, "the day's debt is counted as the day began");
+        assert_eq!(new_words_in(&later), 5);
+    }
+
+    #[tokio::test]
+    async fn a_debt_of_ten_leaves_no_room_for_anything_new() {
+        let pool = crowded().await;
+        first_evening(&pool, 10).await;
+        let back = today(&pool, at(2)).await.unwrap();
+        assert_eq!(
+            back.room,
+            Room {
+                debt: 11,
+                words: 0,
+                formulas: 0
+            }
+        );
+        assert_eq!(new_words_in(&back), 0);
+        assert!(new_formulas(&back).is_empty(), "a new formula was opened on a day that owed eleven cards");
+        assert!(back.queue.iter().filter(|due| !due.is_new).count() >= 11, "what is owed is still asked");
+    }
+
+    #[tokio::test]
+    async fn a_word_is_owed_from_when_its_sentence_was_met() {
+        // Declared known long ago, its schedule ran out before any sentence
+        // brought it: met today, it is today's word, not an old debt.
+        let pool = worded().await;
+        let known = |word: &str| crate::inventory::Answer {
+            word: word.to_string(),
+            known: true,
+        };
+        crate::inventory::answer(&pool, &[known("en:doctor")], at(0)).await.unwrap();
+        review(&pool, "f0", said(Rating::Good), at(40)).await.unwrap();
+
+        let met = today(&pool, at(40) + Duration::hours(1)).await.unwrap();
+        assert!(
+            met.queue.iter().any(|due| due.word_id() == Some("en:doctor")),
+            "the declared word should be asked once met"
+        );
+        assert_eq!(met.room.debt, 0);
+        // Left unanswered through the next day, it is owed like any other.
+        assert!(today(&pool, at(42)).await.unwrap().room.debt >= 1);
+    }
+
+    #[tokio::test]
+    async fn a_break_holds_the_queue_and_moves_what_it_spans_by_its_length() {
+        let pool = worded().await;
+        let first = review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let interval = first.due - at(0);
+        let leaving = at(0) + interval / 2;
+        crate::breaks::start(&pool, Some(at(3)), leaving).await.unwrap();
+
+        let away = today(&pool, at(1)).await.unwrap();
+        assert!(away.on_break.is_some());
+        assert!(
+            away.queue.is_empty(),
+            "the schedule should wait while the learner is away: {:?}",
+            away.queue.len()
+        );
+        assert_eq!(away.room, Room::default(), "nothing opens on a break");
+
+        // Back: the formula had half its interval left when the break began.
+        let comes_back = at(3) + (interval - interval / 2);
+        let just_before = today(&pool, comes_back - Duration::seconds(1)).await.unwrap();
+        assert!(
+            !just_before
+                .queue
+                .iter()
+                .any(|due| due.formula_id() == "f0" && due.direction() == Some(Direction::Produce) && !due.is_new),
+            "f0 came back before its interval ran out"
+        );
+        let at_time = today(&pool, comes_back).await.unwrap();
+        assert!(at_time.on_break.is_none());
+        assert!(
+            at_time
+                .queue
+                .iter()
+                .any(|due| due.formula_id() == "f0" && due.direction() == Some(Direction::Produce)),
+            "f0 should be back once the rest of its interval has run"
+        );
+        assert_eq!(at_time.room.debt, 0, "what a break moved is not owed");
+    }
+
+    #[tokio::test]
+    async fn a_word_waits_out_a_break_too() {
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let answered = review_word(&pool, "en:home", graded(Rating::Good), at(0)).await.unwrap();
+        let interval = answered.due - at(0);
+        crate::breaks::start(&pool, Some(at(2)), at(0) + interval / 2).await.unwrap();
+
+        let comes_back = at(2) + (interval - interval / 2);
+        let home = |today: &Today| today.queue.iter().any(|due| due.word_id() == Some("en:home"));
+        assert!(
+            !home(&today(&pool, comes_back - Duration::seconds(1)).await.unwrap()),
+            "home came back before its interval ran out"
+        );
+        assert!(
+            home(&today(&pool, comes_back).await.unwrap()),
+            "home should be back once the rest of its interval has run"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_answer_given_on_a_break_ends_it() {
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        crate::breaks::start(&pool, None, at(1)).await.unwrap();
+        review(&pool, "f0", said(Rating::Good).backwards(), at(2)).await.unwrap();
+        let taken = crate::breaks::all(&pool).await.unwrap();
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[0].ends_at, Some(at(2)), "answering is being back");
+    }
+
+    #[tokio::test]
+    async fn an_absence_counted_as_a_break_owes_nothing() {
+        let pool = crowded().await;
+        first_evening(&pool, 4).await;
+
+        let back = today(&pool, at(5)).await.unwrap();
+        assert_eq!(back.room.debt, 5);
+        assert_eq!(back.away_since, Some(at(0)), "five days away with cards waiting should be offered as a break");
+
+        crate::breaks::count_away(&pool, at(5)).await.unwrap();
+        let counted = today(&pool, at(5)).await.unwrap();
+        assert_eq!(
+            counted.room,
+            Room {
+                debt: 0,
+                words: 10,
+                formulas: 1
+            }
+        );
+        assert_eq!(counted.away_since, None, "an absence already counted is not offered again");
+        assert!(
+            counted.queue.iter().all(|due| due.is_new),
+            "what came due while away should come back after the break, not on the day back"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_short_absence_is_not_offered_as_a_break() {
+        let pool = crowded().await;
+        first_evening(&pool, 4).await;
+        // Two days: a weekend. What came due over it is owed.
+        assert_eq!(today(&pool, at(2)).await.unwrap().away_since, None);
+        assert!(crate::breaks::count_away(&pool, at(2)).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_card_says_how_firmly_it_holds_and_the_answer_how_far_it_moved() {
+        let pool = worded().await;
+        let fresh = today(&pool, at(0)).await.unwrap();
+        assert_eq!(fresh.queue[0].stability, 0.0, "a card never answered holds nothing yet");
+
+        let first = review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        assert_eq!(first.stability_before, 0.0);
+        assert!(first.stability > 0.0);
+
+        let queued = today(&pool, first.due).await.unwrap();
+        let again = queued
+            .queue
+            .iter()
+            .find(|due| due.formula_id() == "f0" && due.direction() == Some(Direction::Produce))
+            .unwrap();
+        assert!((again.stability - first.stability).abs() < 1e-9, "the queue should carry the card's stability");
+        let second = review(&pool, "f0", said(Rating::Easy), first.due).await.unwrap();
+        assert!((second.stability_before - first.stability).abs() < 1e-9);
+        assert!(second.stability > second.stability_before, "an easy answer should make it hold longer");
     }
 }

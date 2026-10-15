@@ -18,8 +18,8 @@ use serde::Serialize;
 use sqlx::{Row, SqlitePool};
 
 use crate::lexicon::{self, LEVELS};
-use crate::scheduling::Stitch;
-use crate::study::{Counts, Languages};
+use crate::scheduling::{Break, Stitch};
+use crate::study::{self, Counts, Languages};
 
 /// A word with everything its card needs.
 #[derive(Debug, Clone, Serialize)]
@@ -278,7 +278,7 @@ pub async fn anchor(pool: &SqlitePool, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Words that have come due by `now`, oldest first.
+/// Words that have come due by `now`, oldest first, the breaks counted.
 ///
 /// Only words met in a sentence: a word is asked in a sentence the learner
 /// has seen. One answered in its sentence always has been; one declared
@@ -287,10 +287,13 @@ pub async fn anchor(pool: &SqlitePool, id: &str) -> Result<()> {
 ///
 /// # Errors
 ///
-/// Fails when the database rejects the query.
-pub async fn due(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<String>> {
-    sqlx::query_scalar(
-        "SELECT c.subject_id FROM card c JOIN word w ON w.id = c.subject_id
+/// Fails when the database rejects the query or holds a moment that is not
+/// one.
+pub async fn due(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result<Vec<String>> {
+    // FSRS's due is never later than the moment a card comes back, so the
+    // query narrows to the candidates and the breaks decide among them.
+    let rows = sqlx::query(
+        "SELECT c.subject_id, c.due, c.last_reviewed FROM card c JOIN word w ON w.id = c.subject_id
          WHERE c.kind = 'word' AND c.state != 'new' AND c.due <= ?
            AND EXISTS (
                SELECT 1 FROM sentence_word sw
@@ -302,7 +305,15 @@ pub async fn due(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<String>> {
     .bind(now.to_rfc3339())
     .fetch_all(pool)
     .await
-    .context("failed to read the words that are due")
+    .context("failed to read the words that are due")?;
+
+    let mut due = Vec::with_capacity(rows.len());
+    for row in rows {
+        if study::back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)?.is_some_and(|back| back <= now) {
+            due.push(row.get("subject_id"));
+        }
+    }
+    Ok(due)
 }
 
 /// Words met in a sentence and never answered, in the order they open.

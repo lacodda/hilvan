@@ -20,6 +20,8 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::auth;
+use crate::breaks;
+use crate::drift;
 use crate::inventory;
 use crate::model;
 use crate::own::{self, NewWord, Refused};
@@ -69,6 +71,11 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
         .route("/inventory/{word}", delete(inventory_undo))
         .route("/model", get(model_file))
         .route("/model/standing", get(model_standing))
+        .route("/breaks", post(start_break))
+        .route("/breaks/away", post(count_away))
+        .route("/breaks/{id}", delete(remove_break))
+        .route("/breaks/{id}/end", post(end_break))
+        .route("/drift", get(drift_weeks))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_session));
 
     let api = Router::new()
@@ -542,6 +549,60 @@ fn inventory_refused(error: inventory::Refused) -> Response {
     (status, Json(json!({ "error": error.to_string() }))).into_response()
 }
 
+/// What starting a break says: when the learner will be back, if they know.
+#[derive(Deserialize)]
+struct Leaving {
+    #[serde(default)]
+    until: Option<DateTime<Utc>>,
+}
+
+async fn start_break(State(state): State<AppState>, Json(leaving): Json<Leaving>) -> Response {
+    match breaks::start(&state.pool, leaving.until, Utc::now()).await {
+        Ok(taken) => (StatusCode::CREATED, Json(taken)).into_response(),
+        Err(error) => break_refused(error),
+    }
+}
+
+async fn count_away(State(state): State<AppState>) -> Response {
+    match breaks::count_away(&state.pool, Utc::now()).await {
+        Ok(taken) => (StatusCode::CREATED, Json(taken)).into_response(),
+        Err(error) => break_refused(error),
+    }
+}
+
+async fn end_break(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match breaks::end(&state.pool, id, Utc::now()).await {
+        Ok(taken) => Json(taken).into_response(),
+        Err(error) => break_refused(error),
+    }
+}
+
+async fn remove_break(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match breaks::remove(&state.pool, id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => break_refused(error),
+    }
+}
+
+/// A break the learner cannot take, end or remove as asked: a sentence to
+/// show them, under the status that says whose the mistake is.
+fn break_refused(error: breaks::Refused) -> Response {
+    let status = match error {
+        breaks::Refused::NotFound(_) => StatusCode::NOT_FOUND,
+        breaks::Refused::AlreadyAway | breaks::Refused::NotAway | breaks::Refused::NotGoingOn(_) => StatusCode::CONFLICT,
+        breaks::Refused::BackTooSoon => StatusCode::UNPROCESSABLE_ENTITY,
+        breaks::Refused::Database(error) => return failed("the break could not be saved", &error),
+    };
+    (status, Json(json!({ "error": error.to_string() }))).into_response()
+}
+
+async fn drift_weeks(State(state): State<AppState>) -> Response {
+    match drift::weeks(&state.pool, Utc::now()).await {
+        Ok(drift) => Json(drift).into_response(),
+        Err(error) => failed("what slipped could not be read", &error),
+    }
+}
+
 /// A moment the model is asked about; now when left out. A moment still to
 /// come is now as well: the model cannot be told ahead of the answers.
 #[derive(Deserialize)]
@@ -805,6 +866,7 @@ gloss = "дом"
             "/api/inventory",
             "/api/model",
             "/api/model/standing",
+            "/api/drift",
         ] {
             let response = app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
             assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{uri} was readable without signing in");
@@ -834,6 +896,89 @@ gloss = "дом"
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "a stranger could grade the learner's words");
+
+        let response = app.clone().oneshot(json_request("POST", "/api/breaks", "{}")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "a stranger could stop the learner's schedule");
+    }
+
+    #[tokio::test]
+    async fn a_break_is_taken_ended_and_removed() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+
+        let response = app.clone().oneshot(json_request("POST", "/api/breaks", "{}")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let taken = body_json(response).await;
+        let id = taken["id"].as_i64().unwrap();
+        assert!(taken["ends_at"].is_null(), "a break with no day back lasts until the learner is back");
+
+        let response = app.clone().oneshot(Request::get("/api/today").body(Body::empty()).unwrap()).await.unwrap();
+        let today = body_json(response).await;
+        assert_eq!(today["on_break"]["id"], id);
+        assert_eq!(today["queue"].as_array().map(Vec::len), Some(0), "nothing is asked on a break");
+
+        let response = app.clone().oneshot(json_request("POST", "/api/breaks", "{}")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT, "a second break at once");
+
+        let response = app
+            .clone()
+            .oneshot(Request::post(format!("/api/breaks/{id}/end")).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(body_json(response).await["ends_at"].is_string());
+
+        let response = app.clone().oneshot(Request::get("/api/today").body(Body::empty()).unwrap()).await.unwrap();
+        assert!(body_json(response).await["on_break"].is_null());
+
+        let response = app
+            .clone()
+            .oneshot(Request::delete(format!("/api/breaks/{id}")).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        let response = app
+            .oneshot(Request::delete(format!("/api/breaks/{id}")).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn a_break_that_cannot_be_is_refused_in_words() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+
+        let response = app
+            .clone()
+            .oneshot(json_request("POST", "/api/breaks", r#"{"until":"2020-01-01T00:00:00Z"}"#))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY, "a day back already past");
+        assert!(body_json(response).await["error"].as_str().is_some_and(|error| error.contains("after today")));
+
+        let response = app
+            .clone()
+            .oneshot(Request::post("/api/breaks/away").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT, "a learner who never answered has no absence to count");
+
+        let response = app.oneshot(Request::post("/api/breaks/7/end").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn the_drift_is_told_by_week() {
+        let dir = web_root();
+        let response = open(taught().await, &dir)
+            .oneshot(Request::get("/api/drift").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let drift = body_json(response).await;
+        assert!(drift["this_week"]["starts_on"].is_string());
+        assert_eq!(drift["last_week"]["slips"].as_array().map(Vec::len), Some(0));
     }
 
     #[tokio::test]
