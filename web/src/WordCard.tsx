@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, speechUrl, type Context, type Rating, type Reviewed, type WordDue } from '@/api'
 import { Shell } from '@/App'
+import { Hold } from '@/Hold'
 import { Button } from '@/components/ui/button'
 import { paceLine, ratings, seconds, stitchLine, whenBack } from '@/prompts'
 import { Speak } from '@/Speak'
@@ -99,6 +100,8 @@ export function WordCard({
         </span>
       </header>
 
+      {!due.is_new && phase.kind !== 'graded' && <Hold stability={due.stability} />}
+
       {anchor ? (
         <section className="flex items-start justify-between gap-3">
           <Sentence context={anchor} className="text-2xl leading-snug" />
@@ -167,6 +170,7 @@ export function WordCard({
           <p className="text-xl">
             {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
           </p>
+          <Hold stability={phase.reviewed.stability} was={phase.reviewed.stability_before} />
           {paceLine(phase.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.reviewed.pace)}</p>}
           <Button onClick={onAnswered} variant="primary" size={null} className="px-4 py-4 text-xl">
             {position < total ? 'Next' : 'Finish'}

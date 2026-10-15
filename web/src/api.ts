@@ -159,6 +159,8 @@ interface DueCommon {
   is_new: boolean
   due: string
   pace: Pace | null
+  /** How firmly it holds, in days: FSRS's stability. 0 for a card never answered. Drawn as a bar. */
+  stability: number
 }
 
 /** A formula, asked one way round. */
@@ -210,6 +212,33 @@ export interface Next {
   waits_for: Parent[]
 }
 
+/** What a day has room for that is new, and what took the rest. */
+export interface Room {
+  /** Cards that had waited through a whole day they could have been answered on, as the day began. */
+  debt: number
+  /** New words the day opens, all told: ten, one fewer for every card of debt. */
+  words: number
+  /** New formulas the day opens: one while the debt leaves room for a word. */
+  formulas: number
+}
+
+/** A break: the schedule's clock stopped while the learner is away. */
+export interface Break {
+  id: number
+  starts_at: string
+  /** When the learner is back; null until they say so. */
+  ends_at: string | null
+}
+
+/** Last week's slips, as the first sitting of a week is told them. */
+export interface Note {
+  /** The Monday of the week, YYYY-MM-DD. */
+  starts_on: string
+  slipped: number
+  /** The first few, by name. */
+  names: string[]
+}
+
 /** Everything the Today screen shows. */
 export interface Today {
   queue: Due[]
@@ -219,6 +248,43 @@ export interface Today {
   words: Words
   /** The next formula not opening today, or null once all have started. */
   next: Next | null
+  room: Room
+  /** The break the learner is on; the queue is empty while there is one. */
+  on_break: Break | null
+  /** The last answer, when the time since it could be counted as a break. */
+  away_since: string | null
+  /** What slipped last week, while this week has had no answer yet. */
+  last_week: Note | null
+}
+
+/** Something the learner had come up with, and then could not. */
+export interface Slip {
+  kind: 'formula' | 'word'
+  id: string
+  /** The formula's name, or the word's lemma. */
+  name: string
+  /** Which way round a formula slipped; null for a word. */
+  direction: Direction | null
+  /** What a word means; null for a formula. */
+  gloss: string | null
+  at: string
+  /** Where it stands now. */
+  stitch: Stitch
+  /** Whether it slipped from the learner's declaration that they knew it. */
+  declared: boolean
+}
+
+/** One week's slips. */
+export interface Week {
+  /** Its Monday, YYYY-MM-DD. */
+  starts_on: string
+  slips: Slip[]
+}
+
+/** What slipped this week and last. */
+export interface Drift {
+  this_week: Week
+  last_week: Week
 }
 
 /** How the answer went. The four the drill offers. */
@@ -234,6 +300,9 @@ export interface Reviewed {
   rating: Rating
   /** Words whose failure was sent to their own cards. */
   words: string[]
+  /** How firmly it holds now, and held before the answer, in days. */
+  stability: number
+  stability_before: number
 }
 
 /**
@@ -469,6 +538,15 @@ export const api = {
   undoInventory: (word: string) => call<InventoryRun>(`/inventory/${encodeURIComponent(word)}`, { method: 'DELETE' }),
   /** Where the learner stood at `at`, an ISO moment, and stands now. */
   standing: (at: string) => call<Standings>(`/model/standing?${new URLSearchParams({ at }).toString()}`),
+  /** Starts a break now, until `until` (an ISO moment) or until the learner is back. */
+  takeBreak: (until: string | null) => call<Break>('/breaks', { method: 'POST', body: JSON.stringify({ until }) }),
+  /** Counts the time since the last answer as a break that ended now. */
+  countAway: () => call<Break>('/breaks/away', { method: 'POST' }),
+  /** Ends the break going on: the learner is back. */
+  endBreak: (id: number) => call<Break>(`/breaks/${id}/end`, { method: 'POST' }),
+  /** Removes a break as if it had never been taken. */
+  removeBreak: (id: number) => remove(`/breaks/${id}`),
+  drift: () => call<Drift>('/drift'),
 }
 
 /**

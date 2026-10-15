@@ -2,6 +2,7 @@ import type { Counts, Stitch, Today, Words } from '@/api'
 import { Shell } from '@/App'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { awayLine, breakLine, roomLine } from '@/schedule'
 import { describeQueue, nextLine } from '@/today'
 import { levelLine, levelName } from '@/words'
 
@@ -18,7 +19,8 @@ const stitches = [
  * The queue is reviews first and at most one new formula, then the words -
  * theirs first again, then the new ones the day has room for - which is the
  * whole of the product's promise about pace: nothing new while something
- * old is still slipping.
+ * old is still slipping. A day that begins owing cards left over from
+ * earlier ones opens fewer new ones, and says so; a break empties it.
  */
 export function TodayScreen({
   today,
@@ -28,6 +30,10 @@ export function TodayScreen({
   onOwnWords,
   onInventory,
   onThen,
+  onTakeBreak,
+  onBack,
+  onCountAway,
+  onDrift,
   onSignOut,
 }: {
   today: Today
@@ -37,23 +43,50 @@ export function TodayScreen({
   onOwnWords: () => void
   onInventory: () => void
   onThen: () => void
+  onTakeBreak: () => void
+  /** The learner is back from the break they are on. */
+  onBack: (id: number) => void
+  /** The time since the last answer is counted as a break. */
+  onCountAway: () => void
+  onDrift: () => void
   onSignOut: () => void
 }) {
   const started = today.progress.produce.basted + today.progress.produce.sewn + today.progress.recognise.basted + today.progress.recognise.sewn > 0
   const waiting = today.queue.length
+  const owing = roomLine(today.room)
 
   return (
     <Shell>
       <section className="flex flex-col gap-2">
         <h2 className="text-2xl font-semibold tracking-tight">Today</h2>
         <p className="text-xl text-dim">
-          {waiting === 0
-            ? today.reviewed_today > 0
-              ? `Done for today - ${today.reviewed_today} answered. Come back tomorrow.`
-              : 'Nothing is waiting. Load a pack to start.'
-            : describeQueue(today.queue)}
+          {today.on_break
+            ? breakLine(today.on_break)
+            : waiting === 0
+              ? today.reviewed_today > 0
+                ? `Done for today - ${today.reviewed_today} answered. Come back tomorrow.`
+                : 'Nothing is waiting. Load a pack to start.'
+              : describeQueue(today.queue)}
         </p>
+        {owing && !today.on_break && <p className="text-base text-faint">{owing}</p>}
       </section>
+
+      {today.on_break && (
+        <Button onClick={() => onBack(today.on_break!.id)} variant="primary" size={null} className="px-4 py-4 text-xl">
+          I&apos;m back
+        </Button>
+      )}
+
+      {/* An absence nobody declared: one tap makes it a break, and what came
+          due in it stops being owed. Offered until the first answer. */}
+      {today.away_since && (
+        <section className="flex flex-col gap-3 rounded-md bg-raise p-4">
+          <p className="text-lg text-dim">{awayLine(today.away_since)}</p>
+          <Button onClick={onCountAway} variant="ghost" size={null} className="self-start px-4 py-3 text-lg text-text">
+            Count it as a break
+          </Button>
+        </section>
+      )}
 
       {waiting > 0 && (
         <Button
@@ -110,7 +143,7 @@ export function TodayScreen({
         {today.reviewed_today > 0 && waiting > 0 && (
           <p className="text-base text-faint">{today.reviewed_today} answered so far today.</p>
         )}
-        {nextLine(today.next) && <p className="text-base text-faint">{nextLine(today.next)}</p>}
+        {!today.on_break && nextLine(today.next, today.room) && <p className="text-base text-faint">{nextLine(today.next, today.room)}</p>}
       </section>
 
       <YourWords words={today.words} />
@@ -125,6 +158,14 @@ export function TodayScreen({
         <Button onClick={onThen} variant="link" className="text-base text-faint underline">
           Then and now
         </Button>
+        <Button onClick={onDrift} variant="link" className="text-base text-faint underline">
+          What slipped
+        </Button>
+        {!today.on_break && (
+          <Button onClick={onTakeBreak} variant="link" className="text-base text-faint underline">
+            Take a break
+          </Button>
+        )}
         <Button onClick={onVoices} variant="link" className="text-base text-faint underline">
           Voices
         </Button>

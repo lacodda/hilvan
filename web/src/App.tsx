@@ -1,7 +1,19 @@
-import { Component, use, useCallback, useState, Suspense, type ReactNode } from 'react'
+import { Component, use, useCallback, useEffect, useState, Suspense, type ReactNode } from 'react'
 
-import { api, Unauthorized, type Heard, type InventoryRun, type OwnWord, type Standings, type Today, type VoicesScreen as Voices } from '@/api'
+import {
+  api,
+  Unauthorized,
+  type Drift,
+  type Heard,
+  type InventoryRun,
+  type OwnWord,
+  type Standings,
+  type Today,
+  type VoicesScreen as Voices,
+} from '@/api'
+import { BreakScreen } from '@/BreakScreen'
 import { Drill } from '@/Drill'
+import { DriftScreen } from '@/DriftScreen'
 import { InventoryScreen } from '@/InventoryScreen'
 import { ListenScreen } from '@/ListenScreen'
 import { Mark } from '@/Mark'
@@ -10,9 +22,11 @@ import { SignIn } from '@/SignIn'
 import { opening } from '@/then'
 import { ThenAndNowScreen } from '@/ThenAndNowScreen'
 import { TodayScreen } from '@/TodayScreen'
+import { noteLine } from '@/schedule'
 import { VoicesScreen } from '@/VoicesScreen'
 import { WordCard } from '@/WordCard'
 import { Button } from '@/components/ui/button'
+import { Toast, ToastAction, ToastClose, ToastDescription, ToastProvider, ToastTitle, ToastViewport, useToastManager } from '@/components/ui/toast'
 
 /**
  * What is on screen once the queue has been read. The screens that read
@@ -27,6 +41,8 @@ type View =
   | { kind: 'own-words'; words: Promise<OwnWord[]> }
   | { kind: 'inventory'; run: Promise<InventoryRun> }
   | { kind: 'then'; standings: Promise<Standings> }
+  | { kind: 'break' }
+  | { kind: 'drift'; drift: Promise<Drift> }
 
 /**
  * The tutor.
@@ -50,21 +66,77 @@ export function App() {
   }, [])
 
   return (
-    <Boundary reload={reload} queue={queue}>
-      <Suspense fallback={<Shell>Opening the tutor…</Shell>}>
-        <Sitting key={generation} queue={queue} reload={reload} />
-      </Suspense>
-    </Boundary>
+    <ToastProvider>
+      <Boundary reload={reload} queue={queue}>
+        <Suspense fallback={<Shell>Opening the tutor…</Shell>}>
+          <Sitting key={generation} queue={queue} reload={reload} />
+        </Suspense>
+      </Boundary>
+      <ToastViewport>
+        <Toasts />
+      </ToastViewport>
+    </ToastProvider>
   )
 }
+
+/** What the manager holds, each as a toast: a sentence, and the one thing to do about it. */
+function Toasts() {
+  const { toasts } = useToastManager()
+  return (
+    <>
+      {toasts.map((toast) => (
+        <Toast key={toast.id} toast={toast}>
+          <ToastTitle />
+          <ToastDescription className="pr-6 text-sm" />
+          {toast.actionProps && <ToastAction />}
+          <ToastClose aria-label="Dismiss" />
+        </Toast>
+      ))}
+    </>
+  )
+}
+
+/** The weeks whose note has been raised in this tab: once is enough, until the week's first answer closes it. */
+const noted = new Set<string>()
 
 function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void }) {
   const [view, setView] = useState<View>({ kind: 'today' })
   const today = use(queue)
+  const toasts = useToastManager()
 
   const backToToday = () => {
     setView({ kind: 'today' })
     reload()
+  }
+
+  // Last week's slips open the first sitting of a week, by themselves: a
+  // note rather than a screen, because there is nothing to decide - what
+  // slipped comes back sooner on its own.
+  const note = today.last_week
+  useEffect(() => {
+    if (!note || noted.has(note.starts_on)) return
+    noted.add(note.starts_on)
+    toasts.add({
+      title: 'Last week',
+      description: noteLine(note),
+      timeout: 12_000,
+      actionProps: { children: 'See them', onClick: () => setView({ kind: 'drift', drift: api.drift() }) },
+    })
+  }, [note, toasts])
+
+  const countAway = () => {
+    void api
+      .countAway()
+      .then((taken) => {
+        reload()
+        toasts.add({
+          title: 'Counted as a break',
+          description: 'What came due while you were away comes back over the days ahead.',
+          timeout: 8_000,
+          actionProps: { children: 'Undo', onClick: () => void api.removeBreak(taken.id).then(reload) },
+        })
+      })
+      .catch((error: unknown) => toasts.add({ title: 'Not counted', description: error instanceof Error ? error.message : String(error), type: 'error' }))
   }
 
   if (view.kind === 'listening') {
@@ -111,6 +183,18 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
     )
   }
 
+  if (view.kind === 'break') {
+    return <BreakScreen onTaken={backToToday} onLeave={backToToday} />
+  }
+
+  if (view.kind === 'drift') {
+    return (
+      <Suspense fallback={<Shell>Looking at the week…</Shell>}>
+        <DriftScreen drift={view.drift} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
   if (view.kind === 'drilling') {
     const due = today.queue[view.index]
     if (!due) {
@@ -146,6 +230,10 @@ function Sitting({ queue, reload }: { queue: Promise<Today>; reload: () => void 
       onOwnWords={() => setView({ kind: 'own-words', words: api.ownWords() })}
       onInventory={() => setView({ kind: 'inventory', run: api.inventory() })}
       onThen={() => setView({ kind: 'then', standings: opening(api.standing, new Date()) })}
+      onTakeBreak={() => setView({ kind: 'break' })}
+      onBack={(id) => void api.endBreak(id).then(reload)}
+      onCountAway={countAway}
+      onDrift={() => setView({ kind: 'drift', drift: api.drift() })}
       onSignOut={() => void api.logOut().then(reload)}
     />
   )

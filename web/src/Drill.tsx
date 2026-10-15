@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { api, speechUrl, type Checked, type Formula, type FormulaDue, type Rating, type Reviewed, type Stitch, type Turn } from '@/api'
 import { Shell } from '@/App'
+import { Hold } from '@/Hold'
 import { ask, formLabels, gradeLine, instruction, ladder, nextPrompt, paceLine, ratings, seconds, stitchLine, tabs, tally, verdictLine, whenBack, type Prompt } from '@/prompts'
 import { Speak } from '@/Speak'
 import { player, sides, tempoFor, urlOf, useRecorder, useStopOnLeave, usePlaying } from '@/speech'
@@ -240,6 +241,10 @@ export function Drill({
 
       <Forms formula={shown} busy={switching} onSwitch={switchTo} />
 
+      {/* How firmly the card holds, before it is asked. Only the queue's own
+          form: a sister switched to is another card, held its own way. */}
+      {!due.is_new && shown.id === due.formula.id && phase.kind !== 'graded' && <Hold stability={due.stability} />}
+
       {!saying && <p className="text-xs tracking-caption text-faint uppercase">Understanding - what does it mean?</p>}
 
       {explaining && (
@@ -416,6 +421,7 @@ export function Drill({
           <p className="text-xl">
             {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
           </p>
+          <Hold stability={phase.reviewed.stability} was={phase.reviewed.stability_before} />
           {paceLine(phase.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.reviewed.pace)}</p>}
           <Button onClick={onAnswered} variant="primary" size={null} className="px-4 py-4 text-xl">
             {position < total ? 'Next' : 'Finish'}

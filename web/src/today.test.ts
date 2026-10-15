@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Due, Formula, Word } from '@/api'
+import type { Due, Formula, Room, Word } from '@/api'
 import { describeQueue, nextLine } from '@/today'
 
 const formula = { id: 'f' } as Formula
 const word = { id: 'en:doctor' } as Word
-const common = { stitch: 'new', due: '', pace: null } as const
+const common = { stitch: 'new', due: '', pace: null, stability: 0 } as const
+const room: Room = { debt: 0, words: 10, formulas: 1 }
 
 const produce = (is_new: boolean): Due => ({ ...common, kind: 'formula', formula, direction: 'produce', is_new })
 const recognise = (is_new: boolean): Due => ({ ...common, kind: 'formula', formula, direction: 'recognise', is_new })
@@ -43,15 +44,20 @@ describe('describeQueue', () => {
 
 describe('nextLine', () => {
   it('says which formula is next and which parents hold it', () => {
-    expect(nextLine(null)).toBeNull()
-    expect(nextLine({ id: 'want', name: 'want to', waits_for: [] })).toBe('Next: "want to", on the next day with room for a new formula.')
-    expect(nextLine({ id: 'like', name: 'would like', waits_for: [{ id: 'want', name: 'want to', stitch: 'basted' }] })).toBe(
+    expect(nextLine(null, room)).toBeNull()
+    expect(nextLine({ id: 'want', name: 'want to', waits_for: [] }, room)).toBe('Next: "want to", on the next day with room for a new formula.')
+    expect(nextLine({ id: 'like', name: 'would like', waits_for: [{ id: 'want', name: 'want to', stitch: 'basted' }] }, room)).toBe(
       'Next: "would like", once "want to" is sewn.',
     )
     const two = [
       { id: 'a', name: 'can', stitch: 'new' as const },
       { id: 'b', name: 'want to', stitch: 'basted' as const },
     ]
-    expect(nextLine({ id: 'like', name: 'would like', waits_for: two })).toBe('Next: "would like", once "can" and "want to" are sewn.')
+    expect(nextLine({ id: 'like', name: 'would like', waits_for: two }, room)).toBe('Next: "would like", once "can" and "want to" are sewn.')
+  })
+
+  it('says when it is the debt that holds the formula of the day', () => {
+    const owing: Room = { debt: 12, words: 0, formulas: 0 }
+    expect(nextLine({ id: 'want', name: 'want to', waits_for: [] }, owing)).toBe('Next: "want to", on a day that begins with fewer cards left over.')
   })
 })
