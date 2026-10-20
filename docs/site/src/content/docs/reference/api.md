@@ -7,7 +7,7 @@ All endpoints are under `/api` and speak JSON. A path outside `/api` that does n
 
 ## Sessions
 
-Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}` with its `/check` and `/review`, `/api/words/{id}` and its `/review`, `/api/own-words`, `/api/inventory`, `/api/model`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
+Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}` and its `/review`, `/api/words/{id}` and its `/review`, `/api/own-words`, `/api/inventory`, `/api/model`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
 
 ```json
 { "error": "sign in first" }
@@ -156,7 +156,10 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
   "room": { "debt": 3, "words": 7, "formulas": 1 },
   "on_break": null,
   "away_since": null,
-  "last_week": { "starts_on": "2026-08-24", "slipped": 2, "names": ["I am / you are", "home"] }
+  "last_week": { "starts_on": "2026-08-24", "slipped": 2, "names": ["I am / you are", "home"] },
+  "as_of": "2026-09-03T09:00:00Z",
+  "usual": { "produce": 52000, "recognise": 18000, "word": 7400 },
+  "coming": ["2026-09-03T19:12:00Z", "2026-09-05T08:40:00Z"]
 }
 ```
 
@@ -181,6 +184,9 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
 | `words.declared` | integer | Words held on the learner's word alone: declared known and not asked since. Counted in the levels. |
 | `next` | object \| null | The first formula of the pack's sequence that has not started and is not opening today; `null` once every formula has. |
 | `next.waits_for` | array | Its [parents](/hilvan/reference/packs/#parents) not yet sewn, each with its `stitch`. Empty when it waits only for a day with room for a new formula. |
+| `as_of` | string (RFC 3339) | When the server read this. A copy the device keeps for a sitting out of reach says how old it is. |
+| `usual.produce` \| `usual.recognise` \| `usual.word` | integer \| null | How long an answer of each kind usually takes, in milliseconds: the median of the last 30 timed answers, `null` before there are three. A sitting of a few minutes is measured with it for a card with no `pace` of its own. |
+| `coming` | array of RFC 3339 | When the cards not in the queue come back over the next seven days, breaks counted, earliest first. The app counts what has come back since the read - the number on its icon - without asking again. |
 | `room.debt` | integer | Cards the queue asks that had waited through a whole day they could have been answered on - come due before the start of yesterday, the breaks counted - as the day began. |
 | `room.words` | integer | New words the day opens, all told: ten, one fewer for every card of debt. Words started earlier the same day use up places. |
 | `room.formulas` | integer | New formulas the day opens: `1` while the debt leaves room for a word, `0` once it has taken all ten. |
@@ -305,11 +311,11 @@ The three forms stay three formulas with three schedules, because they are learn
 { "error": "there is no formula called nonsense" }
 ```
 
-### `POST /api/formulas/{id}/check`
+### Checking a typed turn
 
-Checks one typed turn against the formula's answer and the answers it accepts, without recording anything: what the drill shows the moment the learner submits.
+There is no endpoint for it. The app checks each typed turn the moment it is typed with hilvan's own checker - the Rust the server grades with, built to WebAssembly (`crates/check`) - so the verdict comes with the tutor out of reach as it does at home. The server checks every turn again when the answer arrives, and that reading is the one the grade rests on.
 
-**Request** - a turn: what was asked, and what was typed.
+A turn names what was asked and what was typed:
 
 ```json
 { "asked": { "values": { "pronoun": "they", "rest": "ready" } }, "typed": "They is redy" }
@@ -317,7 +323,7 @@ Checks one typed turn against the formula's answer and the answers it accepts, w
 
 `asked` names the question by what it was made of: `{ "values": { slot: target } }` for a substitution - the `target` of the value put in each slot, every slot named once - or `{ "sample": <sentence id> }` for one of the formula's own sentences.
 
-**Response** `200`:
+What the checker makes of it:
 
 ```json
 {
@@ -345,7 +351,18 @@ Checks one typed turn against the formula's answer and the answers it accepts, w
 | `failure` | `"formula"` \| `"order"` \| `"word"` \| null | What went wrong: a piece of the shape missing (or something added), every word there in the wrong order, or only carried words missing. `null` when right. |
 | `missed` | array | Carried words that did not come, as they stand in `closest`. |
 
-**Response** `404` when `{id}` names no formula; `422` when `asked` names a slot, value or sentence the formula does not have.
+### Answers from the device
+
+Every answer - to a formula either way, or to a word - travels from a line kept on the device, delivered in the order the answers were given whenever the tutor can be reached: a second later at home, an evening later after a day underground. Each carries two fields besides the answer itself:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `answer_id` | string, 1 to 64 characters | yes | An identity the device minted for this answer. The same answer delivered again - the reply to the first delivery lost on the way back - is recorded once, and told what the first delivery was told. |
+| `answered_at` | string (RFC 3339) | yes | When the answer was given, by the device's clock. The answer is recorded at that moment, not when it arrived; a moment still to come - a clock running ahead - is taken as the moment it arrived. |
+
+An answer is put into the card's history at the moment it was given, and the history is played through the scheduler again, so an answer that arrives after a later one - given on a phone with no signal while a laptop answered the same card at home - takes its place between them. An answer given during a [break](#breaks) ends the break at that moment, however long after it arrives.
+
+**Response** `422` when either field is missing or `answer_id` is empty or too long.
 
 ### `POST /api/formulas/{id}/review`
 
@@ -355,6 +372,8 @@ Records an answer and reschedules the formula through FSRS. How depends on the d
 
 ```json
 {
+  "answer_id": "6f0c2b8e-3a51-4f7e-9d2c-1b8a7e4d5c10",
+  "answered_at": "2026-09-03T08:41:12.400Z",
   "direction": "produce",
   "turns": [
     { "asked": { "sample": 1 }, "typed": "I'm at home" },
@@ -367,7 +386,7 @@ Records an answer and reschedules the formula through FSRS. How depends on the d
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `turns` | array | yes, at least one | Every turn typed, in order, in the shape `/check` takes. Each is checked again here; nothing the client concluded decides the grade. |
+| `turns` | array | yes, at least one | Every turn typed, in order, in the shape [a turn](#checking-a-typed-turn) takes. Each is checked again here; nothing the device concluded decides the grade. |
 | `easy` | boolean | no | The learner's word that it came without thinking. Honoured only when every turn was right. |
 | `duration_ms` | integer | no | How long the answer took. Kept and reported back as `pace`; never used to schedule. |
 
@@ -376,7 +395,7 @@ The grade follows the slips of the shape - a `formula` or `order` failure: in ha
 **Understanding it** - heard, and graded by the learner:
 
 ```json
-{ "direction": "recognise", "rating": "good", "duration_ms": 4200 }
+{ "answer_id": "2b9d4f7a-0c3e-4e6b-8a51-7d2f9c1e6b30", "answered_at": "2026-09-03T08:42:30.000Z", "direction": "recognise", "rating": "good", "duration_ms": 4200 }
 ```
 
 `rating` is one of `"again"`, `"hard"`, `"good"`, `"easy"`.
@@ -403,8 +422,8 @@ Only the card in the direction named is graded: answering `"recognise"` leaves t
 | `stitch` | `"new"` \| `"basted"` \| `"sewn"` | The formula's state in this direction after this answer. Never `"new"` - answering is what leaves the new pile. |
 | `rating` | string | The grade recorded: the learner's when heard, the turns' when typed. |
 | `words` | array | Words sent to their own cards by this answer. Always empty when heard. |
-| `due` | string (RFC 3339) | When the formula comes back in this direction. |
-| `interval_days` | integer | Days between now and `due`. |
+| `due` | string (RFC 3339) | When the formula comes back in this direction, breaks counted. |
+| `interval_days` | integer | Days between the answer's arrival and `due`. |
 | `pace` | object \| null | How this answer compared with the usual; `null` until three timed answers. |
 | `stability` \| `stability_before` | number | How firmly the card holds after the answer and held before it, in days: what the bar on the card moves between. |
 
@@ -475,7 +494,7 @@ Records an answer to a word and reschedules it through FSRS. A word has one card
 **Request:**
 
 ```json
-{ "rating": "good", "duration_ms": 2400 }
+{ "answer_id": "8e1f5a2c-6d4b-4c9e-b7a3-0f2e9d8c1a57", "answered_at": "2026-09-03T08:43:05.120Z", "rating": "good", "duration_ms": 2400 }
 ```
 
 **Response** `200`: the same shape as a formula's review - `stitch`, `due`, `interval_days`, `pace`, `rating`, `words`, `stability`, `stability_before`. The first answer fixes the word's anchor.

@@ -2,14 +2,20 @@
 
 ## Development
 
-Requires Rust (see `rust-version` in `Cargo.toml`) and Node LTS with pnpm.
+Requires Rust (see `rust-version` in `Cargo.toml`) with the WebAssembly target, and Node LTS with pnpm:
+
+```sh
+rustup target add wasm32-unknown-unknown
+```
+
+The app checks typed turns with the server's own code, built to WebAssembly from `crates/check`: `pnpm test` and `pnpm build` in `web/` build it with cargo (`pnpm check-wasm` does only that), and the app imports it from `web/src/check.wasm`, which is built, never committed.
 
 ```sh
 cp .env.example .env
 cargo run -- load-pack packs/en-from-ru/pack.toml   # the formulas the tutor teaches from
 cargo run -- serve                        # the API on :8086; /api/health reports the database
 
-cd web && pnpm install && pnpm dev        # the app on :5173, proxying /api to the server
+cd web && pnpm install && pnpm check-wasm && pnpm dev   # the app on :5173, proxying /api to the server
 cd docs/site && pnpm install && pnpm dev  # the documentation site
 ```
 

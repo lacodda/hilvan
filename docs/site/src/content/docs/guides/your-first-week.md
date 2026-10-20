@@ -1,6 +1,6 @@
 ---
 title: Your first week
-description: Loading the pack, signing in, what a sitting looks like, what happens when you miss days or go away, and what to expect as new formulas turn into basted ones and basted ones into sewn.
+description: Loading the pack, signing in, what a sitting looks like - at home, in a few minutes, on the road - what happens when you miss days or go away, and what to expect as new formulas turn into basted ones and basted ones into sewn.
 ---
 
 This is what actually happens once the tutor has material in it: loading a pack, signing in, and the shape of a sitting from the first day through the first week.
@@ -32,6 +32,8 @@ The commonest thousand go by in an evening. The run goes on to the 5,000 level w
 Open the app and it shows you today's queue: whatever is due for review, and - if the day has room - one new formula. That "one new formula a day" limit is deliberate. A formula is a shape you assemble until it stops needing thought, and starting two on the same day means neither gets that.
 
 **Reviews always come before the new formula.** If three formulas are due, you work through those first; the new one, when there is room for it, comes last. A day where you start something new while forgetting yesterday's is the thing hilvan is built to avoid.
+
+**Start**, at the foot of the screen, says about how long the whole queue takes. The buttons you press in a sitting - **Check**, **Next**, the grades - stay down there too, where a thumb reaches with the phone in one hand, however long the card above them is.
 
 For each formula, you see the pattern, an explanation in your own language, and worked examples. The drill substitutes different words into the same shape, so you are producing the sentence, not just recognizing it - and you produce it by **typing** it.
 
@@ -88,6 +90,32 @@ Under the name of a card you have answered before runs a thin bar: how long it h
 ### How long it took
 
 Under the turn counter, a card that has been drilled a few times says how fast it usually comes - "usually 3.8s" - and after you grade it, whether this answer was quicker or slower than that. It is there to be noticed, nothing more: the schedule is not affected by how long you took. A formula that arrives after eight seconds of assembly is still on its way to being yours, and the number is how you watch that happen.
+
+### A few minutes
+
+When the queue is longer than five minutes, **Only a few minutes?** above **Start** offers a sitting of 5, 10 or 15. It takes cards from the front of the queue - reviews first, as always - for as long as they fit, measured by how long each card usually takes you, or cards of its kind when it has no pace of its own yet. Nothing further back is picked out because it is quick: what is owed first is done first. What is left waits for the next sitting, the same day or the next.
+
+### From a keyboard
+
+On a computer, the space bar does what the screen is waiting for - show the answer, next turn, grade it, next card - and **1** to **4** give the four grades: again, hard, good, easy. When a typed round was flawless, **3** is good and **4** is easy. The keys are read by their place on the keyboard, so they work on a Russian layout as on an English one; in the answer field they type, as they should.
+
+## On the road
+
+A sitting does not need the tutor in reach. Open the app from the home screen on a train, in the metro, on a plane, and it opens with today as it stood the last time it was read, says so at the top, and works: every turn is checked on the phone, by the same code the tutor grades with, and each answer is kept on the phone and sent - in the order you gave them - the next time the tutor can be reached. An answer given underground at nine is recorded at nine, wherever it arrives.
+
+What it cannot say on the road is when a card comes back: that is the tutor's to work out, so after a grade the card says it is kept on the device. Today counts the answers still waiting, and the next time the app reaches the tutor they go, and the counts are the tutor's again.
+
+For the road to work, the app has to have been opened once with the tutor in reach: that is when it keeps itself, today's cards and the sounds the sitting will play - every question and answer of today's queue, fetched in the background. The questions of a sitting are settled at that moment, so the sounds are the right ones. It also needs the tutor's `https://` address: a browser keeps nothing for a page served over plain `http://` (see [Running on a Raspberry Pi](/hilvan/guides/running-on-a-pi/#over-https)).
+
+If you answer the same card on two devices before either reaches the tutor, both answers count, in the order you gave them.
+
+## On the home screen
+
+Installed on a phone's home screen, the app has two shortcuts on its icon - press and hold it: **Today**, and **Ten minutes**, which opens straight into a sitting that fits ten minutes. The icon carries a number: the cards waiting to come back. Where the phone allows it - an installed app on Android - the number is recounted now and then while the app is closed, as cards come due, without the tutor having to reach the phone; elsewhere it is the number the app last left.
+
+## This device
+
+**This device**, in the footer of Today, holds what belongs to the phone or computer rather than to you: whether the app is dark, light or as the device is set (each device keeps its own), what is kept for the road and whether every answer has reached the tutor, and signing out. Signing out sends what is waiting first, and refuses while anything still has not reached the tutor - signing out forgets what the device keeps.
 
 ## Missed days
 

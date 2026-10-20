@@ -56,6 +56,10 @@ docker compose exec server hilvan import /data/hilvan-model.json
 
 To check a new stand before any learner is on it, `hilvan load-demo` puts a fictional one there - on a database of its own, since it refuses one that holds a learner.
 
+## Over HTTPS
+
+The tutor serves plain HTTP; put it behind a reverse proxy that holds a certificate your devices trust - a public one, or one from a certificate authority of your own installed on each device. Over plain `http://` the app works while the tutor can be reached, and no further: a browser keeps nothing offline for an insecure page, will not install it on the home screen, and will not lend it the microphone. Over `https://` the app keeps itself and today's sitting on the device, and a sitting on the road works (see [On the road](/hilvan/guides/your-first-week/#on-the-road)).
+
 ## The voice
 
 The compose files run a second container beside the server: `piper`, the local voice that speaks the learner's own language. Its image carries its voices, so it needs no network at start, and it is published at the tutor's own version - pinning `HILVAN_VERSION` pins both. On a Pi 4 it answers a sentence in one to two seconds once a voice is loaded, and takes about 150 MB plus 130 MB for each voice in use.

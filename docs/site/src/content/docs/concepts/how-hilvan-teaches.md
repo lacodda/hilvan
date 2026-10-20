@@ -37,6 +37,10 @@ A day that begins with cards left over from earlier days opens less that is new 
 
 What you had and lost is named: each week's slips - a card you came up with on one day and could not on a later one - are listed, and the first sitting of a week opens with last week's. How firmly each card holds is on the card as a bar from hours to a year, not as a number of days.
 
+### Where the time is - built
+
+The time a learner has is mostly in between: a ride, a queue, ten minutes before something else. From v0.8.0 a sitting can be as long as the time there is - a few minutes takes the front of the queue, reviews first, measured by how long each card usually takes - and it runs with the tutor out of reach. Each typed turn is checked on the phone by the same code the tutor grades with, and each answer waits on the phone and arrives later at the moment it was given, so a day underground is a day of study like any other ([ADR 0011](https://github.com/lacodda/hilvan/blob/main/docs/adr/0011-answers-from-the-road.md)).
+
 ### Two directions, counted apart
 
 Understanding a sentence and producing one are different skills, and recognition always runs ahead. From v0.2.0 each formula is scheduled twice - saying it, and understanding it - so the two are never averaged into a number that describes neither. The Today screen shows both columns, and the gap between them is the point: you will understand more than you can say, and seeing by how much is more useful than a single figure that hides it.

@@ -7,7 +7,7 @@ hilvan is one process: a Rust server over a SQLite file, serving a JSON API and 
 
 ## What you need
 
-- **Rust** - at least the version in `rust-version` in `Cargo.toml`. `rustup update stable` is enough.
+- **Rust** - at least the version in `rust-version` in `Cargo.toml`, with the WebAssembly target the app's checker is built for: `rustup update stable && rustup target add wasm32-unknown-unknown`.
 - **Node LTS with pnpm** - `corepack enable` provides pnpm.
 - **Docker** - only to run the image the way the stand does; nothing else needs it.
 
@@ -55,10 +55,11 @@ It goes only onto a tutor that holds no learner, so give it a database of its ow
 ```sh
 cd web
 pnpm install
+pnpm check-wasm
 pnpm dev
 ```
 
-Vite serves the app on `http://localhost:5173` and proxies `/api` to the server, so the two run as one origin. `pnpm build` writes `web/dist`, which is where the server looks for the app when it serves it itself (`HILVAN_WEB_DIR`).
+`pnpm check-wasm` builds the checker - the server's own code for reading a typed answer, built to WebAssembly from `crates/check` - into `web/src/check.wasm`, where the app imports it from; `pnpm test` and `pnpm build` build it themselves. Vite serves the app on `http://localhost:5173` and proxies `/api` to the server, so the two run as one origin. `pnpm build` writes `web/dist`, which is where the server looks for the app when it serves it itself (`HILVAN_WEB_DIR`).
 
 ## This site
 

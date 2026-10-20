@@ -27,7 +27,7 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 - **A start from what you know.** On the first evening the commonest words go by one at a time; the ones you know start sewn and are checked when a sentence brings them, so the levels begin where you are, not at zero.
 - **Your learner model, yours.** Every answer, own word and inventory answer downloads as one JSON file with a [published schema](https://lacodda.github.io/hilvan/reference/learner-model/), imports on another stand, and shows any past day beside today.
 - **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
-- **A sitting on a phone.** The formula of the day, a prompt, your typed answer, and what it got right.
+- **A sitting wherever you are.** On a phone in one hand, in the five or ten minutes you have, with the tutor out of reach: each typed turn is checked on the device by the tutor's own code, and the answers arrive, in order, when it can be reached.
 - **A password on the door.** The server refuses to run open and says so in its first log line if you skip it.
 
 ## Install
@@ -67,7 +67,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.7.0**, early, built for one learner: thirty formulas for a Russian speaker, words in their sentences, an inventory of what you know, a schedule that stops for a break, and the learner model as one file - on a phone. What landed in each version is in the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md), the architecture in the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
+**v0.8.0**, early, built for one learner: thirty formulas for a Russian speaker, a schedule that stops for a break, and sittings that run out of the tutor's reach. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
 
 ## Documentation
 
