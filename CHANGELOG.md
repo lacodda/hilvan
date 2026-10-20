@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0] - 2026-10-20
+
+### Breaking Changes
+- Every answer carries `answer_id` and `answered_at`, and is refused without them: it is taken once, at the moment its device gave it. `POST /api/formulas/{id}/check` is gone - the app checks each typed turn with the core built to WebAssembly.
+
+### Dependencies
+- Update the toolchain and dependencies
+
+### Documentation
+- Give every command a reference page, and say the status in one paragraph
+- Explain the road, short sittings and this device, and bump to 0.8.0
+
+### Features
+- Take each answer once, at the moment its device gave it
+- Drill out of the tutor's reach, in a few minutes, with one hand and from a keyboard
+
 ## [0.7.0] - 2026-10-15
 
 ### Breaking Changes
