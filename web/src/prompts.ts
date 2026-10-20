@@ -175,6 +175,15 @@ export function tally(checked: readonly Pick<Checked, 'correct'>[]): string {
   return `${right} of ${checked.length} right.`
 }
 
+/**
+ * Said after an answer the tutor could not be reached for in time: it is on
+ * this device, in the line, and goes when the tutor can be reached. Where
+ * the card comes back is the tutor's to say, so nothing is guessed here.
+ */
+export function keptLine(): string {
+  return 'Kept on this device - it goes to the tutor as soon as the tutor can be reached.'
+}
+
 /** The grade the turns earned, said after it is recorded. */
 export function gradeLine(rating: Rating, words: readonly string[]): string {
   const grade = {

@@ -35,7 +35,7 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} -p hilvan
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

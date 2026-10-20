@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { api, speechUrl, type Context, type Rating, type Reviewed, type WordDue } from '@/api'
+import { speechUrl, type Context, type Rating, type WordDue } from '@/api'
+import { answerWord, tookSince, type Outcome } from '@/answers'
 import { Shell } from '@/App'
+import { Grade } from '@/Drill'
 import { Hold } from '@/Hold'
+import { RATING_KEYS, useKeys, type Key } from '@/keys'
 import { Button } from '@/components/ui/button'
-import { paceLine, ratings, seconds, stitchLine, whenBack } from '@/prompts'
+import { keptLine, paceLine, ratings, seconds, stitchLine, whenBack } from '@/prompts'
 import { Speak } from '@/Speak'
 import { player, tempoFor, useStopOnLeave } from '@/speech'
 import { commonness, mark } from '@/words'
@@ -14,7 +17,7 @@ type Phase =
   | { kind: 'asking' }
   | { kind: 'revealed' }
   | { kind: 'grading' }
-  | { kind: 'graded'; reviewed: Reviewed }
+  | { kind: 'graded'; outcome: Outcome }
 
 /**
  * One word, asked in its sentence.
@@ -75,24 +78,65 @@ export function WordCard({
     void player.play(wordUrl)
   }
 
-  const grade = useCallback(
-    (rating: Rating) => {
-      setPhase({ kind: 'grading' })
-      const took = startedAt.current === null ? null : Date.now() - startedAt.current
-      void api
-        .reviewWord(word.id, rating, took)
-        .then((reviewed) => setPhase({ kind: 'graded', reviewed }))
-        // A failed save leaves the sitting going; the queue is re-read from
-        // the server on the way out.
-        .catch(() => onAnswered())
-    },
-    [word.id, onAnswered],
-  )
+  const grade = (rating: Rating) => {
+    setPhase({ kind: 'grading' })
+    void answerWord(word.id, rating, tookSince(startedAt.current))
+      .then((outcome) => setPhase({ kind: 'graded', outcome }))
+      // The answer could not even be kept here: the sitting goes on, and the
+      // card comes back with the next read.
+      .catch(() => onAnswered())
+  }
 
   const shown = phase.kind === 'meeting' || phase.kind === 'revealed'
 
+  const keys: Partial<Record<Key, () => void>> = {}
+  if (phase.kind === 'meeting') keys.space = () => setPhase({ kind: 'asking' })
+  else if (phase.kind === 'asking') keys.space = reveal
+  else if (phase.kind === 'graded') keys.space = onAnswered
+  else if (phase.kind === 'revealed') {
+    for (const [key, rating] of Object.entries(RATING_KEYS)) keys[key as Key] = () => grade(rating)
+  }
+  useKeys(keys)
+
+  const big = 'px-4 py-4 text-xl'
+  let actions: ReactNode = null
+  if (phase.kind === 'meeting') {
+    actions = (
+      <Button onClick={() => setPhase({ kind: 'asking' })} variant="primary" size={null} className={big}>
+        Got it - ask me
+      </Button>
+    )
+  } else if (phase.kind === 'asking') {
+    actions = (
+      <Button onClick={reveal} variant="primary" size={null} className={big}>
+        Show what it means
+      </Button>
+    )
+  } else if (phase.kind === 'revealed') {
+    actions = (
+      <div className="grid grid-cols-2 gap-2">
+        {ratings.map(({ rating, label, hint }, index) => (
+          <Grade key={rating} onClick={() => grade(rating)} label={label} hint={hint} shortcut={String(index + 1)} />
+        ))}
+      </div>
+    )
+  } else if (phase.kind === 'graded') {
+    actions = (
+      <Button onClick={onAnswered} variant="primary" size={null} className={big}>
+        {position < total ? 'Next' : 'Finish'}
+      </Button>
+    )
+  }
+
   return (
-    <Shell>
+    <Shell
+      actions={actions}
+      aside={
+        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
+          Stop for now
+        </Button>
+      }
+    >
       <header className="flex items-baseline justify-between gap-3">
         <p className="text-xs tracking-caption text-faint uppercase">{due.is_new ? 'A new word' : 'A word in its sentence'}</p>
         <span className="shrink-0 font-mono text-xs text-faint">
@@ -116,9 +160,6 @@ export function WordCard({
           <p className="text-xl text-dim">
             What does <span className="font-semibold text-text">{anchor?.form ?? word.lemma}</span> mean here?
           </p>
-          <Button onClick={reveal} variant="ghost" size={null} className="px-4 py-4 text-xl text-text">
-            Show what it means
-          </Button>
           {due.pace && <p className="text-xs text-faint">Usually {seconds(due.pace.typical_ms)}</p>}
         </section>
       )}
@@ -141,48 +182,22 @@ export function WordCard({
         </section>
       )}
 
-      {phase.kind === 'meeting' && (
-        <Button onClick={() => setPhase({ kind: 'asking' })} variant="primary" size={null} className="px-4 py-4 text-xl">
-          Got it - ask me
-        </Button>
-      )}
+      {phase.kind === 'revealed' && <p className="text-xl text-dim">Did it come?</p>}
 
-      {phase.kind === 'revealed' && (
-        <section className="flex flex-col gap-3">
-          <p className="text-xl text-dim">Did it come?</p>
-          {ratings.map(({ rating, label, hint }) => (
-            <Button
-              key={rating}
-              onClick={() => grade(rating)}
-              variant="ghost"
-              size={null}
-              className="items-baseline justify-between px-4 py-4 text-left text-text"
-            >
-              <span className="text-xl font-medium">{label}</span>
-              <span className="text-base text-faint">{hint}</span>
-            </Button>
-          ))}
-        </section>
-      )}
+      {phase.kind === 'grading' && <p className="text-xl text-dim">Saving…</p>}
 
-      {phase.kind === 'graded' && (
-        <section className="flex flex-col gap-4">
-          <p className="text-xl">
-            {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
-          </p>
-          <Hold stability={phase.reviewed.stability} was={phase.reviewed.stability_before} />
-          {paceLine(phase.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.reviewed.pace)}</p>}
-          <Button onClick={onAnswered} variant="primary" size={null} className="px-4 py-4 text-xl">
-            {position < total ? 'Next' : 'Finish'}
-          </Button>
-        </section>
-      )}
-
-      <footer className="mt-auto pt-6">
-        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
-          Stop for now
-        </Button>
-      </footer>
+      {phase.kind === 'graded' &&
+        (phase.outcome.kind === 'taken' ? (
+          <section className="flex flex-col gap-4">
+            <p className="text-xl">
+              {stitchLine(phase.outcome.reviewed.stitch)} Back {whenBack(phase.outcome.reviewed.interval_days)}.
+            </p>
+            <Hold stability={phase.outcome.reviewed.stability} was={phase.outcome.reviewed.stability_before} />
+            {paceLine(phase.outcome.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.outcome.reviewed.pace)}</p>}
+          </section>
+        ) : (
+          <p className="text-base text-faint">{keptLine()}</p>
+        ))}
     </Shell>
   )
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Due, Formula, Room, Word } from '@/api'
-import { describeQueue, nextLine } from '@/today'
+import { asOfLine, describeQueue, nextLine, waitingLine } from '@/today'
 
 const formula = { id: 'f' } as Formula
 const word = { id: 'en:doctor' } as Word
@@ -59,5 +59,32 @@ describe('nextLine', () => {
   it('says when it is the debt that holds the formula of the day', () => {
     const owing: Room = { debt: 12, words: 0, formulas: 0 }
     expect(nextLine({ id: 'want', name: 'want to', waits_for: [] }, owing)).toBe('Next: "want to", on a day that begins with fewer cards left over.')
+  })
+})
+
+describe('what the answers on this device wait for', () => {
+  const quiet = { waiting: 0, unkept: 0, signIn: false, refused: 0 }
+
+  it('says nothing when every answer is in', () => {
+    expect(waitingLine(quiet)).toBeNull()
+  })
+
+  it('says whether they wait for the tutor or for a sign-in', () => {
+    expect(waitingLine({ ...quiet, waiting: 1 })).toBe('1 answer on this device waits to reach the tutor.')
+    expect(waitingLine({ ...quiet, waiting: 3, signIn: true })).toBe('3 answers on this device wait for you to sign in again.')
+  })
+
+  it('warns when the browser will not keep them, and counts what the tutor refused', () => {
+    const line = waitingLine({ waiting: 2, unkept: 2, signIn: false, refused: 1 })
+    expect(line).toContain('lost if the page is closed')
+    expect(line).toContain('refused one answer')
+  })
+})
+
+describe('a Today kept for the road', () => {
+  it('says how old it is', () => {
+    const now = new Date('2026-10-20T18:00:00')
+    expect(asOfLine(new Date('2026-10-20T08:30:00').toISOString(), now)).toMatch(/^Out of the tutor's reach - this is today as it stood at 08:30\./)
+    expect(asOfLine(new Date('2026-10-18T08:30:00').toISOString(), now)).toContain('on Sunday, October 18, 08:30')
   })
 })

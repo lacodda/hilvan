@@ -1,6 +1,7 @@
 /** What today's queue holds, said in a sentence or two. */
 
 import type { Due, Next, Room } from '@/api'
+import type { DeliveryState } from '@/delivery'
 
 /** "formula" or "formulas", "word" or "words". */
 function counted(n: number, one: string): string {
@@ -63,4 +64,43 @@ export function nextLine(next: Next | null, room: Room): string | null {
   const names = next.waits_for.map((parent) => `"${parent.name}"`)
   const list = names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`
   return `Next: "${next.name}", once ${list} ${names.length === 1 ? 'is' : 'are'} sewn.`
+}
+
+// The interface is written in English, and its dates read in it.
+const clock = new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+const weekday = new Intl.DateTimeFormat('en', { weekday: 'long', day: 'numeric', month: 'long' })
+
+/**
+ * Said when Today is the copy kept on the device because the tutor is out
+ * of reach: how old it is, so a learner who studies from it knows.
+ */
+export function asOfLine(asOf: string, now: Date = new Date()): string {
+  const then = new Date(asOf)
+  const time = clock.format(then)
+  const sameDay = then.toDateString() === now.toDateString()
+  const when = sameDay ? `at ${time}` : `on ${weekday.format(then)}, ${time}`
+  return `Out of the tutor's reach - this is today as it stood ${when}. Answers wait on this device and go when it can be reached.`
+}
+
+/**
+ * What the answers on this device are waiting for, if any: the tutor, a
+ * sign-in, or nothing at all because the page will not keep them.
+ */
+export function waitingLine(state: Pick<DeliveryState, 'waiting' | 'unkept' | 'signIn' | 'refused'>): string | null {
+  const lines: string[] = []
+  if (state.waiting > 0) {
+    const answers = state.waiting === 1 ? '1 answer on this device waits' : `${state.waiting} answers on this device wait`
+    lines.push(state.signIn ? `${answers} for you to sign in again.` : `${answers} to reach the tutor.`)
+  }
+  if (state.unkept > 0) {
+    lines.push('This browser will not keep them on the device: they are lost if the page is closed before they are sent.')
+  }
+  if (state.refused > 0) {
+    lines.push(
+      state.refused === 1
+        ? 'The tutor refused one answer - its card is no longer in a pack.'
+        : `The tutor refused ${state.refused} answers - their cards are no longer in a pack.`,
+    )
+  }
+  return lines.length > 0 ? lines.join(' ') : null
 }

@@ -255,7 +255,35 @@ export interface Today {
   away_since: string | null
   /** What slipped last week, while this week has had no answer yet. */
   last_week: Note | null
+  /** When the tutor read this: a copy kept on the device says how old it is. */
+  as_of: string
+  /** How long an answer usually takes, by kind: what a short sitting is measured with. */
+  usual: Usual
+  /** When the cards not in the queue come back over the next week, earliest first. */
+  coming: string[]
 }
+
+/** How long an answer usually takes, in milliseconds; null before there are enough. */
+export interface Usual {
+  produce: number | null
+  recognise: number | null
+  word: number | null
+}
+
+/** Today as the device read it: from the tutor, or from the copy kept for the road. */
+export interface Read {
+  today: Today
+  /** True when the tutor was out of reach and this is the copy last read. */
+  cached: boolean
+  /** When the read began, by this device's clock. */
+  readAt: number
+}
+
+/**
+ * Put on an answer the service worker gave from its copy because the tutor
+ * did not answer. Named in `public/sw.js` too.
+ */
+export const FROM_CACHE = 'x-hilvan-cached'
 
 /** Something the learner had come up with, and then could not. */
 export interface Slip {
@@ -478,11 +506,24 @@ export class Unauthorized extends Error {
   }
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${path}`, {
-    ...init,
-    headers: init?.body ? { 'content-type': 'application/json', ...init.headers } : init?.headers,
-  })
+/** The tutor could not be reached, and nothing was kept to answer instead. */
+export class Unreachable extends Error {
+  constructor() {
+    super('The tutor cannot be reached from here, and nothing was kept on this device to go on with.')
+    this.name = 'Unreachable'
+  }
+}
+
+async function respond(path: string, init?: RequestInit): Promise<Response> {
+  let response: Response
+  try {
+    response = await fetch(`/api${path}`, {
+      ...init,
+      headers: init?.body ? { 'content-type': 'application/json', ...init.headers } : init?.headers,
+    })
+  } catch {
+    throw new Unreachable()
+  }
   if (response.status === 401) {
     throw new Unauthorized()
   }
@@ -490,35 +531,25 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await response.json().catch(() => null)) as { error?: string } | null
     throw new Error(body?.error ?? `the server answered ${response.status}`)
   }
-  return (await response.json()) as T
+  return response
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await (await respond(path, init)).json()) as T
 }
 
 export const api = {
   session: () => call<Session>('/session'),
   logIn: (password: string) => call<Session>('/session', { method: 'POST', body: JSON.stringify({ password }) }),
   logOut: () => call<Session>('/session', { method: 'DELETE' }),
-  today: () => call<Today>('/today'),
+  /** Today, from the tutor or - out of its reach - from the copy the worker kept. */
+  today: async (): Promise<Read> => {
+    const readAt = Date.now()
+    const response = await respond('/today')
+    return { today: (await response.json()) as Today, cached: response.headers.get(FROM_CACHE) === '1', readAt }
+  },
   formula: (id: string) => call<Formula>(`/formulas/${encodeURIComponent(id)}`),
-  check: (id: string, turn: Turn) =>
-    call<Checked>(`/formulas/${encodeURIComponent(id)}/check`, { method: 'POST', body: JSON.stringify(turn) }),
-  /** Saying it: the typed turns are the answer, and the server grades them. */
-  reviewSaid: (id: string, turns: Turn[], easy: boolean, durationMs: number | null) =>
-    call<Reviewed>(`/formulas/${encodeURIComponent(id)}/review`, {
-      method: 'POST',
-      body: JSON.stringify({ direction: 'produce', turns, easy, duration_ms: durationMs }),
-    }),
-  /** Understanding it: heard, and graded by the learner. */
-  reviewHeard: (id: string, rating: Rating, durationMs: number | null) =>
-    call<Reviewed>(`/formulas/${encodeURIComponent(id)}/review`, {
-      method: 'POST',
-      body: JSON.stringify({ direction: 'recognise', rating, duration_ms: durationMs }),
-    }),
   word: (id: string) => call<Word>(`/words/${encodeURIComponent(id)}`),
-  reviewWord: (id: string, rating: Rating, durationMs: number | null) =>
-    call<Reviewed>(`/words/${encodeURIComponent(id)}/review`, {
-      method: 'POST',
-      body: JSON.stringify({ rating, duration_ms: durationMs }),
-    }),
   voices: () => call<VoicesScreen>('/voices'),
   chooseVoice: (language: string, voice: Voice) =>
     call<Voice>(`/voices/${encodeURIComponent(language)}`, {

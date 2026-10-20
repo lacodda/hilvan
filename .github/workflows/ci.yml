@@ -41,9 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Read rust-version from the manifest
+      # The highest any crate of the workspace declares: the server, the core
+      # and the checker are built together, so the oldest toolchain that
+      # builds all three is the promise.
+      - name: Read rust-version from the manifests
         id: msrv
-        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].rust_version')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[].rust_version | select(.)] | max_by(split(".") | map(tonumber))')" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
@@ -62,6 +65,13 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v7
+      # The app checks typed turns with the core built to WebAssembly
+      # (crates/check), and its tests run that module: `pnpm test` and
+      # `pnpm build` build it with cargo.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       # The version comes from packageManager in the project's own manifest:
       # the repository root has no package.json, the Node projects live in
       # subdirectories.

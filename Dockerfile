@@ -3,25 +3,43 @@
 # chance of shipping an x86 binary that only fails on the stand. The publish
 # workflow builds the same file on native arm64 and amd64 runners.
 
+# ------------------------------------------------------------ the checker
+# The core built to WebAssembly: the app checks a typed turn with the code
+# the server grades it with (crates/check). Built here, where cargo is, and
+# handed to the Node stage below, where it is not.
+FROM rust:1-slim-trixie AS checker
+WORKDIR /src
+RUN rustup target add wasm32-unknown-unknown
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+# The server's own sources are not needed for the checker, but the workspace
+# names the server as its root package, and cargo wants it to have a target.
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
+    && cargo build -p hilvan-check --target wasm32-unknown-unknown --profile wasm
+
 # ---------------------------------------------------------------- the SPA
 FROM node:22-slim AS web
 WORKDIR /web
 
 # Dependencies first, so a source-only change does not reinstall them.
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN corepack enable && corepack prepare --activate && pnpm install --frozen-lockfile
 
 COPY web/ ./
-RUN pnpm build
+COPY --from=checker /src/target/wasm32-unknown-unknown/wasm/hilvan_check.wasm /checker/hilvan_check.wasm
+RUN HILVAN_CHECK_WASM=/checker/hilvan_check.wasm pnpm build
 
 # ------------------------------------------------------------- the server
 FROM rust:1-slim-trixie AS server
 WORKDIR /src
 
 # A stub crate lets the dependency build cache survive source changes, which
-# is what makes a rebuild on a Pi bearable rather than a coffee break.
+# is what makes a rebuild on a Pi bearable rather than a coffee break. The
+# core is a crate of the workspace the server depends on, so it comes in
+# with the manifests.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs && cargo build --release && rm -rf src
+COPY crates/ crates/
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs && cargo build --release -p hilvan && rm -rf src
 
 COPY src/ src/
 COPY migrations/ migrations/
@@ -30,7 +48,7 @@ COPY demo/ demo/
 # Migrations, the lexicon and the demo learner are embedded at compile time,
 # so a change to any of them has to invalidate the build. Touching the entry
 # points is what tells cargo the stub is stale.
-RUN touch src/main.rs src/lib.rs && cargo build --release
+RUN touch src/main.rs src/lib.rs && cargo build --release -p hilvan
 
 # ------------------------------------------------------------- the runtime
 FROM debian:trixie-slim

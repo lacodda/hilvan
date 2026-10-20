@@ -9,7 +9,51 @@
   "background_color": "#0b0b0d",
   "theme_color": "#d64550",
   "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "description": "What is waiting today",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icon-512.png",
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Ten minutes",
+      "short_name": "10 min",
+      "description": "A sitting that fits ten minutes",
+      "url": "/?minutes=10",
+      "icons": [
+        {
+          "src": "/icon-512.png",
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

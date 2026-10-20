@@ -4,6 +4,8 @@ target
 node_modules
 web/node_modules
 web/dist
+# Built from crates/check in its own stage of the image.
+web/src/check.wasm
 docs/site/node_modules
 docs/site/dist
 docs/site/.astro

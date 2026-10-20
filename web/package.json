@@ -7,10 +7,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "check-wasm": "node scripts/check-wasm.mjs",
+    "build": "node scripts/check-wasm.mjs && tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . && tsc --noEmit",
-    "test": "vitest run"
+    "test": "node scripts/check-wasm.mjs && vitest run"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

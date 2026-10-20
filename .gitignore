@@ -7,6 +7,9 @@ node_modules/
 dist/
 .astro/
 
+# The checker, built from crates/check by web/scripts/check-wasm.mjs.
+/web/src/check.wasm
+
 # Environment
 .env
 .env.*

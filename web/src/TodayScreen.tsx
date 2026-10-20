@@ -1,10 +1,16 @@
-import type { Counts, Stitch, Today, Words } from '@/api'
-import { Shell } from '@/App'
+import type { Counts, Due, Stitch, Words } from '@/api'
+import { Shell, type Day } from '@/App'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { useDelivery } from '@/delivery'
+import { useKeys } from '@/keys'
 import { awayLine, breakLine, roomLine } from '@/schedule'
-import { describeQueue, nextLine } from '@/today'
+import { fitting, minutesOf } from '@/sitting'
+import { asOfLine, describeQueue, nextLine, waitingLine } from '@/today'
 import { levelLine, levelName } from '@/words'
+
+/** The short sittings offered: a stop or two, a coffee, a ride. */
+const SHORT_SITTINGS = [5, 10, 15] as const
 
 /** The word the learner sees for each state, and what it means. */
 const stitches = [
@@ -23,7 +29,7 @@ const stitches = [
  * earlier ones opens fewer new ones, and says so; a break empties it.
  */
 export function TodayScreen({
-  today,
+  day,
   onStart,
   onListen,
   onVoices,
@@ -34,10 +40,11 @@ export function TodayScreen({
   onBack,
   onCountAway,
   onDrift,
-  onSignOut,
+  onDevice,
 }: {
-  today: Today
-  onStart: () => void
+  day: Day
+  /** Starts a sitting over these cards: the whole queue, or what fits a few minutes. */
+  onStart: (items: Due[]) => void
   onListen: () => void
   onVoices: () => void
   onOwnWords: () => void
@@ -49,33 +56,69 @@ export function TodayScreen({
   /** The time since the last answer is counted as a break. */
   onCountAway: () => void
   onDrift: () => void
-  onSignOut: () => void
+  /** What this device keeps, how it looks, and signing it out. */
+  onDevice: () => void
 }) {
+  const { read, queue } = day
+  const today = read.today
+  const delivery = useDelivery()
   const started = today.progress.produce.basted + today.progress.produce.sewn + today.progress.recognise.basted + today.progress.recognise.sewn > 0
-  const waiting = today.queue.length
+  const waiting = queue.length
+  const answeredHere = today.queue.length - queue.length
   const owing = roomLine(today.room)
+  const sending = waitingLine(delivery)
+
+  useKeys(waiting > 0 && !today.on_break ? { space: () => onStart(queue) } : {})
+
+  // The thing the screen is for, where the thumb is: start, or come back
+  // from a break.
+  const actions = today.on_break ? (
+    <Button onClick={() => onBack(today.on_break!.id)} variant="primary" size={null} className="px-4 py-4 text-xl">
+      I&apos;m back
+    </Button>
+  ) : waiting > 0 ? (
+    <>
+      {minutesOf(queue, today.usual) > SHORT_SITTINGS[0] && (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <span className="text-base text-faint">Only a few minutes?</span>
+          <div className="flex flex-1 justify-end gap-2">
+            {SHORT_SITTINGS.map((minutes) => (
+              <Button
+                key={minutes}
+                onClick={() => onStart(fitting(queue, minutes, today.usual))}
+                variant="ghost"
+                size={null}
+                className="px-3 py-2 text-base text-text"
+              >
+                {minutes} min
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+      <Button onClick={() => onStart(queue)} variant="primary" size={null} className="px-4 py-4 text-xl">
+        Start <span className="text-base font-normal opacity-80">· about {minutesOf(queue, today.usual)} min</span>
+      </Button>
+    </>
+  ) : null
 
   return (
-    <Shell>
+    <Shell actions={actions}>
       <section className="flex flex-col gap-2">
         <h2 className="text-2xl font-semibold tracking-tight">Today</h2>
+        {read.cached && <p className="text-base text-warn">{asOfLine(today.as_of)}</p>}
         <p className="text-xl text-dim">
           {today.on_break
             ? breakLine(today.on_break)
             : waiting === 0
-              ? today.reviewed_today > 0
-                ? `Done for today - ${today.reviewed_today} answered. Come back tomorrow.`
+              ? today.reviewed_today + answeredHere > 0
+                ? `Done for today - ${today.reviewed_today + answeredHere} answered. Come back tomorrow.`
                 : 'Nothing is waiting. Load a pack to start.'
-              : describeQueue(today.queue)}
+              : describeQueue(queue)}
         </p>
         {owing && !today.on_break && <p className="text-base text-faint">{owing}</p>}
+        {sending && <p className="text-base text-faint">{sending}</p>}
       </section>
-
-      {today.on_break && (
-        <Button onClick={() => onBack(today.on_break!.id)} variant="primary" size={null} className="px-4 py-4 text-xl">
-          I&apos;m back
-        </Button>
-      )}
 
       {/* An absence nobody declared: one tap makes it a break, and what came
           due in it stops being owed. Offered until the first answer. */}
@@ -86,15 +129,6 @@ export function TodayScreen({
             Count it as a break
           </Button>
         </section>
-      )}
-
-      {waiting > 0 && (
-        <Button
-          onClick={onStart}
-          variant="primary" size={null} className="px-4 py-4 text-xl"
-        >
-          Start
-        </Button>
       )}
 
       {/* Listening is practice on what has been met, so it waits for the
@@ -148,7 +182,7 @@ export function TodayScreen({
 
       <YourWords words={today.words} />
 
-      <footer className="mt-auto flex flex-wrap gap-x-5 gap-y-2 pt-6">
+      <footer className="mt-auto flex flex-wrap gap-x-5 gap-y-2">
         <Button onClick={onOwnWords} variant="link" className="text-base text-faint underline">
           Your own words
         </Button>
@@ -169,8 +203,8 @@ export function TodayScreen({
         <Button onClick={onVoices} variant="link" className="text-base text-faint underline">
           Voices
         </Button>
-        <Button onClick={onSignOut} variant="link" className="text-base text-faint underline">
-          Sign out
+        <Button onClick={onDevice} variant="link" className="text-base text-faint underline">
+          This device
         </Button>
       </footer>
     </Shell>

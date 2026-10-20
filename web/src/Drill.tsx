@@ -1,16 +1,34 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { use, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
-import { api, speechUrl, type Checked, type Formula, type FormulaDue, type Rating, type Reviewed, type Stitch, type Turn } from '@/api'
+import { api, speechUrl, type Checked, type Formula, type FormulaDue, type Rating, type Stitch, type Turn } from '@/api'
+import { answerHeard, answerSaid, tookSince, type Outcome } from '@/answers'
 import { Shell } from '@/App'
+import { checker, Unchecked } from '@/core'
 import { Hold } from '@/Hold'
-import { ask, formLabels, gradeLine, instruction, ladder, nextPrompt, paceLine, ratings, seconds, stitchLine, tabs, tally, verdictLine, whenBack, type Prompt } from '@/prompts'
+import { RATING_KEYS, useKeys, type Key } from '@/keys'
+import {
+  ask,
+  formLabels,
+  gradeLine,
+  instruction,
+  keptLine,
+  ladder,
+  nextPrompt,
+  paceLine,
+  ratings,
+  seconds,
+  stitchLine,
+  tabs,
+  tally,
+  verdictLine,
+  whenBack,
+  type Prompt,
+} from '@/prompts'
+import { TURNS } from '@/sitting'
 import { Speak } from '@/Speak'
 import { player, sides, tempoFor, urlOf, useRecorder, useStopOnLeave, usePlaying } from '@/speech'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-
-/** How many turns one formula gets before it is graded. */
-const TURNS = 4
 
 /** A typed turn and what the check made of it. */
 interface Typed {
@@ -20,40 +38,47 @@ interface Typed {
 
 type Phase =
   | { kind: 'asking'; turn: number; prompt: Prompt; revealed: boolean }
-  | { kind: 'typing'; turn: number; prompt: Prompt; text: string; checking: boolean; checked: Checked | null; failed: boolean }
+  | { kind: 'typing'; turn: number; prompt: Prompt; text: string; checked: Checked | null; failed: string | null }
   | { kind: 'laddering' }
   | { kind: 'choosing' }
   | { kind: 'grading' }
-  | { kind: 'graded'; reviewed: Reviewed }
+  | { kind: 'graded'; rating: Rating; outcome: Outcome }
 
 /**
  * One formula, drilled.
  *
  * Said, the loop is: read a prompt in your own language, type the sentence,
- * and the machine says whether it is right - and when it is not, whether the
+ * and the checker says whether it is right - and when it is not, whether the
  * shape slipped, a word did not come, or the words came in the wrong order.
- * The turns are the answer: the server grades them, and the learner only
- * adds whether a flawless round cost thought. Understood, the loop is heard:
- * the English is played, the learner recalls what it means, looks, and
- * grades it themselves - what was understood is not something to type.
+ * The checker is the server's own code, built to run here (`core.ts`), so the
+ * verdict comes on a train as it does at home; the turns are the answer, and
+ * the tutor grades them again when they arrive. Understood, the loop is
+ * heard: the English is played, the learner recalls what it means, looks,
+ * and grades it themselves - what was understood is not something to type.
  *
- * The caller mounts this with the formula's id as `key`, so moving to the
- * next formula is a fresh component rather than an effect that resets four
+ * The questions were drawn when Today was read (`sitting.ts`), so their
+ * sounds are on the device. A form switched to draws its own.
+ *
+ * The caller mounts this with the card as `key`, so moving to the next
+ * formula is a fresh component rather than an effect that resets four
  * pieces of state and has to be kept in step with them.
  */
 export function Drill({
   due,
+  prompts,
   position,
   total,
   onAnswered,
   onLeave,
 }: {
   due: FormulaDue
+  prompts: readonly Prompt[]
   position: number
   total: number
   onAnswered: () => void
   onLeave: () => void
 }) {
+  const checking = use(checker())
   // The formula being drilled. It starts as the one the queue offered and
   // becomes whichever sister the learner switches to: what is on screen is
   // what gets graded, always.
@@ -64,14 +89,19 @@ export function Drill({
   useStopOnLeave()
 
   const saying = due.direction === 'produce'
-  const first = (formula: Formula): Phase => {
-    const prompt = nextPrompt(formula, 0, Math.random)
-    return saying ? typing(0, prompt) : { kind: 'asking', turn: 0, prompt, revealed: false }
+  /** The question of a turn: the one planned, for the queue's own form. */
+  const promptFor = (formula: Formula, turn: number): Prompt => {
+    const planned = formula.id === due.formula.id ? prompts[turn] : undefined
+    return planned ?? nextPrompt(formula, turn, Math.random)
   }
-  // The first prompt is drawn once, when the drill is built: drawing it
+  const fresh = (formula: Formula, turn: number): Phase => {
+    const prompt = promptFor(formula, turn)
+    return saying ? typing(turn, prompt) : { kind: 'asking', turn, prompt, revealed: false }
+  }
+  // The first question is settled once, when the drill is built: drawing it
   // during render would hand the learner a different sentence on every
   // repaint.
-  const [phase, setPhase] = useState<Phase>(() => first(due.formula))
+  const [phase, setPhase] = useState<Phase>(() => fresh(due.formula, 0))
   // The turns typed for the form on screen, in order: what the grade is.
   const [typed, setTyped] = useState<Typed[]>([])
   const [explaining, setExplaining] = useState(due.is_new)
@@ -81,10 +111,7 @@ export function Drill({
   const rungs = ladder(shown)
   const tempo = tempoFor(shownStitch, due.is_new && shown.id === due.formula.id)
 
-  const next = (turn: number) => {
-    const prompt = nextPrompt(shown, turn, Math.random)
-    setPhase(saying ? typing(turn, prompt) : { kind: 'asking', turn, prompt, revealed: false })
-  }
+  const next = (turn: number) => setPhase(fresh(shown, turn))
 
   const switchTo = (id: string) => {
     if (id === shown.id) return
@@ -95,47 +122,49 @@ export function Drill({
       .then((formula) => {
         setShown(formula)
         setShownStitch(sister?.stitch ?? 'new')
-        setPhase(first(formula))
+        setPhase(fresh(formula, 0))
         // Turns typed for the form before it are not this form's answer.
         setTyped([])
         // The clock starts over: how long this form took must not include the
         // time spent on the one before it.
         startedAt.current = Date.now()
       })
-      // A switch that fails leaves the drill where it was, which is a working
-      // drill: the learner loses a look at another form, not their sitting.
+      // A switch that fails - out of reach, the form never kept - leaves the
+      // drill where it was, which is a working drill: the learner loses a
+      // look at another form, not their sitting.
       .catch(() => undefined)
       .finally(() => setSwitching(false))
   }
 
-  const took = () => (startedAt.current === null ? null : Date.now() - startedAt.current)
+  const took = () => tookSince(startedAt.current)
 
-  const gradeHeard = useCallback(
-    (rating: Rating) => {
-      setPhase({ kind: 'grading' })
-      void api
-        // `shown`, not the queue's formula: the learner grades what they were
-        // just asked, which is the form on screen.
-        .reviewHeard(shown.id, rating, startedAt.current === null ? null : Date.now() - startedAt.current)
-        .then((reviewed) => setPhase({ kind: 'graded', reviewed }))
-        // A failed save is not worth stranding the learner mid-sitting: the
-        // queue is re-read from the server on the way out anyway.
-        .catch(() => onAnswered())
-    },
-    [shown.id, onAnswered],
-  )
+  /** The answer, into the line on this device; the tutor's reply when it comes in time. */
+  const give = (rating: Rating, send: () => Promise<Outcome>) => {
+    setPhase({ kind: 'grading' })
+    void send()
+      .then((outcome) => setPhase({ kind: 'graded', rating, outcome }))
+      // The answer could not even be kept here: the sitting goes on, and the
+      // card comes back with the next read.
+      .catch(() => onAnswered())
+  }
+
+  // `shown`, not the queue's formula: the learner grades what they were just
+  // asked, which is the form on screen.
+  const gradeHeard = (rating: Rating) => give(rating, () => answerHeard(shown.id, rating, took()))
 
   const gradeSaid = (easy: boolean) => {
-    setPhase({ kind: 'grading' })
-    void api
-      .reviewSaid(
+    const rating = checking.rate(
+      typed.map((entry) => entry.checked.failure),
+      easy,
+    )
+    give(rating, () =>
+      answerSaid(
         shown.id,
         typed.map((entry) => entry.turn),
         easy,
         took(),
-      )
-      .then((reviewed) => setPhase({ kind: 'graded', reviewed }))
-      .catch(() => onAnswered())
+      ),
+    )
   }
 
   // Done typing: a flawless round asks the one thing the machine cannot see,
@@ -144,6 +173,7 @@ export function Drill({
     if (typed.length > 0 && typed.every((entry) => entry.checked.correct)) setPhase({ kind: 'choosing' })
     else gradeSaid(false)
   }
+  const finish = () => (saying ? finishSaid() : setPhase({ kind: 'choosing' }))
 
   const prompt = phase.kind === 'asking' || phase.kind === 'typing' ? phase.prompt : null
   const question = prompt ? ask(prompt, due.direction) : null
@@ -166,69 +196,129 @@ export function Drill({
     if (answerUrl) void player.play(answerUrl)
   }
 
-  const check = (event: FormEvent) => {
-    event.preventDefault()
-    if (phase.kind !== 'typing' || phase.checking || phase.checked) return
+  const check = (event?: FormEvent) => {
+    event?.preventDefault()
+    if (phase.kind !== 'typing' || phase.checked) return
     const turn: Turn = { asked: phase.prompt.asked, typed: phase.text }
-    setPhase({ ...phase, checking: true, failed: false })
-    void api
-      .check(shown.id, turn)
-      .then((checked) => {
-        setTyped((before) => [...before, { turn, checked }])
-        setPhase({ ...phase, checking: false, checked })
-        // The field is done with: on a phone that puts the keyboard away so
-        // the verdict is in view, and its focus ring is not read as a mark.
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-        if (answerUrl) void player.play(answerUrl)
-      })
-      .catch(() => setPhase({ ...phase, checking: false, failed: true }))
+    let checked: Checked
+    try {
+      checked = checking.check(shown, turn)
+    } catch (error) {
+      setPhase({ ...phase, failed: error instanceof Unchecked ? error.message : 'The answer could not be checked.' })
+      return
+    }
+    setTyped((before) => [...before, { turn, checked }])
+    setPhase({ ...phase, checked, failed: null })
+    // The field is done with: on a phone that puts the keyboard away so the
+    // verdict is in view, and its focus ring is not read as a mark.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    if (answerUrl) void player.play(answerUrl)
   }
 
   const lastTurn = phase.kind === 'asking' || phase.kind === 'typing' ? phase.turn + 1 >= TURNS : false
-  const afterTurn = (
-    <div className="flex flex-col gap-2">
-      {!lastTurn && phase.kind !== 'laddering' ? (
-        <Button
-          onClick={() => (phase.kind === 'asking' || phase.kind === 'typing') && next(phase.turn + 1)}
-          variant="primary"
-          size={null}
-          className="px-4 py-4 text-xl"
-        >
-          Next
+  const turnDone = (phase.kind === 'typing' && phase.checked !== null) || (phase.kind === 'asking' && phase.revealed)
+  const advance = () => {
+    if (phase.kind !== 'asking' && phase.kind !== 'typing') return
+    if (lastTurn) finish()
+    else next(phase.turn + 1)
+  }
+
+  // The keyboard: the space bar does what the screen is waiting for, the
+  // numbers grade.
+  const keys: Partial<Record<Key, () => void>> = {}
+  if (explaining) keys.space = () => setExplaining(false)
+  else if (phase.kind === 'asking' && !phase.revealed) keys.space = reveal
+  else if (turnDone) keys.space = advance
+  else if (phase.kind === 'laddering') keys.space = finish
+  else if (phase.kind === 'graded') keys.space = onAnswered
+  else if (phase.kind === 'choosing' && !saying) {
+    for (const [key, rating] of Object.entries(RATING_KEYS)) keys[key as Key] = () => gradeHeard(rating)
+  } else if (phase.kind === 'choosing' && saying) {
+    keys['3'] = () => gradeSaid(false)
+    keys['4'] = () => gradeSaid(true)
+  }
+  useKeys(keys)
+
+  const big = 'px-4 py-4 text-xl'
+  let actions: ReactNode = null
+  if (explaining) {
+    actions = (
+      <Button onClick={() => setExplaining(false)} variant="primary" size={null} className={big}>
+        Got it
+      </Button>
+    )
+  } else if (phase.kind === 'typing' && phase.checked === null) {
+    actions = (
+      <Button type="submit" form="turn" variant="primary" size={null} className={big}>
+        {phase.text.trim() === '' ? "I don't know" : 'Check'}
+      </Button>
+    )
+  } else if (phase.kind === 'asking' && !phase.revealed) {
+    actions = (
+      <Button onClick={reveal} variant="primary" size={null} className={big}>
+        {instruction(due.direction)}
+      </Button>
+    )
+  } else if (turnDone) {
+    actions = (
+      <>
+        <div className="flex items-baseline justify-between gap-3">
+          {rungs.length > 1 ? (
+            <Button onClick={() => setPhase({ kind: 'laddering' })} variant="link" className="text-base text-faint underline">
+              Run the ladder
+            </Button>
+          ) : (
+            <span />
+          )}
+          {!lastTurn && (
+            <Button onClick={finish} variant="link" className="text-base text-faint underline">
+              Grade it now
+            </Button>
+          )}
+        </div>
+        <Button onClick={advance} variant="primary" size={null} className={big}>
+          {lastTurn ? (saying ? 'Grade it' : 'How did it go?') : 'Next'}
         </Button>
-      ) : (
-        <Button
-          onClick={() => (saying ? finishSaid() : setPhase({ kind: 'choosing' }))}
-          variant="primary"
-          size={null}
-          className="px-4 py-4 text-xl"
-        >
-          {saying ? 'Grade it' : 'How did it go?'}
-        </Button>
-      )}
-      <div className="flex items-baseline justify-between gap-3">
-        {rungs.length > 1 ? (
-          <Button onClick={() => setPhase({ kind: 'laddering' })} variant="link" className="text-base text-faint underline">
-            Run the ladder
-          </Button>
-        ) : (
-          <span />
-        )}
-        {!lastTurn && (
-          <Button
-            onClick={() => (saying ? finishSaid() : setPhase({ kind: 'choosing' }))}
-            variant="link"
-            className="text-base text-faint underline"
-          >
-            Grade it now
-          </Button>
-        )}
+      </>
+    )
+  } else if (phase.kind === 'laddering') {
+    actions = (
+      <Button onClick={finish} variant="primary" size={null} className={big}>
+        {saying ? 'Done - grade it' : 'Done - how did it go?'}
+      </Button>
+    )
+  } else if (phase.kind === 'choosing' && saying) {
+    actions = (
+      <div className="grid grid-cols-2 gap-2">
+        <Grade onClick={() => gradeSaid(false)} label="Good" hint="it came" shortcut="3" />
+        <Grade onClick={() => gradeSaid(true)} label="Easy" hint="without thinking" shortcut="4" />
       </div>
-    </div>
-  )
+    )
+  } else if (phase.kind === 'choosing') {
+    actions = (
+      <div className="grid grid-cols-2 gap-2">
+        {ratings.map(({ rating, label, hint }, index) => (
+          <Grade key={rating} onClick={() => gradeHeard(rating)} label={label} hint={hint} shortcut={String(index + 1)} />
+        ))}
+      </div>
+    )
+  } else if (phase.kind === 'graded') {
+    actions = (
+      <Button onClick={onAnswered} variant="primary" size={null} className={big}>
+        {position < total ? 'Next' : 'Finish'}
+      </Button>
+    )
+  }
 
   return (
-    <Shell>
+    <Shell
+      actions={actions}
+      aside={
+        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
+          Stop for now
+        </Button>
+      }
+    >
       <header className="flex items-baseline justify-between gap-3">
         <div className="flex flex-col gap-1">
           <h2 className="text-xl font-semibold tracking-tight">{shown.name}</h2>
@@ -249,9 +339,7 @@ export function Drill({
 
       {explaining && (
         <section className="flex flex-col gap-3 rounded-md bg-raise p-4">
-          {shown.parents.length > 0 && (
-            <p className="text-base text-faint">Built on {shown.parents.map((parent) => parent.name).join(' · ')}</p>
-          )}
+          {shown.parents.length > 0 && <p className="text-base text-faint">Built on {shown.parents.map((parent) => parent.name).join(' · ')}</p>}
           <div className="flex items-start gap-3">
             <p className="flex-1 text-lg leading-relaxed text-dim">{shown.explanation}</p>
             <Speak url={speechUrl(shown.languages.native, shown.explanation, 'normal')} label="Read the explanation aloud" />
@@ -266,9 +354,6 @@ export function Drill({
               </li>
             ))}
           </ul>
-          <Button onClick={() => setExplaining(false)} variant="primary" size={null} className="self-start px-4 py-2 text-lg">
-            Got it
-          </Button>
         </section>
       )}
 
@@ -279,7 +364,7 @@ export function Drill({
             <Speak url={questionUrl} label="Hear the question" />
           </div>
 
-          <form onSubmit={check} className="flex flex-col gap-3">
+          <form id="turn" onSubmit={check} className="flex flex-col gap-3">
             <Input
               // A new turn is a new field: the text of the one before must not
               // linger, and the keyboard should come straight back up.
@@ -300,19 +385,13 @@ export function Drill({
               // text-lg: a phone zooms into a field whose text is under 16px.
               className="h-auto px-3 py-3 text-lg"
             />
-            {phase.checked === null && (
-              <Button type="submit" disabled={phase.checking} variant="primary" size={null} className="px-4 py-4 text-xl">
-                {phase.checking ? 'Checking…' : phase.text.trim() === '' ? "I don't know" : 'Check'}
-              </Button>
-            )}
-            {phase.failed && <p className="text-base text-bad">The answer could not be checked. Try again.</p>}
+            {phase.failed && <p className="text-base text-bad">{phase.failed}</p>}
           </form>
 
           {phase.checked && (
             <>
               <Verdict checked={phase.checked} answerUrl={answerUrl} />
               {answerUrl && <OwnVoice key={answerUrl} native={answerUrl} />}
-              {afterTurn}
             </>
           )}
 
@@ -330,18 +409,11 @@ export function Drill({
             <Speak url={questionUrl} label="Hear the question" />
           </div>
 
-          {phase.revealed ? (
-            <>
-              <div className="flex items-start justify-between gap-3 border-t border-line pt-4">
-                <p className="text-2xl leading-snug text-accent">{question.target}</p>
-                <Speak url={answerUrl} label="Hear the answer" />
-              </div>
-              {afterTurn}
-            </>
-          ) : (
-            <Button onClick={reveal} variant="ghost" size={null} className="px-4 py-4 text-xl text-text">
-              {instruction(due.direction)}
-            </Button>
+          {phase.revealed && (
+            <div className="flex items-start justify-between gap-3 border-t border-line pt-4">
+              <p className="text-2xl leading-snug text-accent">{question.target}</p>
+              <Speak url={answerUrl} label="Hear the answer" />
+            </div>
           )}
 
           <p className="text-xs text-faint">
@@ -370,77 +442,52 @@ export function Drill({
           >
             Hear them all
           </Button>
-          <Button
-            onClick={() => (saying ? finishSaid() : setPhase({ kind: 'choosing' }))}
-            variant="primary"
-            size={null}
-            className="px-4 py-4 text-xl"
-          >
-            {saying ? 'Done - grade it' : 'Done - how did it go?'}
-          </Button>
         </section>
       )}
 
-      {!explaining && phase.kind === 'choosing' && saying && (
-        <section className="flex flex-col gap-3">
-          <p className="text-xl">{tally(typed.map((entry) => entry.checked))} Did it cost thought?</p>
-          <Button onClick={() => gradeSaid(false)} variant="ghost" size={null} className="items-baseline justify-between px-4 py-4 text-left text-text">
-            <span className="text-xl font-medium">Good</span>
-            <span className="text-base text-faint">it came</span>
-          </Button>
-          <Button onClick={() => gradeSaid(true)} variant="ghost" size={null} className="items-baseline justify-between px-4 py-4 text-left text-text">
-            <span className="text-xl font-medium">Easy</span>
-            <span className="text-base text-faint">without thinking</span>
-          </Button>
-        </section>
-      )}
-
-      {!explaining && phase.kind === 'choosing' && !saying && (
-        <section className="flex flex-col gap-3">
-          <p className="text-xl text-dim">How did that go?</p>
-          {ratings.map(({ rating, label, hint }) => (
-            <Button
-              key={rating}
-              onClick={() => gradeHeard(rating)}
-              variant="ghost"
-              size={null}
-              className="items-baseline justify-between px-4 py-4 text-left text-text"
-            >
-              <span className="text-xl font-medium">{label}</span>
-              <span className="text-base text-faint">{hint}</span>
-            </Button>
-          ))}
-        </section>
+      {!explaining && phase.kind === 'choosing' && (
+        <p className="text-xl text-dim">{saying ? `${tally(typed.map((entry) => entry.checked))} Did it cost thought?` : 'How did that go?'}</p>
       )}
 
       {phase.kind === 'grading' && <p className="text-xl text-dim">Saving…</p>}
 
       {phase.kind === 'graded' && (
         <section className="flex flex-col gap-4">
-          {saying && <p className="text-xl">{gradeLine(phase.reviewed.rating, phase.reviewed.words)}</p>}
-          <p className="text-xl">
-            {stitchLine(phase.reviewed.stitch)} Back {whenBack(phase.reviewed.interval_days)}.
-          </p>
-          <Hold stability={phase.reviewed.stability} was={phase.reviewed.stability_before} />
-          {paceLine(phase.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.reviewed.pace)}</p>}
-          <Button onClick={onAnswered} variant="primary" size={null} className="px-4 py-4 text-xl">
-            {position < total ? 'Next' : 'Finish'}
-          </Button>
+          {saying && <p className="text-xl">{gradeLine(phase.rating, phase.outcome.kind === 'taken' ? phase.outcome.reviewed.words : [])}</p>}
+          {phase.outcome.kind === 'taken' ? (
+            <>
+              <p className="text-xl">
+                {stitchLine(phase.outcome.reviewed.stitch)} Back {whenBack(phase.outcome.reviewed.interval_days)}.
+              </p>
+              <Hold stability={phase.outcome.reviewed.stability} was={phase.outcome.reviewed.stability_before} />
+              {paceLine(phase.outcome.reviewed.pace) && <p className="text-base text-faint">{paceLine(phase.outcome.reviewed.pace)}</p>}
+            </>
+          ) : (
+            <p className="text-base text-faint">{keptLine()}</p>
+          )}
         </section>
       )}
-
-      <footer className="mt-auto pt-6">
-        <Button onClick={onLeave} variant="link" className="text-base text-faint underline">
-          Stop for now
-        </Button>
-      </footer>
     </Shell>
   )
 }
 
 /** A fresh typing turn. */
 function typing(turn: number, prompt: Prompt): Phase {
-  return { kind: 'typing', turn, prompt, text: '', checking: false, checked: null, failed: false }
+  return { kind: 'typing', turn, prompt, text: '', checked: null, failed: null }
+}
+
+/** One grade, with what it means and the key that gives it. */
+export function Grade({ onClick, label, hint, shortcut }: { onClick: () => void; label: string; hint: string; shortcut: string }) {
+  return (
+    <Button onClick={onClick} variant="ghost" size={null} className="flex-col items-start gap-0.5 px-4 py-3 text-left text-text">
+      <span className="flex w-full items-baseline justify-between gap-2">
+        <span className="text-xl font-medium">{label}</span>
+        {/* The key, for a keyboard; a phone has none, and the hint reads on. */}
+        <kbd className="hidden font-mono text-xs text-faint pointer-fine:inline">{shortcut}</kbd>
+      </span>
+      <span className="text-base text-faint">{hint}</span>
+    </Button>
+  )
 }
 
 /**
@@ -538,15 +585,7 @@ function OwnVoice({ native }: { native: string }) {
  * form stands, so the untouched question is visible next to the sewn
  * statement.
  */
-function Forms({
-  formula,
-  busy,
-  onSwitch,
-}: {
-  formula: Formula
-  busy: boolean
-  onSwitch: (id: string) => void
-}) {
+function Forms({ formula, busy, onSwitch }: { formula: Formula; busy: boolean; onSwitch: (id: string) => void }) {
   const switches = tabs(formula)
   if (switches.length === 0) return null
 
