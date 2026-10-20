@@ -67,7 +67,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.7.0**: a schedule that lives with you. A break stops its clock and an absence can be counted as one afterwards, so coming back is not a wall of reviews; cards left over from earlier days take the places of new ones; what slipped is listed by week and opens the first sitting of the next; and each card shows how firmly it holds as a bar. Thirty formulas for a Russian speaker, an inventory of the words you know, the learner model as one file, every sentence heard, on a phone. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) for what landed in each version, and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr) for the architecture.
+**v0.7.0**, early, built for one learner: thirty formulas for a Russian speaker, words in their sentences, an inventory of what you know, a schedule that stops for a break, and the learner model as one file - on a phone. What landed in each version is in the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md), the architecture in the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
 
 ## Documentation
 
