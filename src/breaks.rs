@@ -290,7 +290,9 @@ mod tests {
             rating: Rating::Good,
             duration_ms: None,
         };
-        study::review(pool, "f0", heard, now).await.expect("the answer should be taken");
+        study::review(pool, "f0", study::arriving(heard), now)
+            .await
+            .expect("the answer should be taken");
     }
 
     #[tokio::test]

@@ -1,0 +1,27 @@
+[package]
+name = "hilvan-check"
+# Versioned with the app it is built into, like the core.
+edition = "2024"
+rust-version = "1.94"
+description = "hilvan's core built to WebAssembly: the tutor app checks a typed turn with the code the server grades it with"
+license = "MIT"
+repository = "https://github.com/lacodda/hilvan"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hilvan-core = { path = "../core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+# The workspace forbids unsafe code; a WebAssembly export has to be named
+# with `#[unsafe(no_mangle)]`, which is the one unsafe thing here, allowed on
+# the module that holds the exports and nowhere else.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

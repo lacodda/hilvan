@@ -228,14 +228,14 @@ async fn sitting(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<Utc>) {
                             duration_ms: Some(duration_ms),
                         },
                     };
-                    study::review(pool, &formula.id, answer, *now).await.unwrap();
+                    study::review(pool, &formula.id, sent(answer, *now), *now).await.unwrap();
                 }
                 Subject::Word { word } => {
                     let graded = Graded {
                         rating: dice.rating([0.08, 0.17, 0.6, 0.15]),
                         duration_ms: Some(duration_ms),
                     };
-                    study::review_word(pool, &word.id, graded, *now).await.unwrap();
+                    study::review_word(pool, &word.id, sent(graded, *now), *now).await.unwrap();
                 }
             }
             *now += Duration::milliseconds(duration_ms + 3_000);
@@ -737,5 +737,15 @@ fn the_demo_is_a_file_of_its_own_not_of_this_machine() {
     let text = model::DEMO;
     for private in ["C:\\", "/home/", "/Users/", ".pi", "192.168."] {
         assert!(!text.contains(private), "the demo holds {private:?}");
+    }
+}
+
+/// An answer as the demo learner's phone would send it, given the moment it
+/// is taken: one learner, one answer at a time, so the moment is its identity.
+fn sent<T>(answer: T, at: DateTime<Utc>) -> study::Sent<T> {
+    study::Sent {
+        answer_id: format!("demo-{}", at.timestamp_millis()),
+        answered_at: at,
+        answer,
     }
 }

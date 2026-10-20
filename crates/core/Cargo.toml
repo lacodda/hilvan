@@ -1,0 +1,20 @@
+[package]
+name = "hilvan-core"
+# No version of its own: the crate ships inside the hilvan binary and, built
+# to WebAssembly, inside the tutor app - it is versioned with them.
+edition = "2024"
+rust-version = "1.94"
+description = "What hilvan decides the same way on the server and on the phone: whether a typed answer is right, and the grade a round of them earns"
+license = "MIT"
+repository = "https://github.com/lacodda/hilvan"
+publish = false
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+
+[dev-dependencies]
+serde_json = "1.0.154"
+
+[lints]
+workspace = true

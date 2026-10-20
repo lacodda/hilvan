@@ -25,7 +25,7 @@ use crate::drift;
 use crate::inventory;
 use crate::model;
 use crate::own::{self, NewWord, Refused};
-use crate::study::{self, Answer, AnswerError, Graded, Turn};
+use crate::study::{self, Answer, AnswerError, Graded, Sent};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
 use crate::words;
 
@@ -57,7 +57,6 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
     let study = Router::new()
         .route("/today", get(today))
         .route("/formulas/{id}", get(formula))
-        .route("/formulas/{id}/check", post(check))
         .route("/formulas/{id}/review", post(review))
         .route("/own-words", get(own_words).post(add_own_word))
         .route("/own-words/{id}", delete(remove_own_word))
@@ -316,15 +315,8 @@ async fn formula(State(state): State<AppState>, UrlPath(id): UrlPath<String>) ->
     }
 }
 
-async fn check(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(turn): Json<Turn>) -> Response {
-    match study::check(&state.pool, &id, &turn).await {
-        Ok(checked) => Json(checked).into_response(),
-        Err(error) => answer_failed(error),
-    }
-}
-
-async fn review(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(answer): Json<Answer>) -> Response {
-    match study::review(&state.pool, &id, answer, Utc::now()).await {
+async fn review(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(sent): Json<Sent<Answer>>) -> Response {
+    match study::review(&state.pool, &id, sent, Utc::now()).await {
         Ok(reviewed) => Json(reviewed).into_response(),
         Err(error) => answer_failed(error),
     }
@@ -373,10 +365,10 @@ async fn word(State(state): State<AppState>, UrlPath(id): UrlPath<String>) -> Re
     }
 }
 
-async fn review_word(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(graded): Json<Graded>) -> Response {
-    match study::review_word(&state.pool, &id, graded, Utc::now()).await {
+async fn review_word(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(sent): Json<Sent<Graded>>) -> Response {
+    match study::review_word(&state.pool, &id, sent, Utc::now()).await {
         Ok(reviewed) => Json(reviewed).into_response(),
-        Err(error) => (StatusCode::NOT_FOUND, Json(json!({ "error": error.to_string() }))).into_response(),
+        Err(error) => answer_failed(error),
     }
 }
 
@@ -736,6 +728,16 @@ gloss = "дом"
         router(pool, None, dir.path(), Voices::none())
     }
 
+    /// An answer's body as a device sends it: under an identity minted here,
+    /// given now.
+    fn sent(body: &str) -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static MINTED: AtomicU64 = AtomicU64::new(0);
+        let id = MINTED.fetch_add(1, Ordering::Relaxed);
+        let rest = body.trim_start().strip_prefix('{').expect("an answer is a JSON object");
+        format!(r#"{{"answer_id":"app-{id}","answered_at":"{}",{rest}"#, Utc::now().to_rfc3339())
+    }
+
     async fn body_json(response: Response) -> serde_json::Value {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         serde_json::from_slice(&body).unwrap()
@@ -1000,14 +1002,18 @@ gloss = "дом"
 
         let response = app
             .clone()
-            .oneshot(json_request("POST", "/api/words/en:home/review", r#"{"rating":"good","duration_ms":2100}"#))
+            .oneshot(json_request(
+                "POST",
+                "/api/words/en:home/review",
+                &sent(r#"{"rating":"good","duration_ms":2100}"#),
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_ne!(body_json(response).await["stitch"], "new");
 
         for (method, uri) in [("GET", "/api/words/en:nonsense"), ("POST", "/api/words/en:nonsense/review")] {
-            let response = app.clone().oneshot(json_request(method, uri, r#"{"rating":"good"}"#)).await.unwrap();
+            let response = app.clone().oneshot(json_request(method, uri, &sent(r#"{"rating":"good"}"#))).await.unwrap();
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {uri}");
         }
     }
@@ -1028,7 +1034,7 @@ gloss = "дом"
             .oneshot(json_request(
                 "POST",
                 "/api/formulas/be-present/review",
-                r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}]}"#,
+                &sent(r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}]}"#),
             ))
             .await
             .unwrap();
@@ -1130,7 +1136,7 @@ gloss = "дом"
             .oneshot(json_request(
                 "POST",
                 "/api/formulas/be-present/review",
-                r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}]}"#,
+                &sent(r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}]}"#),
             ))
             .await
             .unwrap();
@@ -1142,12 +1148,91 @@ gloss = "дом"
     }
 
     #[tokio::test]
-    async fn a_typed_turn_is_checked_without_being_recorded() {
+    async fn an_answer_delivered_twice_is_taken_once_and_told_the_same() {
+        // The reply to the first delivery was lost on the way back, and the
+        // phone sent the answer again: one review, one reply.
         let dir = web_root();
         let pool = taught().await;
         let app = open(pool.clone(), &dir);
+        let body = sent(r#"{"direction":"produce","turns":[{"asked":{"values":{"pronoun":"I"}},"typed":"I is here."}],"duration_ms":4000}"#);
+        let mut replies = Vec::new();
+        for _ in 0..2 {
+            let response = app
+                .clone()
+                .oneshot(json_request("POST", "/api/formulas/be-present/review", &body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            replies.push(body_json(response).await);
+        }
+        assert_eq!(replies[0], replies[1], "the second delivery should be told what the first was");
+        let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
+        assert_eq!(reviews, 1, "an answer delivered twice was recorded twice");
+        let attempts: i64 = sqlx::query_scalar("SELECT count(*) FROM attempt").fetch_one(&pool).await.unwrap();
+        assert_eq!(attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_taken_at_the_moment_its_device_gave_it() {
+        let dir = web_root();
+        let pool = taught().await;
+        let app = open(pool.clone(), &dir);
+        // Given on a train an hour ago, delivered now.
+        let then = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let body = format!(
+            r#"{{"answer_id":"train-1","answered_at":"{then}","direction":"produce","turns":[{{"asked":{{"values":{{"pronoun":"I"}}}},"typed":"I is here."}}]}}"#
+        );
         let response = app
             .clone()
+            .oneshot(json_request("POST", "/api/formulas/be-present/review", &body))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let at: String = sqlx::query_scalar("SELECT reviewed_at FROM review").fetch_one(&pool).await.unwrap();
+        assert_eq!(at, then, "the answer should be where it happened, not where it arrived");
+
+        // A clock that runs ahead cannot answer from the future.
+        let body = r#"{"answer_id":"ahead-1","answered_at":"2999-01-01T00:00:00Z","direction":"recognise","rating":"good"}"#;
+        let before = Utc::now();
+        let response = app.oneshot(json_request("POST", "/api/formulas/be-present/review", body)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let at: String = sqlx::query_scalar("SELECT max(reviewed_at) FROM review").fetch_one(&pool).await.unwrap();
+        let at = crate::study::parse_stamp(&at).unwrap();
+        assert!(at >= before && at <= Utc::now(), "an answer from the future was not taken at its arrival: {at}");
+    }
+
+    #[tokio::test]
+    async fn an_answer_without_its_identity_or_its_moment_is_refused() {
+        let dir = web_root();
+        let pool = taught().await;
+        let app = open(pool.clone(), &dir);
+        let now = Utc::now().to_rfc3339();
+        for body in [
+            r#"{"direction":"recognise","rating":"good"}"#.to_string(),
+            r#"{"answer_id":"no-moment","direction":"recognise","rating":"good"}"#.to_string(),
+            format!(r#"{{"answer_id":"  ","answered_at":"{now}","direction":"recognise","rating":"good"}}"#),
+            format!(
+                r#"{{"answer_id":"{}","answered_at":"{now}","direction":"recognise","rating":"good"}}"#,
+                "x".repeat(65)
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(json_request("POST", "/api/formulas/be-present/review", &body))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        }
+        let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
+        assert_eq!(reviews, 0, "a refused answer was recorded");
+    }
+
+    #[tokio::test]
+    async fn a_typed_turn_is_no_longer_checked_by_the_server_alone() {
+        // The check runs on the device, from the same code (crates/check);
+        // the endpoint that did it is gone rather than kept as a second way.
+        let dir = web_root();
+        let response = open(taught().await, &dir)
             .oneshot(json_request(
                 "POST",
                 "/api/formulas/be-present/check",
@@ -1155,25 +1240,7 @@ gloss = "дом"
             ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = body_json(response).await;
-        assert_eq!(body["correct"], false);
-        assert_eq!(body["failure"], "formula");
-        assert_eq!(body["answer"], "I is here.");
-        let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
-        assert_eq!(reviews, 0, "a check is a look, not an answer");
-
-        // A turn naming a value the formula does not have is the client out
-        // of step with the pack.
-        let response = app
-            .oneshot(json_request(
-                "POST",
-                "/api/formulas/be-present/check",
-                r#"{"asked":{"values":{"pronoun":"thou"}},"typed":"x"}"#,
-            ))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -1184,9 +1251,11 @@ gloss = "дом"
             .oneshot(json_request(
                 "POST",
                 "/api/formulas/be-present/review",
-                r#"{"direction":"produce","easy":true,"turns":[
+                &sent(
+                    r#"{"direction":"produce","easy":true,"turns":[
                     {"asked":{"values":{"pronoun":"I"}},"typed":"I is here."},
                     {"asked":{"values":{"pronoun":"I"}},"typed":"I here is"}]}"#,
+                ),
             ))
             .await
             .unwrap();
@@ -1208,7 +1277,11 @@ gloss = "дом"
     async fn a_said_answer_with_no_turns_is_refused() {
         let dir = web_root();
         let response = open(taught().await, &dir)
-            .oneshot(json_request("POST", "/api/formulas/be-present/review", r#"{"direction":"produce","turns":[]}"#))
+            .oneshot(json_request(
+                "POST",
+                "/api/formulas/be-present/review",
+                &sent(r#"{"direction":"produce","turns":[]}"#),
+            ))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -1253,7 +1326,7 @@ gloss = "дом"
             .oneshot(json_request(
                 "POST",
                 "/api/formulas/nonsense/review",
-                r#"{"direction":"recognise","rating":"good"}"#,
+                &sent(r#"{"direction":"recognise","rating":"good"}"#),
             ))
             .await
             .unwrap();

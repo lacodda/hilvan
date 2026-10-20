@@ -254,7 +254,7 @@ pub async fn undo(pool: &SqlitePool, word: &str, now: DateTime<Utc>) -> Result<(
         .execute(&mut *tx)
         .await
         .context("failed to take a declaration back")?;
-        study::rebuild(&mut tx, Kind::Word, word, now).await?;
+        study::replay(&mut tx, Kind::Word, word, now).await?;
     }
 
     sqlx::query("DELETE FROM inventory WHERE word_id = ?")
@@ -342,11 +342,11 @@ order = 1
         study::review(
             pool,
             "be",
-            Said::Produce {
+            study::arriving(Said::Produce {
                 turns,
                 easy: false,
                 duration_ms: Some(4000),
-            },
+            }),
             now,
         )
         .await
@@ -485,10 +485,10 @@ order = 1
         study::review_word(
             &pool,
             "en:doctor",
-            study::Graded {
+            study::arriving(study::Graded {
                 rating: Rating::Good,
                 duration_ms: None,
-            },
+            }),
             at(30),
         )
         .await
@@ -533,10 +533,10 @@ order = 1
             study::review_word(
                 &pool,
                 word,
-                study::Graded {
+                study::arriving(study::Graded {
                     rating: Rating::Good,
                     duration_ms: None,
-                },
+                }),
                 at(0),
             )
             .await

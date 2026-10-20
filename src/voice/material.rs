@@ -258,7 +258,7 @@ gloss = "дом"
             easy: false,
             duration_ms: None,
         };
-        study::review(&pool, "be", answer, Utc::now()).await.unwrap();
+        study::review(&pool, "be", study::arriving(answer), Utc::now()).await.unwrap();
         let heard = listening(&pool).await.unwrap();
         assert_eq!(heard.len(), 1);
         assert_eq!(heard[0].target, "I am at home.");

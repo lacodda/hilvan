@@ -290,6 +290,17 @@ pub async fn anchor(pool: &SqlitePool, id: &str) -> Result<()> {
 /// Fails when the database rejects the query or holds a moment that is not
 /// one.
 pub async fn due(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result<Vec<String>> {
+    Ok(coming(pool, now, breaks).await?.into_iter().map(|(id, _)| id).collect())
+}
+
+/// The words that have come back by `until`, with the moment each does -
+/// [`due`] at `now`, and what the next days bring when `until` is later.
+///
+/// # Errors
+///
+/// Fails when the database rejects the query or holds a moment that is not
+/// one.
+pub async fn coming(pool: &SqlitePool, until: DateTime<Utc>, breaks: &[Break]) -> Result<Vec<(String, DateTime<Utc>)>> {
     // FSRS's due is never later than the moment a card comes back, so the
     // query narrows to the candidates and the breaks decide among them.
     let rows = sqlx::query(
@@ -302,18 +313,20 @@ pub async fn due(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Res
                WHERE sw.word_id = w.id)
          ORDER BY c.due, c.subject_id",
     )
-    .bind(now.to_rfc3339())
+    .bind(until.to_rfc3339())
     .fetch_all(pool)
     .await
     .context("failed to read the words that are due")?;
 
-    let mut due = Vec::with_capacity(rows.len());
+    let mut coming = Vec::with_capacity(rows.len());
     for row in rows {
-        if study::back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)?.is_some_and(|back| back <= now) {
-            due.push(row.get("subject_id"));
+        if let Some(back) = study::back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)?
+            && back <= until
+        {
+            coming.push((row.get("subject_id"), back));
         }
     }
-    Ok(due)
+    Ok(coming)
 }
 
 /// Words met in a sentence and never answered, in the order they open.

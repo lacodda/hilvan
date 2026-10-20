@@ -53,6 +53,15 @@ async fn json(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
     (status, body)
 }
 
+/// An answer as a device sends it: under an identity of its own, given now.
+fn sent(mut answer: Value) -> Value {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static MINTED: AtomicU64 = AtomicU64::new(0);
+    answer["answer_id"] = Value::from(format!("health-{}", MINTED.fetch_add(1, Ordering::Relaxed)));
+    answer["answered_at"] = Value::from(chrono::Utc::now().to_rfc3339());
+    answer
+}
+
 async fn post(app: &Router, uri: &str, body: &Value) -> (StatusCode, Value) {
     let request = Request::builder()
         .method("POST")
@@ -118,11 +127,15 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
     let sentence = sample["sentence"].as_i64().expect("a sample is a sentence");
     let contracted = sample["accept"][0].as_str().expect("the first sample accepts its contraction");
     let turn = serde_json::json!({ "asked": { "sample": sentence }, "typed": contracted });
-    let (status, checked) = post(&app, &format!("/api/formulas/{first}/check"), &turn).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(checked["correct"], true, "{contracted:?} was marked wrong: {checked}");
+    // The app checks the turn itself, with the core built to WebAssembly:
+    // the formula exactly as the queue hands it over is what it reads.
+    let held: hilvan_core::check::Formula =
+        serde_json::from_value(today["queue"][0]["formula"].clone()).expect("the formula the queue sends is one the checker reads");
+    let typed: hilvan_core::check::Turn = serde_json::from_value(turn.clone()).unwrap();
+    let (_, checked) = hilvan_core::check::judge(&held.asking(), &typed).expect("the turn asks what the formula asks");
+    assert!(checked.correct, "{contracted:?} was marked wrong: {checked:?}");
 
-    let answer = serde_json::json!({ "direction": "produce", "turns": [turn], "duration_ms": 3100 });
+    let answer = sent(serde_json::json!({ "direction": "produce", "turns": [turn], "duration_ms": 3100 }));
     let (status, reviewed) = post(&app, &format!("/api/formulas/{first}/review"), &answer).await;
     assert_eq!(status, StatusCode::OK);
     assert_ne!(reviewed["stitch"], "new");
@@ -158,7 +171,9 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
             .method("POST")
             .uri(format!("/api/formulas/{first}/review"))
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(r#"{"rating":"good","direction":"recognise","duration_ms":1800}"#))
+            .body(Body::from(
+                sent(serde_json::json!({ "rating": "good", "direction": "recognise", "duration_ms": 1800 })).to_string(),
+            ))
             .unwrap(),
     )
     .await;
@@ -172,7 +187,7 @@ async fn the_shipped_pack_loads_into_a_real_database_and_can_be_drilled() {
                 .method("POST")
                 .uri(format!("/api/words/{word}/review"))
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"rating":"good","duration_ms":2400}"#))
+                .body(Body::from(sent(serde_json::json!({ "rating": "good", "duration_ms": 2400 })).to_string()))
                 .unwrap(),
         )
         .await;

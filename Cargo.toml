@@ -27,6 +27,13 @@ exclude = [
     "tools/",
 ]
 
+[workspace]
+# The server is the package at the root; the core is what it shares with the
+# tutor app, and the check is that core built to WebAssembly for it.
+members = ["crates/core", "crates/check"]
+# `cargo test`, `clippy` and `build` at the root cover all three.
+default-members = [".", "crates/core", "crates/check"]
+
 [dependencies]
 anyhow = "1.0.104"
 argon2 = "0.6.0"
@@ -35,6 +42,7 @@ axum-extra = { version = "0.12.6", features = ["cookie"] }
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock", "std"] }
 clap = { version = "4.6.6", features = ["derive"] }
 dotenvy = "0.15.7"
+hilvan-core = { path = "crates/core" }
 rand = "0.10.2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query"] }
 rpassword = "7.5.4"
@@ -60,10 +68,13 @@ jsonschema = { version = "0.59.0", default-features = false }
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
 
-[lints.rust]
+[lints]
+workspace = true
+
+[workspace.lints.rust]
 unsafe_code = "forbid"
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 
@@ -71,3 +82,14 @@ pedantic = { level = "warn", priority = -1 }
 # that dominates target/debug. Full debug info is a one-line revert when needed.
 [profile.dev]
 debug = 1
+
+# The checker the tutor app runs, built to WebAssembly: small rather than
+# fast, because it is fetched by a phone and a check is a dozen words.
+# `cargo build -p hilvan-check --target wasm32-unknown-unknown --profile wasm`
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

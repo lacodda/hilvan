@@ -8,59 +8,17 @@ use chrono::{DateTime, Duration, Utc};
 use rs_fsrs::{FSRS, Parameters, Rating as FsrsRating, State as FsrsState};
 use serde::{Deserialize, Serialize};
 
-/// How well the learner produced the formula, in the four answers the drill
-/// offers. The numbers are FSRS's and are stored, so they must not be
-/// renumbered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Rating {
-    /// Nothing came. The formula goes back to the start.
-    Again = 1,
-    /// It came, but slowly and with effort.
-    Hard = 2,
-    /// It came.
-    Good = 3,
-    /// It came without thinking about it.
-    Easy = 4,
-}
+pub use hilvan_core::rating::{InvalidRating, Rating};
 
-impl Rating {
-    /// The number stored in the review history.
-    #[must_use]
-    pub const fn as_i64(self) -> i64 {
-        self as i64
-    }
-
-    /// Reads a rating back from the review history.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the number is not one of the four ratings, which means the
-    /// row was written by something other than this module.
-    pub fn from_i64(value: i64) -> Result<Self, InvalidRating> {
-        match value {
-            1 => Ok(Self::Again),
-            2 => Ok(Self::Hard),
-            3 => Ok(Self::Good),
-            4 => Ok(Self::Easy),
-            other => Err(InvalidRating(other)),
-        }
-    }
-
-    const fn to_fsrs(self) -> FsrsRating {
-        match self {
-            Self::Again => FsrsRating::Again,
-            Self::Hard => FsrsRating::Hard,
-            Self::Good => FsrsRating::Good,
-            Self::Easy => FsrsRating::Easy,
-        }
+/// The rating as FSRS spells it.
+const fn to_fsrs(rating: Rating) -> FsrsRating {
+    match rating {
+        Rating::Again => FsrsRating::Again,
+        Rating::Hard => FsrsRating::Hard,
+        Rating::Good => FsrsRating::Good,
+        Rating::Easy => FsrsRating::Easy,
     }
 }
-
-/// A rating that is not one of the four.
-#[derive(Debug, thiserror::Error)]
-#[error("{0} is not a rating: expected 1 (again), 2 (hard), 3 (good) or 4 (easy)")]
-pub struct InvalidRating(i64);
 
 /// Where an answer came from.
 ///
@@ -405,7 +363,7 @@ impl Scheduler {
     #[must_use]
     pub fn review(&self, card: &Card, rating: Rating, now: DateTime<Utc>) -> Scheduled {
         let fsrs = FSRS::new(self.parameters.clone());
-        let scheduled = fsrs.next(card.to_fsrs(), now, rating.to_fsrs());
+        let scheduled = fsrs.next(card.to_fsrs(), now, to_fsrs(rating));
         let next = scheduled.card;
 
         Scheduled {
@@ -443,14 +401,23 @@ impl Scheduler {
     /// scheduler, and the card row is only the last step of the same walk.
     #[must_use]
     pub fn replay(&self, answers: impl IntoIterator<Item = (Rating, DateTime<Utc>)>) -> Option<Card> {
-        let mut card: Option<Card> = None;
+        self.walk(answers).pop().map(|step| step.card)
+    }
+
+    /// Every step of the same walk: what each answer, oldest first, left the
+    /// card at, and how long it had waited for it. The review rows keep these
+    /// as they keep the answers, so they are rewritten from here whenever an
+    /// answer lands between two the card already has.
+    #[must_use]
+    pub fn walk(&self, answers: impl IntoIterator<Item = (Rating, DateTime<Utc>)>) -> Vec<Scheduled> {
+        let mut steps: Vec<Scheduled> = Vec::new();
         for (rating, at) in answers {
             // What a new card was due at does not enter the first answer:
             // FSRS starts a new card from the rating alone.
-            let before = card.unwrap_or_else(|| Card::new(at));
-            card = Some(self.review(&before, rating, at).card);
+            let before = steps.last().map_or_else(|| Card::new(at), |step| step.card.clone());
+            steps.push(self.review(&before, rating, at));
         }
-        card
+        steps
     }
 }
 

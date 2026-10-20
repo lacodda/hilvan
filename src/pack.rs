@@ -192,42 +192,7 @@ pub struct Slot {
     pub values: Vec<Value>,
 }
 
-/// What kind of word of the learner's own a slot takes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OwnKind {
-    Noun,
-    Verb,
-}
-
-impl OwnKind {
-    /// The word stored in the slot and own-word rows.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Noun => "noun",
-            Self::Verb => "verb",
-        }
-    }
-
-    /// Reads a kind back from a row.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the word is neither kind.
-    pub fn parse(value: &str) -> Result<Self, UnknownKind> {
-        match value {
-            "noun" => Ok(Self::Noun),
-            "verb" => Ok(Self::Verb),
-            other => Err(UnknownKind(other.to_string())),
-        }
-    }
-}
-
-/// A kind of own word that is neither a noun nor a verb.
-#[derive(Debug, thiserror::Error)]
-#[error("{0:?} is not a kind of word: expected noun or verb")]
-pub struct UnknownKind(String);
+pub use hilvan_core::material::{OwnKind, UnknownKind};
 
 /// One filling for a slot: the word in both languages, and the forms that
 /// agree with it.

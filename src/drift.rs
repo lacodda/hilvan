@@ -220,11 +220,13 @@ mod tests {
 
     async fn heard(pool: &SqlitePool, rating: Rating, now: DateTime<Utc>) {
         let answer = Answer::Recognise { rating, duration_ms: None };
-        study::review(pool, "f0", answer, now).await.unwrap();
+        study::review(pool, "f0", study::arriving(answer), now).await.unwrap();
     }
 
     async fn word(pool: &SqlitePool, rating: Rating, now: DateTime<Utc>) {
-        study::review_word(pool, "en:doctor", Graded { rating, duration_ms: None }, now).await.unwrap();
+        study::review_word(pool, "en:doctor", study::arriving(Graded { rating, duration_ms: None }), now)
+            .await
+            .unwrap();
     }
 
     #[test]

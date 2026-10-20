@@ -13,15 +13,19 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 
-use crate::answer::{self, Checked, Failure, Variant};
+use crate::answer::Failure;
 use crate::breaks::{self, Taken};
 use crate::drift::{self, Note};
 use crate::lexicon;
 use crate::own;
 use crate::pack::{Form, OwnKind};
-use crate::say::{Filling, Template};
-use crate::scheduling::{self, Break, Card, Direction, Kind, Rating, Scheduled, Scheduler, Source, Stitch};
+use crate::scheduling::{self, Break, Card, Direction, Kind, Rating, Scheduler, Source, Stitch};
 use crate::words::{self, Standing, Word};
+
+// The material a formula carries and the turns typed against it are the
+// core's, shared with the checker the tutor app runs.
+pub use hilvan_core::check::{self, Asked, Turn};
+pub use hilvan_core::material::{Mark, Sample, Slot, Value};
 
 /// How many formulas start on any one day.
 ///
@@ -81,6 +85,21 @@ pub struct Formula {
     pub languages: Languages,
 }
 
+impl Formula {
+    /// The formula, as a typed turn is checked against it.
+    #[must_use]
+    pub fn asking(&self) -> check::Asking<'_> {
+        check::Asking {
+            id: &self.id,
+            pattern: &self.pattern,
+            say: self.say.as_deref(),
+            accept: &self.accept,
+            samples: &self.samples,
+            slots: &self.slots,
+        }
+    }
+}
+
 /// A formula another stands on, as its child shows it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Parent {
@@ -112,66 +131,6 @@ pub struct Sister {
     /// Where that form stands - so the switch can show that the question is
     /// still new while the statement is sewn.
     pub stitch: Stitch,
-}
-
-/// A worked example of a formula: a sentence, and what it means.
-#[derive(Debug, Clone, Serialize)]
-pub struct Sample {
-    /// The sentence's id: the same sentence shown by another formula, or
-    /// heard as a word's anchor, is the same id.
-    pub sentence: i64,
-    /// The prompt, in the learner's native language.
-    pub native: String,
-    /// The answer, in the language being learnt.
-    pub target: String,
-    /// The words the sentence teaches, where they stand in `target`.
-    pub words: Vec<Mark>,
-    /// Other spellings of `target` just as right: "I am not hungry." for
-    /// "I'm not hungry.".
-    pub accept: Vec<String>,
-}
-
-/// A word marked in a sentence.
-#[derive(Debug, Clone, Serialize)]
-pub struct Mark {
-    /// The word's id, `en:doctor`.
-    pub word: String,
-    pub lemma: String,
-    /// How it is spelt here: "went" for go.
-    pub form: String,
-    /// The character it starts at.
-    pub start: i64,
-}
-
-/// A hole in the pattern, with what can go in it.
-#[derive(Debug, Clone, Serialize)]
-pub struct Slot {
-    pub name: String,
-    /// Which kind of the learner's own words the slot takes, when it takes
-    /// any: they stand among its values, marked `own`.
-    pub takes: Option<OwnKind>,
-    pub values: Vec<Value>,
-}
-
-/// One filling for a slot, with the forms that agree with it.
-#[derive(Debug, Clone, Serialize)]
-pub struct Value {
-    pub native: String,
-    pub target: String,
-    /// What `say` picks from for agreement: `be` = "is" on "he".
-    pub forms: BTreeMap<String, String>,
-    /// Whether this is one of the learner's own words rather than the pack's.
-    pub own: bool,
-}
-
-impl Filling for Value {
-    fn word(&self) -> &str {
-        &self.target
-    }
-
-    fn form(&self, name: &str) -> Option<&str> {
-        self.forms.get(name).map(String::as_str)
-    }
 }
 
 /// What one item of the queue is about.
@@ -218,7 +177,7 @@ pub struct Due {
 /// Reported, not scheduled on (owner's decision, 2026-09-03): a home-made
 /// correction on top of FSRS would move every interval with no way to tell
 /// what moved them.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Pace {
     /// The median of the last few answers, in milliseconds.
     pub typical_ms: i64,
@@ -299,7 +258,38 @@ pub struct Today {
     /// What slipped last week, while this week has had no answer yet: the
     /// note the first sitting of a week opens on.
     pub last_week: Option<Note>,
+    /// The moment this was read. A copy the device keeps for a sitting out
+    /// of reach says how old it is.
+    pub as_of: DateTime<Utc>,
+    /// How long an answer usually takes, by what it is about: what a sitting
+    /// of a few minutes is measured with for a card that has no pace of its
+    /// own yet.
+    pub usual: Usual,
+    /// When the cards not in the queue come back over the next
+    /// [`COMING_DAYS`] days, breaks counted, earliest first. A device out of
+    /// reach counts what has come back since this was read - the number on
+    /// the app's icon - without asking.
+    pub coming: Vec<DateTime<Utc>>,
 }
+
+/// How far ahead [`Today::coming`] looks: a week, the longest a phone is
+/// expected to go without reaching the tutor and still show an honest count.
+pub const COMING_DAYS: i64 = 7;
+
+/// How long an answer usually takes, in milliseconds: the median of the last
+/// [`USUAL_WINDOW`] timed answers of each kind. `None` before there are
+/// [`PACE_MIN_ANSWERS`] of them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct Usual {
+    /// A formula said: typed, four turns.
+    pub produce: Option<i64>,
+    /// A formula understood: heard and graded.
+    pub recognise: Option<i64>,
+    pub word: Option<i64>,
+}
+
+/// How many of the latest answers [`Usual`] is the median of.
+const USUAL_WINDOW: i64 = 30;
 
 /// What a day has room for that is new.
 ///
@@ -361,24 +351,6 @@ pub enum Answer {
     },
 }
 
-/// One typed turn: what was asked, and what the learner typed.
-#[derive(Debug, Clone, Deserialize)]
-pub struct Turn {
-    pub asked: Asked,
-    pub typed: String,
-}
-
-/// Which question a turn asked: one of the formula's own sentences, or a
-/// substitution, named by the value it put in each slot.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Asked {
-    /// The id of a sentence the formula shows.
-    Sample(i64),
-    /// Slot name to the `target` of the value chosen for it.
-    Values(BTreeMap<String, String>),
-}
-
 /// Why an answer could not be taken.
 #[derive(Debug, thiserror::Error)]
 pub enum AnswerError {
@@ -399,8 +371,9 @@ pub struct Graded {
     pub duration_ms: Option<i64>,
 }
 
-/// What an answer changed.
-#[derive(Debug, Clone, Serialize)]
+/// What an answer changed. Read back from an answer's receipt, so a repeated
+/// delivery is told what the first was.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Reviewed {
     pub stitch: Stitch,
     pub due: DateTime<Utc>,
@@ -468,6 +441,16 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
         None
     };
 
+    let horizon = now + Duration::days(COMING_DAYS);
+    let mut coming: Vec<DateTime<Utc>> = formulas_coming(pool, horizon, &stops)
+        .await?
+        .into_iter()
+        .map(|(_, _, back)| back)
+        .chain(words::coming(pool, horizon, &stops).await?.into_iter().map(|(_, back)| back))
+        .filter(|back| *back > now)
+        .collect();
+    coming.sort_unstable();
+
     Ok(Today {
         next: next_in_line(pool, &queue).await?,
         queue,
@@ -479,7 +462,38 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
         last_week: if on_break.is_some() { None } else { drift::note(pool, now).await? },
         on_break,
         away_since,
+        as_of: now,
+        usual: usual(pool).await?,
+        coming,
     })
+}
+
+/// How long answers of each kind usually take.
+async fn usual(pool: &SqlitePool) -> Result<Usual> {
+    Ok(Usual {
+        produce: usual_for(pool, Kind::Formula(Direction::Produce)).await?,
+        recognise: usual_for(pool, Kind::Formula(Direction::Recognise)).await?,
+        word: usual_for(pool, Kind::Word).await?,
+    })
+}
+
+async fn usual_for(pool: &SqlitePool, kind: Kind) -> Result<Option<i64>> {
+    let mut recent: Vec<i64> = sqlx::query_scalar(
+        "SELECT r.duration_ms FROM review r JOIN card c ON c.id = r.card_id
+         WHERE c.kind = ? AND r.duration_ms IS NOT NULL
+         ORDER BY r.reviewed_at DESC, r.id DESC
+         LIMIT ?",
+    )
+    .bind(kind.as_str())
+    .bind(USUAL_WINDOW)
+    .fetch_all(pool)
+    .await
+    .context("failed to read how long answers usually take")?;
+    if recent.len() < PACE_MIN_ANSWERS {
+        return Ok(None);
+    }
+    recent.sort_unstable();
+    Ok(Some(recent[recent.len() / 2]))
 }
 
 /// What the day has room for that is new, from what it began owing.
@@ -619,25 +633,7 @@ async fn next_in_line(pool: &SqlitePool, queue: &[Due]) -> Result<Option<Next>> 
 async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break], room: Room) -> Result<Vec<Due>> {
     let mut queue = Vec::new();
 
-    // FSRS's due is never later than the moment a card comes back, so the
-    // query narrows to the candidates and the breaks decide among them.
-    let due_rows = sqlx::query(
-        "SELECT c.kind, f.id, c.due, c.last_reviewed FROM card c
-         JOIN formula f ON f.id = c.subject_id
-         WHERE c.kind IN ('formula', 'formula-recognise') AND c.state != 'new' AND c.due <= ?
-         ORDER BY c.due, f.position, c.kind",
-    )
-    .bind(now.to_rfc3339())
-    .fetch_all(pool)
-    .await
-    .context("failed to read the review queue")?;
-
-    for row in due_rows {
-        if back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)?.is_none_or(|back| back > now) {
-            continue;
-        }
-        let id: String = row.get("id");
-        let direction = Direction::parse(row.get::<String, _>("kind").as_str())?;
+    for (id, direction, _) in formulas_coming(pool, now, breaks).await? {
         queue.push(due(pool, &id, direction, false, now).await?);
     }
 
@@ -658,6 +654,37 @@ async fn formulas_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break],
         }
     }
     Ok(queue)
+}
+
+/// The formulas that have come back by `until`, in each direction, with the
+/// moment each does: the reviews of today's queue at `now`, and what the
+/// next days bring when `until` is later.
+async fn formulas_coming(pool: &SqlitePool, until: DateTime<Utc>, breaks: &[Break]) -> Result<Vec<(String, Direction, DateTime<Utc>)>> {
+    // FSRS's due is never later than the moment a card comes back, so the
+    // query narrows to the candidates and the breaks decide among them.
+    let rows = sqlx::query(
+        "SELECT c.kind, f.id, c.due, c.last_reviewed FROM card c
+         JOIN formula f ON f.id = c.subject_id
+         WHERE c.kind IN ('formula', 'formula-recognise') AND c.state != 'new' AND c.due <= ?
+         ORDER BY c.due, f.position, c.kind",
+    )
+    .bind(until.to_rfc3339())
+    .fetch_all(pool)
+    .await
+    .context("failed to read the review queue")?;
+
+    let mut coming = Vec::with_capacity(rows.len());
+    for row in rows {
+        let Some(back) = back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)? else {
+            continue;
+        };
+        if back > until {
+            continue;
+        }
+        let direction = Direction::parse(row.get::<String, _>("kind").as_str())?;
+        coming.push((row.get("id"), direction, back));
+    }
+    Ok(coming)
 }
 
 /// The words of today's queue: those due, then as many met words as the
@@ -714,18 +741,32 @@ async fn word_due(pool: &SqlitePool, id: &str, is_new: bool, now: DateTime<Utc>)
 /// into a grade. A turn that got the shape right and a word wrong sends the
 /// word to its own card instead of failing the formula.
 ///
+/// The answer is taken at the moment the device gave it, and once: see
+/// [`Sent`].
+///
 /// # Errors
 ///
 /// `NotFound` when the formula has no card in that direction - it is in no
-/// loaded pack - `Unanswerable` for a said answer with no turns or a turn
-/// that names something the formula does not ask, and `Database` when the
-/// database rejects a statement.
-pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: DateTime<Utc>) -> Result<Reviewed, AnswerError> {
+/// loaded pack - `Unanswerable` for an answer without an identity, a said
+/// answer with no turns or a turn that names something the formula does not
+/// ask, and `Database` when the database rejects a statement.
+pub async fn review(pool: &SqlitePool, formula_id: &str, sent: Sent<Answer>, now: DateTime<Utc>) -> Result<Reviewed, AnswerError> {
+    let arrival = Arrival::of(&sent, now)?;
+    if let Some(reply) = receipt(pool, arrival.id).await? {
+        return Ok(reply);
+    }
     let not_found = || AnswerError::NotFound(format!("formula called {formula_id}"));
-    match answer {
-        Answer::Recognise { rating, duration_ms } => record(pool, Kind::Formula(Direction::Recognise), formula_id, rating, duration_ms, now, &[])
-            .await?
-            .ok_or_else(not_found),
+    match &sent.answer {
+        Answer::Recognise { rating, duration_ms } => take(
+            pool,
+            &arrival,
+            Kind::Formula(Direction::Recognise),
+            formula_id,
+            Given::asked(*rating, *duration_ms, &[]),
+            &[],
+        )
+        .await?
+        .ok_or_else(not_found),
         Answer::Produce { turns, easy, duration_ms } => {
             if turns.is_empty() {
                 return Err(AnswerError::Unanswerable("a said answer is its typed turns, and none came".to_string()));
@@ -733,11 +774,12 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
             let formula = formula(pool, formula_id).await.map_err(|_| not_found())?;
             let judged = turns
                 .iter()
-                .map(|turn| judge(&formula, turn).map(|(prompt, checked)| (prompt, checked, turn.typed.clone())))
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(|turn| check::judge(&formula.asking(), turn).map(|(prompt, checked)| (prompt, checked, turn.typed.clone())))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|refused| AnswerError::Unanswerable(refused.to_string()))?;
 
             let failures: Vec<Option<Failure>> = judged.iter().map(|(_, checked, _)| checked.failure).collect();
-            let rating = rate(&failures, easy);
+            let rating = check::rate(&failures, *easy);
             let attempts: Vec<Attempt> = judged
                 .iter()
                 .map(|(prompt, checked, typed)| Attempt {
@@ -758,118 +800,22 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, answer: Answer, now: Da
                 .collect();
             let words = cards_for(pool, &formula.languages.target, &missed).await?;
 
-            // One transaction: a formula graded with its word failures lost,
-            // or the other way round, would be a sitting half remembered.
-            let kind = Kind::Formula(Direction::Produce);
-            let mut tx = pool.begin().await.context("failed to open a transaction")?;
-            let (before, next) = apply(&mut tx, kind, formula_id, Given::asked(rating, duration_ms, &attempts), now)
-                .await?
-                .ok_or_else(not_found)?;
-            for word in &words {
-                apply(&mut tx, Kind::Word, word, Given::asked(Rating::Again, None, &[]), now).await?;
-            }
-            tx.commit().await.context("failed to commit the review")?;
-
+            let reviewed = take(
+                pool,
+                &arrival,
+                Kind::Formula(Direction::Produce),
+                formula_id,
+                Given::asked(rating, *duration_ms, &attempts),
+                &words,
+            )
+            .await?
+            .ok_or_else(not_found)?;
             for word in &words {
                 // A word opened by its failure is heard in the first sentence
                 // it stands in, like one opened by its own answer.
                 words::anchor(pool, word).await?;
             }
-            let mut reviewed = reviewed(pool, kind, formula_id, rating, (&before, &next), now).await?;
-            reviewed.words = words;
             Ok(reviewed)
-        }
-    }
-}
-
-/// Checks one typed turn without recording it: what the drill shows the
-/// moment the learner submits. The same check runs again when the formula
-/// is graded, so nothing the client holds decides a grade.
-///
-/// # Errors
-///
-/// `NotFound` when there is no such formula, `Unanswerable` when the turn
-/// names something the formula does not ask, `Database` when a query fails.
-pub async fn check(pool: &SqlitePool, formula_id: &str, turn: &Turn) -> Result<Checked, AnswerError> {
-    let formula = formula(pool, formula_id)
-        .await
-        .map_err(|_| AnswerError::NotFound(format!("formula called {formula_id}")))?;
-    judge(&formula, turn).map(|(_, checked)| checked)
-}
-
-/// The grade a said answer earns, from what went wrong in its turns.
-///
-/// A slip of the shape - its own words or their order - in half the turns
-/// or more means it is not there yet: again. One slip is effort: hard. No
-/// slip is good, and a word that did not come is the word's failure, not
-/// the formula's. Easy only on the learner's word and only for turns with
-/// nothing wrong at all: whether it cost thought is the one thing typing
-/// does not show, and the time it took is shown, never graded on (ADR 0005).
-#[must_use]
-pub fn rate(failures: &[Option<Failure>], easy: bool) -> Rating {
-    let slips = failures.iter().filter(|failure| failure.is_some_and(Failure::is_the_shapes)).count();
-    if slips > 0 && slips * 2 >= failures.len() {
-        Rating::Again
-    } else if slips > 0 {
-        Rating::Hard
-    } else if easy && failures.iter().all(Option::is_none) {
-        Rating::Easy
-    } else {
-        Rating::Good
-    }
-}
-
-/// One turn, read against the right answers the formula gives for it: the
-/// prompt it showed, in the learner's own language, and the verdict.
-fn judge(formula: &Formula, turn: &Turn) -> Result<(String, Checked), AnswerError> {
-    let unanswerable = |why: String| AnswerError::Unanswerable(format!("formula {} {why}", formula.id));
-    match &turn.asked {
-        Asked::Sample(sentence) => {
-            let sample = formula
-                .samples
-                .iter()
-                .find(|sample| sample.sentence == *sentence)
-                .ok_or_else(|| unanswerable(format!("shows no sentence {sentence}")))?;
-            let marks: Vec<&str> = sample.words.iter().map(|mark| mark.form.as_str()).collect();
-            let variants: Vec<Variant> = std::iter::once(&sample.target)
-                .chain(&sample.accept)
-                .map(|text| Variant::from_sentence(text, &marks))
-                .collect();
-            Ok((sample.native.clone(), answer::check(&variants, &turn.typed)))
-        }
-        Asked::Values(values) => {
-            let say = formula.say.as_deref().ok_or_else(|| unanswerable("has nothing to substitute".to_string()))?;
-            if let Some(name) = values.keys().find(|name| !formula.slots.iter().any(|slot| &slot.name == *name)) {
-                return Err(unanswerable(format!("has no slot called {name:?}")));
-            }
-            let mut chosen: HashMap<&str, &Value> = HashMap::new();
-            let mut prompt = formula.pattern.clone();
-            for slot in &formula.slots {
-                let target = values
-                    .get(&slot.name)
-                    .ok_or_else(|| unanswerable(format!("was asked with nothing in {:?}", slot.name)))?;
-                let value = slot
-                    .values
-                    .iter()
-                    .find(|value| &value.target == target)
-                    .ok_or_else(|| unanswerable(format!("has no {target:?} in {:?}", slot.name)))?;
-                chosen.insert(slot.name.as_str(), value);
-                prompt = prompt.replace(&format!("<{}>", slot.name), &value.native);
-            }
-            let templates = std::iter::once(say)
-                .chain(formula.accept.iter().map(String::as_str))
-                .map(Template::parse)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| unanswerable(format!("has a template that cannot be read: {error}")))?;
-            // The slots the formula agrees with are its own, whichever of its
-            // templates asks the form.
-            let agreeing: BTreeSet<&str> = templates.iter().flat_map(|template| template.forms().into_keys()).collect();
-            let variants = templates
-                .iter()
-                .map(|template| template.render_marked(&chosen, &agreeing).map(|marked| Variant::from_marked(&marked)))
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| unanswerable("has a value without a form its templates ask for".to_string()))?;
-            Ok((prompt, answer::check(&variants, &turn.typed)))
         }
     }
 }
@@ -911,14 +857,160 @@ async fn cards_for(pool: &SqlitePool, language: &str, missed: &[&str]) -> Result
 ///
 /// # Errors
 ///
-/// Fails when there is no such word in any loaded pack, or when the
-/// database rejects a statement.
-pub async fn review_word(pool: &SqlitePool, word_id: &str, graded: Graded, now: DateTime<Utc>) -> Result<Reviewed> {
-    let reviewed = record(pool, Kind::Word, word_id, graded.rating, graded.duration_ms, now, &[])
+/// `NotFound` when there is no such word in any loaded pack, `Unanswerable`
+/// for an answer without an identity, `Database` when the database rejects
+/// a statement.
+pub async fn review_word(pool: &SqlitePool, word_id: &str, sent: Sent<Graded>, now: DateTime<Utc>) -> Result<Reviewed, AnswerError> {
+    let arrival = Arrival::of(&sent, now)?;
+    if let Some(reply) = receipt(pool, arrival.id).await? {
+        return Ok(reply);
+    }
+    let Graded { rating, duration_ms } = sent.answer;
+    let reviewed = take(pool, &arrival, Kind::Word, word_id, Given::asked(rating, duration_ms, &[]), &[])
         .await?
-        .with_context(|| format!("there is no word called {word_id}"))?;
+        .ok_or_else(|| AnswerError::NotFound(format!("word called {word_id}")))?;
     words::anchor(pool, word_id).await?;
     Ok(reviewed)
+}
+
+/// An answer as the device sends it: the identity the device minted for it,
+/// the moment it was given by the device's clock, and the answer itself.
+///
+/// Every answer travels through the device's queue, delivered in the order it
+/// was given whenever the tutor can be reached - a moment later at home, an
+/// evening later after a day underground. The identity makes a delivery that
+/// is repeated, because the reply to the first was lost on the way back, land
+/// once; the moment puts the answer where it happened in the card's history
+/// rather than where it arrived.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Sent<T> {
+    pub answer_id: String,
+    pub answered_at: DateTime<Utc>,
+    #[serde(flatten)]
+    pub answer: T,
+}
+
+/// An answer given the moment it arrives, under an identity minted here:
+/// what the tests send, where no device keeps a queue.
+#[cfg(test)]
+pub(crate) fn arriving<T>(answer: T) -> Sent<T> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static MINTED: AtomicU64 = AtomicU64::new(0);
+    Sent {
+        answer_id: format!("test-{}", MINTED.fetch_add(1, Ordering::Relaxed)),
+        // Later than any moment a test runs at: taken at arrival.
+        answered_at: DateTime::<Utc>::MAX_UTC,
+        answer,
+    }
+}
+
+/// The longest identity a device may give an answer. A UUID is 36
+/// characters; the fallback a page served over plain HTTP mints is shorter.
+const ANSWER_ID_MAX: usize = 64;
+
+/// An answer as it arrived: its identity, the moment it is recorded at, and
+/// the moment it came in.
+struct Arrival<'a> {
+    id: &'a str,
+    at: DateTime<Utc>,
+    arrived: DateTime<Utc>,
+}
+
+impl<'a> Arrival<'a> {
+    /// Reads the identity and the moment of an answer.
+    ///
+    /// A device whose clock runs ahead cannot give an answer in the future:
+    /// it is taken at the moment it arrived. Any moment before that is the
+    /// device's to say - an answer given on a train an hour ago happened an
+    /// hour ago.
+    fn of<T>(sent: &'a Sent<T>, now: DateTime<Utc>) -> Result<Self, AnswerError> {
+        let id = sent.answer_id.trim();
+        if id.is_empty() || id.len() > ANSWER_ID_MAX {
+            return Err(AnswerError::Unanswerable(format!(
+                "an answer carries the identity its device gave it, of 1 to {ANSWER_ID_MAX} characters"
+            )));
+        }
+        Ok(Self {
+            id,
+            at: sent.answered_at.min(now),
+            arrived: now,
+        })
+    }
+}
+
+/// What the tutor told the device when an answer first arrived, if it has.
+async fn receipt<'e, E: sqlx::SqliteExecutor<'e>>(executor: E, id: &str) -> Result<Option<Reviewed>> {
+    let reply: Option<String> = sqlx::query_scalar("SELECT reply FROM answer WHERE id = ?")
+        .bind(id)
+        .fetch_optional(executor)
+        .await
+        .context("failed to look for an answer already taken")?;
+    reply
+        .map(|reply| serde_json::from_str(&reply).context("an answer already taken has a reply that cannot be read"))
+        .transpose()
+}
+
+/// Takes one answer whole: the card's review, the words a said answer sent
+/// to their own cards, the break it ends, and the receipt - one transaction,
+/// because a formula graded with its word failures lost, or the other way
+/// round, would be a sitting half remembered. `None` when the card is not
+/// there.
+async fn take(
+    pool: &SqlitePool,
+    arrival: &Arrival<'_>,
+    kind: Kind,
+    subject: &str,
+    given: Given<'_>,
+    words: &[String],
+) -> Result<Option<Reviewed>, AnswerError> {
+    let rating = given.rating;
+    let mut tx = pool.begin().await.context("failed to open a transaction")?;
+    let Some(before) = card(&mut *tx, kind, subject).await? else {
+        return Ok(None);
+    };
+    breaks::end_by_answer(&mut tx, arrival.at).await?;
+    record(&mut tx, kind, subject, given, arrival.at).await?;
+    for word in words {
+        record(&mut tx, Kind::Word, word, Given::asked(Rating::Again, None, &[]), arrival.at).await?;
+    }
+
+    let next = card(&mut *tx, kind, subject).await?.context("a card vanished while it was answered")?;
+    let stops = breaks::of(&breaks::all(&mut *tx).await?);
+    // When it comes back with the breaks counted: an answer given before a
+    // break the learner took since, and delivered after, comes back that much
+    // later. A break still going on holds it until the learner is back; the
+    // reply then says when FSRS put it, which is as near as can be said.
+    let due = next.back_at(&stops).unwrap_or(next.due);
+    let reviewed = Reviewed {
+        stitch: next.stitch,
+        due,
+        interval_days: (due - arrival.arrived).num_days(),
+        pace: pace(&mut *tx, kind, subject).await?,
+        rating,
+        words: words.to_vec(),
+        stability: next.stability,
+        stability_before: before.stability,
+    };
+
+    let kept = sqlx::query("INSERT INTO answer (id, answered_at, arrived_at, reply) VALUES (?, ?, ?, ?)")
+        .bind(arrival.id)
+        .bind(arrival.at.to_rfc3339())
+        .bind(arrival.arrived.to_rfc3339())
+        .bind(serde_json::to_string(&reviewed).context("failed to write the reply to an answer")?)
+        .execute(&mut *tx)
+        .await;
+    match kept {
+        Ok(_) => {}
+        // The same answer delivered twice at once, and the other delivery
+        // got there first: this one is dropped, and both are told the same.
+        Err(error) if error.as_database_error().is_some_and(sqlx::error::DatabaseError::is_unique_violation) => {
+            drop(tx);
+            return Ok(receipt(pool, arrival.id).await?);
+        }
+        Err(error) => return Err(anyhow::Error::from(error).context("failed to keep the receipt of an answer").into()),
+    }
+    tx.commit().await.context("failed to commit the answer")?;
+    Ok(Some(reviewed))
 }
 
 /// Records that the learner knows a word without being asked: an easy,
@@ -946,24 +1038,32 @@ pub(crate) async fn declare(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, word_i
         duration_ms: None,
         attempts: &[],
     };
-    apply(tx, Kind::Word, word_id, given, now)
+    record(tx, Kind::Word, word_id, given, now).await?;
+    card(&mut **tx, Kind::Word, word_id)
         .await?
-        .map(|(_, next)| next)
         .with_context(|| format!("the card of {word_id} vanished while it was declared"))
 }
 
-/// Sets a card back to what the answers it still has leave: the history
-/// played through the scheduler again, after some of it was taken back.
-/// With no answers left the card is new again - or gone, when it schedules
-/// a word no pack teaches, which only a declaration had made it for.
+/// Sets a card to what its answers leave: the history played through the
+/// scheduler from the first answer, each answer's review row rewritten with
+/// the step it took, and the card row with the last. With no answers left
+/// the card is new again - or gone, when it schedules a word no pack
+/// teaches, which only a declaration had made it for.
+///
+/// The one way a card changes. An answer is recorded by adding it to the
+/// history at the moment it was given and walking the history again, so an
+/// answer that arrives after a later one - given on a phone underground
+/// while a laptop answered the same card at home - lands in its place, and
+/// the card is what both answers in that order make it.
 ///
 /// # Errors
 ///
 /// Fails when the database rejects a statement or holds a rating the
 /// scheduler does not know.
-pub(crate) async fn rebuild(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, now: DateTime<Utc>) -> Result<()> {
-    let rows: Vec<(i64, String)> = sqlx::query_as(
-        "SELECT r.rating, r.reviewed_at FROM review r JOIN card c ON c.id = r.card_id
+pub(crate) async fn replay(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, now: DateTime<Utc>) -> Result<()> {
+    let rows: Vec<(i64, i64, String, f64, f64, f64)> = sqlx::query_as(
+        "SELECT r.id, r.rating, r.reviewed_at, r.elapsed_days, r.stability, r.difficulty
+         FROM review r JOIN card c ON c.id = r.card_id
          WHERE c.kind = ? AND c.subject_id = ? ORDER BY r.reviewed_at, r.id",
     )
     .bind(kind.as_str())
@@ -973,11 +1073,30 @@ pub(crate) async fn rebuild(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: 
     .context("failed to read the answers of a card")?;
     let answers = rows
         .iter()
-        .map(|(rating, at)| Ok((Rating::from_i64(*rating)?, parse_stamp(at)?)))
+        .map(|(_, rating, at, ..)| Ok((Rating::from_i64(*rating)?, parse_stamp(at)?)))
         .collect::<Result<Vec<_>>>()?;
     let first = answers.first().map(|(_, at)| *at);
+    let steps = Scheduler::new().walk(answers);
 
-    let Some(card) = Scheduler::new().replay(answers) else {
+    for ((id, _, _, elapsed, stability, difficulty), step) in rows.iter().zip(&steps) {
+        // Only the steps the walk moved: an answer at the end of the history
+        // leaves every row before it as it was.
+        #[allow(clippy::float_cmp)]
+        let same = *elapsed == step.elapsed_days && *stability == step.card.stability && *difficulty == step.card.difficulty;
+        if same {
+            continue;
+        }
+        sqlx::query("UPDATE review SET elapsed_days = ?, stability = ?, difficulty = ? WHERE id = ?")
+            .bind(step.elapsed_days)
+            .bind(step.card.stability)
+            .bind(step.card.difficulty)
+            .bind(id)
+            .execute(&mut **tx)
+            .await
+            .context("failed to rewrite the step an answer took")?;
+    }
+
+    let Some(card) = steps.last().map(|step| &step.card) else {
         let taught: bool = match kind {
             Kind::Word => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM word WHERE id = ?)"),
             Kind::Formula(_) => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM formula WHERE id = ?)"),
@@ -1022,7 +1141,7 @@ pub(crate) async fn rebuild(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: 
     .bind(subject)
     .execute(&mut **tx)
     .await
-    .context("failed to save a rebuilt card")?;
+    .context("failed to save a replayed card")?;
     Ok(())
 }
 
@@ -1056,104 +1175,37 @@ struct Attempt {
     missed: Vec<String>,
 }
 
-/// Applies an answer to one card, on its own: the new schedule and the
-/// review, committed together. `None` when there is no such card.
-async fn record(
-    pool: &SqlitePool,
-    kind: Kind,
-    subject: &str,
-    rating: Rating,
-    duration_ms: Option<i64>,
-    now: DateTime<Utc>,
-    attempts: &[Attempt],
-) -> Result<Option<Reviewed>> {
-    let mut tx = pool.begin().await.context("failed to open a transaction")?;
-    let Some((before, next)) = apply(&mut tx, kind, subject, Given::asked(rating, duration_ms, attempts), now).await? else {
-        return Ok(None);
-    };
-    tx.commit().await.context("failed to commit the review")?;
-    Ok(Some(reviewed(pool, kind, subject, rating, (&before, &next), now).await?))
-}
-
-/// What an answer did to a card, as the app is told: the card before it
-/// and after it.
-///
-/// The due is FSRS's own: an asked answer ends any break going on, and a
-/// break cannot start later than now, so nothing stands between the answer
-/// and the day it comes back.
-async fn reviewed(pool: &SqlitePool, kind: Kind, subject: &str, rating: Rating, (before, next): (&Card, &Card), now: DateTime<Utc>) -> Result<Reviewed> {
-    Ok(Reviewed {
-        stitch: next.stitch,
-        due: next.due,
-        interval_days: (next.due - now).num_days(),
-        pace: pace(pool, kind, subject).await?,
-        rating,
-        words: Vec::new(),
-        stability: next.stability,
-        stability_before: before.stability,
-    })
-}
-
-/// Applies an answer to a card inside a transaction: the new schedule, and
-/// the review kept whole with the turns typed for it. The card before the
-/// answer and as it now stands, or `None` when there is no such card.
-///
-/// An asked answer ends any break going on: the learner who answers is
-/// back, and a break never holds an answer.
-async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, given: Given<'_>, now: DateTime<Utc>) -> Result<Option<(Card, Card)>> {
+/// Adds an answer to a card's history at the moment it was given, with the
+/// turns typed for it, and plays the history again (see [`replay`]). Nothing
+/// when there is no such card.
+async fn record(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject: &str, given: Given<'_>, at: DateTime<Utc>) -> Result<()> {
     let Given {
         rating,
         source,
         duration_ms,
         attempts,
     } = given;
-    let Some(card) = card(&mut **tx, kind, subject).await? else {
-        return Ok(None);
-    };
-    if source == Source::Asked {
-        breaks::end_by_answer(tx, now).await?;
-    }
 
-    let Scheduled { card: next, elapsed_days } = Scheduler::new().review(&card, rating, now);
-
-    sqlx::query(
-        "UPDATE card SET state = ?, stability = ?, difficulty = ?, due = ?, reps = ?, lapses = ?,
-             last_reviewed = ?, introduced_at = COALESCE(introduced_at, ?)
-         WHERE kind = ? AND subject_id = ?",
-    )
-    .bind(next.stitch.as_str())
-    .bind(next.stability)
-    .bind(next.difficulty)
-    .bind(next.due.to_rfc3339())
-    .bind(next.reps)
-    .bind(next.lapses)
-    .bind(now.to_rfc3339())
-    .bind(now.to_rfc3339())
-    .bind(kind.as_str())
-    .bind(subject)
-    .execute(&mut **tx)
-    .await
-    .context("failed to save the card")?;
-
-    // The history is kept in full so the schedule can be recomputed when the
-    // memory model changes (ADR 0003).
-    let review: i64 = sqlx::query_scalar(
+    // The step it takes is written by the replay below; the history is kept
+    // in full so the schedule can be recomputed when the memory model
+    // changes (ADR 0003).
+    let review: Option<i64> = sqlx::query_scalar(
         "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source)
-         SELECT id, ?, ?, ?, ?, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?
+         SELECT id, ?, ?, 0.0, 0.0, 0.0, ?, ? FROM card WHERE kind = ? AND subject_id = ?
          RETURNING id",
     )
     .bind(rating.as_i64())
-    .bind(now.to_rfc3339())
-    .bind(elapsed_days)
-    .bind(next.stability)
-    .bind(next.difficulty)
+    .bind(at.to_rfc3339())
     .bind(duration_ms)
     .bind(source.as_str())
     .bind(kind.as_str())
     .bind(subject)
-    .fetch_one(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await
     .context("failed to record the review")?;
+    let Some(review) = review else {
+        return Ok(());
+    };
 
     // The turns typed for it, kept as long as the review: the real
     // mistakes, which later versions pair into confusions and explain.
@@ -1174,10 +1226,10 @@ async fn apply(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subject
         .await
         .context("failed to record a typed turn")?;
     }
-    Ok(Some((card, next)))
+    replay(tx, kind, subject, at).await
 }
 
-/// One formula with its samples and slots.
+// One formula with its samples and slots.
 ///
 /// # Errors
 ///
@@ -1553,7 +1605,7 @@ async fn unopened_recognitions(pool: &SqlitePool) -> Result<Vec<String>> {
 /// weeks, and the number is there to be trusted at a glance.
 ///
 /// `None` until there are enough answers to have a middle worth showing.
-async fn pace(pool: &SqlitePool, kind: Kind, subject: &str) -> Result<Option<Pace>> {
+async fn pace<'e, E: sqlx::SqliteExecutor<'e>>(executor: E, kind: Kind, subject: &str) -> Result<Option<Pace>> {
     let mut recent: Vec<i64> = sqlx::query_scalar(
         "SELECT r.duration_ms FROM review r
          JOIN card c ON c.id = r.card_id
@@ -1564,7 +1616,7 @@ async fn pace(pool: &SqlitePool, kind: Kind, subject: &str) -> Result<Option<Pac
     .bind(kind.as_str())
     .bind(subject)
     .bind(PACE_WINDOW)
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await
     .context("failed to read how long a card usually takes")?;
 
@@ -1694,9 +1746,22 @@ order = {}
     /// Grades a formula as `said` says. Shadows the public `review`, which
     /// takes typed turns.
     async fn review(pool: &SqlitePool, id: &str, said: Said, now: DateTime<Utc>) -> Result<Reviewed> {
-        record(pool, Kind::Formula(said.direction), id, said.rating, said.duration_ms, now, &[])
-            .await?
-            .with_context(|| format!("there is no formula called {id}"))
+        let answer_id = arriving(()).answer_id;
+        let arrival = Arrival {
+            id: &answer_id,
+            at: now,
+            arrived: now,
+        };
+        take(
+            pool,
+            &arrival,
+            Kind::Formula(said.direction),
+            id,
+            Given::asked(said.rating, said.duration_ms, &[]),
+            &[],
+        )
+        .await?
+        .with_context(|| format!("there is no formula called {id}"))
     }
 
     impl Said {
@@ -2122,8 +2187,8 @@ gloss = "зонт"
         today.queue.iter().filter_map(Due::word_id).collect()
     }
 
-    const fn graded(rating: Rating) -> Graded {
-        Graded { rating, duration_ms: None }
+    fn graded(rating: Rating) -> Sent<Graded> {
+        arriving(Graded { rating, duration_ms: None })
     }
 
     #[tokio::test]
@@ -2459,12 +2524,12 @@ gloss = "занятой"
         Asked::Values(pairs.iter().map(|(slot, value)| ((*slot).to_string(), (*value).to_string())).collect())
     }
 
-    fn produced(turns: Vec<Turn>, easy: bool) -> Answer {
-        Answer::Produce {
+    fn produced(turns: Vec<Turn>, easy: bool) -> Sent<Answer> {
+        arriving(Answer::Produce {
             turns,
             easy,
             duration_ms: Some(5000),
-        }
+        })
     }
 
     #[tokio::test]
@@ -2488,21 +2553,6 @@ gloss = "занятой"
             .await
             .unwrap();
         assert_eq!(half.rating, Rating::Again, "half the turns slipping means the shape is not there");
-    }
-
-    #[test]
-    fn the_grade_follows_the_slips_of_the_shape_only() {
-        use crate::answer::Failure::{Formula as Shape, Order, Word};
-        assert_eq!(rate(&[None, None], false), Rating::Good);
-        assert_eq!(rate(&[None, None], true), Rating::Easy);
-        assert_eq!(
-            rate(&[None, Some(Word)], true),
-            Rating::Good,
-            "a word's failure is not the formula's, and is not easy either"
-        );
-        assert_eq!(rate(&[None, None, None, Some(Order)], false), Rating::Hard);
-        assert_eq!(rate(&[None, None, Some(Shape), Some(Order)], false), Rating::Again);
-        assert_eq!(rate(&[Some(Shape)], true), Rating::Again);
     }
 
     #[tokio::test]
@@ -2576,11 +2626,13 @@ gloss = "занятой"
             values(&[("pronoun", "I"), ("rest", "busy"), ("place", "here")]),
             Asked::Sample(9999),
         ] {
-            let error = check(&pool, "be", &typed(asked, "x")).await.unwrap_err();
+            let error = super::review(&pool, "be", produced(vec![typed(asked, "x")], false), at(0)).await.unwrap_err();
             assert!(matches!(error, AnswerError::Unanswerable(_)), "{error:#}");
         }
         assert!(matches!(
-            check(&pool, "nonsense", &typed(Asked::Sample(1), "x")).await.unwrap_err(),
+            super::review(&pool, "nonsense", produced(vec![typed(Asked::Sample(1), "x")], false), at(0))
+                .await
+                .unwrap_err(),
             AnswerError::NotFound(_)
         ));
         let none = super::review(&pool, "be", produced(Vec::new(), false), at(0)).await.unwrap_err();
@@ -2615,13 +2667,13 @@ gloss = "занятой"
         assert_eq!(rest, vec![("busy", false), ("at home", false), ("in the car", true)]);
         assert!(be.slots[0].values.iter().all(|value| !value.own), "a slot that takes nothing took an own word");
 
-        let checked = check(&pool, "be", &typed(values(&[("pronoun", "she"), ("rest", "in the car")]), "She's in the car."))
-            .await
-            .unwrap();
+        let (_, checked) = check::judge(&be.asking(), &typed(values(&[("pronoun", "she"), ("rest", "in the car")]), "She's in the car.")).unwrap();
         assert!(checked.correct);
-        let checked = check(&pool, "be", &typed(values(&[("pronoun", "she"), ("rest", "in the car")]), "She is in the bus."))
-            .await
-            .unwrap();
+        let (_, checked) = check::judge(
+            &be.asking(),
+            &typed(values(&[("pronoun", "she"), ("rest", "in the car")]), "She is in the bus."),
+        )
+        .unwrap();
         assert_eq!(checked.failure, Some(Failure::Word), "an own word missed is a word missed");
     }
 
@@ -2724,7 +2776,10 @@ gloss = "занятой"
         // what the day began with.
         for due in back.queue.iter().filter(|due| !due.is_new) {
             match &due.subject {
-                Subject::Word { word } => review_word(&pool, &word.id, graded(Rating::Good), at(2)).await.map(|_| ()),
+                Subject::Word { word } => review_word(&pool, &word.id, graded(Rating::Good), at(2))
+                    .await
+                    .map(|_| ())
+                    .map_err(anyhow::Error::from),
                 Subject::Formula { formula, direction } => {
                     let said = Said {
                         direction: *direction,
@@ -2905,5 +2960,182 @@ gloss = "занятой"
         let second = review(&pool, "f0", said(Rating::Easy), first.due).await.unwrap();
         assert!((second.stability_before - first.stability).abs() < 1e-9);
         assert!(second.stability > second.stability_before, "an easy answer should make it hold longer");
+    }
+
+    // ------------------------------------------------ answers from the road
+
+    /// Grades a formula as given at `given` and delivered at `arrived`: an
+    /// answer that waited in a phone's queue.
+    async fn delivered(pool: &SqlitePool, id: &str, said: Said, given: DateTime<Utc>, arrived: DateTime<Utc>) -> Result<Reviewed> {
+        let answer_id = arriving(()).answer_id;
+        let arrival = Arrival {
+            id: &answer_id,
+            at: given,
+            arrived,
+        };
+        take(
+            pool,
+            &arrival,
+            Kind::Formula(said.direction),
+            id,
+            Given::asked(said.rating, said.duration_ms, &[]),
+            &[],
+        )
+        .await?
+        .with_context(|| format!("there is no formula called {id}"))
+    }
+
+    /// The steps a card's review rows keep, in the order of its history.
+    async fn steps_kept(pool: &SqlitePool, kind: Kind, id: &str) -> Vec<(String, f64, f64, f64)> {
+        sqlx::query_as(
+            "SELECT r.reviewed_at, r.elapsed_days, r.stability, r.difficulty FROM review r JOIN card c ON c.id = r.card_id
+             WHERE c.kind = ? AND c.subject_id = ? ORDER BY r.reviewed_at, r.id",
+        )
+        .bind(kind.as_str())
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_answer_that_arrives_after_a_later_one_takes_its_place_in_the_history() {
+        // The phone answered f0 underground on day 2 and could not send it;
+        // the laptop answered it at home on day 3; the phone's answer
+        // arrives on day 4. The card is what the two answers in the order
+        // they were given make it, not the order they arrived in.
+        let pool = worded().await;
+        let kind = Kind::Formula(Direction::Produce);
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        review(&pool, "f0", said(Rating::Good), at(3)).await.unwrap();
+        delivered(&pool, "f0", said(Rating::Again), at(2), at(4)).await.unwrap();
+
+        let walked = Scheduler::new().walk([(Rating::Good, at(0)), (Rating::Again, at(2)), (Rating::Good, at(3))]);
+        let held = card(&pool, kind, "f0").await.unwrap().unwrap();
+        assert_eq!(held, walked[2].card, "the card is not the history played in the order it was given");
+
+        // Every row keeps the step its answer took in that order - the day-3
+        // answer's row was written when it was the second answer, and is the
+        // third now.
+        let kept = steps_kept(&pool, kind, "f0").await;
+        let expected: Vec<(String, f64, f64, f64)> = [at(0), at(2), at(3)]
+            .iter()
+            .zip(&walked)
+            .map(|(at, step)| (at.to_rfc3339(), step.elapsed_days, step.card.stability, step.card.difficulty))
+            .collect();
+        assert_eq!(kept, expected);
+
+        let appended = Scheduler::new().replay([(Rating::Good, at(0)), (Rating::Good, at(3)), (Rating::Again, at(4))]);
+        assert_ne!(Some(held), appended, "the late answer was put at the end of the history");
+    }
+
+    #[tokio::test]
+    async fn two_deliveries_of_one_answer_at_once_record_it_once() {
+        // Both got past the look for a receipt before either kept one: the
+        // second to keep it is the one dropped, and told what the first was.
+        let pool = worded().await;
+        let arrival = Arrival {
+            id: "twice",
+            at: at(0),
+            arrived: at(0),
+        };
+        let given = || Given::asked(Rating::Good, Some(3_000), &[]);
+        let first = take(&pool, &arrival, Kind::Formula(Direction::Produce), "f0", given(), &[])
+            .await
+            .unwrap()
+            .unwrap();
+        let second = take(&pool, &arrival, Kind::Formula(Direction::Produce), "f0", given(), &[])
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&second).unwrap(),
+            serde_json::to_value(&first).unwrap(),
+            "the second delivery was told something else"
+        );
+        let reviews: i64 = sqlx::query_scalar("SELECT count(*) FROM review").fetch_one(&pool).await.unwrap();
+        assert_eq!(reviews, 1, "an answer delivered twice at once was recorded twice");
+    }
+
+    #[tokio::test]
+    async fn an_answer_at_the_end_of_the_history_leaves_the_rows_before_it_alone() {
+        let pool = worded().await;
+        let kind = Kind::Formula(Direction::Produce);
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        let before = steps_kept(&pool, kind, "f0").await;
+        review(&pool, "f0", said(Rating::Hard), at(2)).await.unwrap();
+        let after = steps_kept(&pool, kind, "f0").await;
+        assert_eq!(after[0], before[0]);
+        let walked = Scheduler::new().replay([(Rating::Good, at(0)), (Rating::Hard, at(2))]);
+        assert_eq!(card(&pool, kind, "f0").await.unwrap(), walked);
+    }
+
+    #[tokio::test]
+    async fn an_answer_given_in_a_break_counted_since_ends_it_where_it_was_given() {
+        // Five days without an answer the tutor could see, counted as a break
+        // on the laptop - but the phone had answered on day 2, out of reach.
+        let pool = crowded().await;
+        first_evening(&pool, 4).await;
+        crate::breaks::count_away(&pool, at(5)).await.unwrap();
+        delivered(&pool, "f0", said(Rating::Good), at(2), at(5)).await.unwrap();
+
+        let taken = crate::breaks::all(&pool).await.unwrap();
+        assert_eq!(taken.len(), 1);
+        assert_eq!(taken[0].ends_at, Some(at(2)), "an answer given in a break ends it, whenever it arrives");
+    }
+
+    #[tokio::test]
+    async fn an_answer_given_before_a_break_comes_back_after_it() {
+        // Answered on the train, then away for a week, then delivered: the
+        // reply says when it comes back with the week counted.
+        let pool = worded().await;
+        review(&pool, "f0", said(Rating::Good), at(0)).await.unwrap();
+        crate::breaks::start(&pool, Some(at(20)), at(10)).await.unwrap();
+        let reviewed = delivered(&pool, "f0", said(Rating::Easy), at(9), at(20)).await.unwrap();
+        let held = card(&pool, Kind::Formula(Direction::Produce), "f0").await.unwrap().unwrap();
+        assert_eq!(
+            Some(reviewed.due),
+            held.back_at(&[Break {
+                starts_at: at(10),
+                ends_at: Some(at(20)),
+            }])
+        );
+        assert!(reviewed.due > held.due, "the break was not counted in the reply");
+    }
+
+    #[tokio::test]
+    async fn today_says_what_comes_back_this_week_and_how_long_answers_take() {
+        let pool = worded().await;
+        // The latest answer is the quickest: the median is not the last one.
+        let mut last = review(&pool, "f0", said(Rating::Good).taking(9_000), at(0)).await.unwrap();
+        last = review(&pool, "f0", said(Rating::Good).taking(4_000), last.due).await.unwrap();
+        assert_eq!(
+            today(&pool, last.due).await.unwrap().usual.produce,
+            None,
+            "two timed answers are not yet enough to say what is usual"
+        );
+        last = review(&pool, "f0", said(Rating::Good).taking(1_000), last.due).await.unwrap();
+        let now = last.due - Duration::hours(1);
+        let read = today(&pool, now).await.unwrap();
+        assert!(last.due - now < Duration::days(COMING_DAYS));
+        assert_eq!(read.coming, vec![last.due], "only cards answered come back, and only within the week");
+        assert_eq!(read.as_of, now);
+        assert_eq!(
+            read.usual,
+            Usual {
+                produce: Some(4_000),
+                recognise: None,
+                word: None
+            },
+            "the median of the timed answers, once there are enough of them"
+        );
+
+        // Once it is back it is in the queue, not still coming.
+        let back = today(&pool, last.due).await.unwrap();
+        assert_eq!(back.coming, Vec::<DateTime<Utc>>::new());
+        assert!(back.queue.iter().any(|due| due.formula_id() == "f0" && !due.is_new));
+        // A week is as far as it looks.
+        let far = today(&pool, last.due - Duration::days(COMING_DAYS) - Duration::hours(1)).await.unwrap();
+        assert_eq!(far.coming, Vec::<DateTime<Utc>>::new(), "a card more than a week away was counted");
     }
 }

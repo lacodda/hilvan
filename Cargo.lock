@@ -917,6 +917,7 @@ dependencies = [
  "chrono",
  "clap",
  "dotenvy",
+ "hilvan-core",
  "http-body-util",
  "jsonschema",
  "rand",
@@ -937,6 +938,24 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "hilvan-check"
+version = "0.0.0"
+dependencies = [
+ "hilvan-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hilvan-core"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
