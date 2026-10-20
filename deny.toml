@@ -48,6 +48,10 @@ confidence-threshold = 0.93
 # defect; `deny` below is where a crate refused outright would go.
 multiple-versions = "allow"
 wildcards = "deny"
+# The workspace's own crates are path dependencies with no version: none of
+# them is published (`publish = false`), and the core and the checker ship
+# inside the binary and the app. A wildcard to a registry stays refused.
+allow-wildcard-paths = true
 deny = []
 
 [sources]
