@@ -2,8 +2,9 @@
 //!
 //! Everything the tutor knows about its learner - each card and every answer
 //! behind it with the turns typed for it, the words they brought, the voices
-//! they chose, the inventory they went through, the breaks they took - as
-//! one JSON document. It
+//! they chose, the inventory they went through, the breaks they took, the
+//! texts they read and the words they took from them - as one JSON
+//! document. It
 //! moves a learner to another stand, shows a fictional one in the docs, and
 //! tells the model as it stood on any day: a snapshot is the review log up
 //! to that day played through the scheduler again, never a stored copy.
@@ -29,6 +30,7 @@ use sqlx::{Row, SqlitePool};
 use crate::answer::Failure;
 use crate::breaks;
 use crate::pack::{self, OwnKind};
+use crate::reading::{self, Format};
 use crate::scheduling::{Break, Direction, Kind, Rating, Scheduler, Source, Stitch};
 use crate::study::{self, Counts, Progress};
 use crate::voice::Engine;
@@ -36,11 +38,11 @@ use crate::words::{Held, Standing};
 
 /// The version of the file's shape. Read files of this one; a file of
 /// another is refused rather than guessed at.
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 
 /// Where the JSON Schema of [`FORMAT`] is published, and what a file says
 /// it follows.
-pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-2.json";
+pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-3.json";
 
 /// A fictional learner, three weeks into English from Russian on the shipped
 /// pack: what `hilvan load-demo` loads, what the docs are shown with. Made by
@@ -80,6 +82,11 @@ pub struct Model {
     /// The breaks taken, the earliest first: the stretches the schedule's
     /// clock stood still.
     pub breaks: Vec<BreakRecord>,
+    /// The texts the learner reads, the earliest added first.
+    pub texts: Vec<TextRecord>,
+    /// The words taken from sentences of texts into the deck, the earliest
+    /// first.
+    pub picks: Vec<PickRecord>,
 }
 
 /// The program that wrote a model.
@@ -201,6 +208,36 @@ pub struct Inventoried {
     pub at: DateTime<Utc>,
 }
 
+/// A text the learner reads, whole: the learner's own material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextRecord {
+    pub language: String,
+    pub title: String,
+    pub format: Format,
+    pub added_at: DateTime<Utc>,
+    pub opened_at: Option<DateTime<Utc>>,
+    /// The paragraph the learner stopped at, from 0.
+    pub paragraph: i64,
+    pub finished_at: Option<DateTime<Utc>>,
+    /// Its paragraphs, each the sentences in it.
+    pub paragraphs: Vec<Vec<String>>,
+}
+
+/// A word taken into the deck from a sentence the learner read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PickRecord {
+    /// `en:suddenly`.
+    pub word: String,
+    /// The sentence, by what it says: it outlives the text it came from.
+    pub sentence: SentenceRef,
+    /// How the word is spelt there, and the character it starts at.
+    pub form: String,
+    pub start: i64,
+    pub at: DateTime<Utc>,
+}
+
 /// One break: the schedule's clock stopped from `from` until `until`, or
 /// until the learner is back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,7 +339,53 @@ impl Model {
             ensure!(inventoried.insert(answer.word.as_str()), "inventory word {} is answered twice", answer.word);
         }
 
-        self.check_breaks()
+        self.check_breaks()?;
+        self.check_reading(&languages)
+    }
+
+    /// Whether the texts and the words taken from them are whole: a text
+    /// with something to read and its place inside it, a word taken from a
+    /// sentence of its own language once.
+    fn check_reading(&self, languages: &BTreeSet<&str>) -> Result<()> {
+        for text in &self.texts {
+            let what = format!("the text {:?}", text.title);
+            listed(languages, &text.language, &what)?;
+            ensure!(!text.title.trim().is_empty(), "a text has no title");
+            ensure!(!text.paragraphs.is_empty(), "{what} has nothing to read");
+            ensure!(
+                text.paragraphs
+                    .iter()
+                    .all(|paragraph| !paragraph.is_empty() && paragraph.iter().all(|sentence| !sentence.trim().is_empty())),
+                "{what} has an empty paragraph or sentence"
+            );
+            ensure!(
+                usize::try_from(text.paragraph).is_ok_and(|at| at < text.paragraphs.len()),
+                "{what} is read at paragraph {}, which it does not have",
+                text.paragraph
+            );
+        }
+        let mut picked = BTreeSet::new();
+        for pick in &self.picks {
+            let (language, lemma) = pick
+                .word
+                .split_once(':')
+                .with_context(|| format!("taken word {:?} is not language:lemma", pick.word))?;
+            ensure!(is_lemma(lemma), "taken word {:?} is not language:lemma, lowercase", pick.word);
+            listed(languages, language, &format!("taken word {}", pick.word))?;
+            ensure!(
+                pick.sentence.language == language,
+                "{} was taken from a sentence in another language",
+                pick.word
+            );
+            ensure!(pick.start >= 0 && !pick.form.is_empty(), "{} was taken from nowhere in its sentence", pick.word);
+            ensure!(
+                picked.insert((pick.word.as_str(), pick.sentence.text.as_str())),
+                "{} is taken from {:?} twice",
+                pick.word,
+                pick.sentence.text
+            );
+        }
+        Ok(())
     }
 
     /// Whether the breaks are what the tutor keeps: each ends after it
@@ -359,6 +442,14 @@ impl Model {
         for stop in &mut self.breaks {
             stop.from += by;
             stop.until = stop.until.map(|at| at + by);
+        }
+        for text in &mut self.texts {
+            text.added_at += by;
+            text.opened_at = text.opened_at.map(|at| at + by);
+            text.finished_at = text.finished_at.map(|at| at + by);
+        }
+        for pick in &mut self.picks {
+            pick.at += by;
         }
         self
     }
@@ -447,7 +538,9 @@ pub async fn export(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Model> {
 /// The model as it stood at `at`: the answers given by then, played through
 /// the scheduler again, and what else the learner had by then.
 ///
-/// A voice choice keeps no date, so a snapshot carries the voices chosen now.
+/// A voice choice keeps no date, so a snapshot carries the voices chosen now;
+/// nor does the place in a text, so a snapshot carries where the learner is
+/// in each text now - of the texts added by then.
 ///
 /// # Errors
 ///
@@ -483,6 +576,8 @@ async fn read(pool: &SqlitePool, at: Option<DateTime<Utc>>, now: DateTime<Utc>) 
     let anchors = read_anchors(pool, &cards).await?;
     let Belongings { own_words, voices, inventory } = read_belongings(pool, at).await?;
     let breaks = read_breaks(pool, at).await?;
+    let texts = read_texts(pool, at).await?;
+    let taken = read_picks(pool, at).await?;
 
     Ok(Model {
         schema: SCHEMA.to_string(),
@@ -501,7 +596,89 @@ async fn read(pool: &SqlitePool, at: Option<DateTime<Utc>>, now: DateTime<Utc>) 
         voices,
         inventory,
         breaks,
+        texts,
+        picks: taken,
     })
+}
+
+/// The texts added by `at`, whole.
+async fn read_texts(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Vec<TextRecord>> {
+    let by_then = |moment: &DateTime<Utc>| at.is_none_or(|at| *moment <= at);
+    let mut texts = Vec::new();
+    for row in sqlx::query("SELECT id, language, title, format, added_at, opened_at, paragraph, finished_at FROM text ORDER BY added_at, id")
+        .fetch_all(pool)
+        .await
+        .context("failed to read the texts")?
+    {
+        let added_at = study::parse_stamp(&row.get::<String, _>("added_at"))?;
+        if !by_then(&added_at) {
+            continue;
+        }
+        let moment = |column: &str| -> Result<Option<DateTime<Utc>>> {
+            Ok(row
+                .get::<Option<String>, _>(column)
+                .map(|text| study::parse_stamp(&text))
+                .transpose()?
+                .filter(|moment| by_then(moment)))
+        };
+        let mut paragraphs: Vec<Vec<String>> = Vec::new();
+        for (paragraph, sentence) in sqlx::query_as::<_, (i64, String)>(
+            "SELECT ts.paragraph, s.text FROM text_sentence ts JOIN sentence s ON s.id = ts.sentence_id
+             WHERE ts.text_id = ? ORDER BY ts.position",
+        )
+        .bind(row.get::<i64, _>("id"))
+        .fetch_all(pool)
+        .await
+        .context("failed to read the sentences of a text")?
+        {
+            let paragraph = usize::try_from(paragraph).unwrap_or(0);
+            if paragraphs.len() <= paragraph {
+                paragraphs.resize_with(paragraph + 1, Vec::new);
+            }
+            paragraphs[paragraph].push(sentence);
+        }
+        let last = i64::try_from(paragraphs.len()).unwrap_or(i64::MAX) - 1;
+        texts.push(TextRecord {
+            language: row.get("language"),
+            title: row.get("title"),
+            format: Format::parse(&row.get::<String, _>("format"))?,
+            added_at,
+            opened_at: moment("opened_at")?,
+            paragraph: row.get::<i64, _>("paragraph").clamp(0, last.max(0)),
+            finished_at: moment("finished_at")?,
+            paragraphs,
+        });
+    }
+    Ok(texts)
+}
+
+/// The words taken from texts by `at`.
+async fn read_picks(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Vec<PickRecord>> {
+    let mut picks = Vec::new();
+    for row in sqlx::query(
+        "SELECT p.word_id, s.language, s.text, p.form, p.start, p.picked_at FROM pick p JOIN sentence s ON s.id = p.sentence_id
+         ORDER BY p.picked_at, p.word_id, s.id",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to read the words taken from texts")?
+    {
+        let picked_at = study::parse_stamp(&row.get::<String, _>("picked_at"))?;
+        if at.is_some_and(|at| picked_at > at) {
+            continue;
+        }
+        picks.push(PickRecord {
+            word: row.get("word_id"),
+            sentence: SentenceRef {
+                language: row.get("language"),
+                text: row.get("text"),
+            },
+            form: row.get("form"),
+            start: row.get("start"),
+            at: picked_at,
+        });
+    }
+    Ok(picks)
 }
 
 /// The breaks taken by `at`. One still to end at that moment is told as
@@ -723,8 +900,8 @@ fn failure(word: &str) -> Result<Failure> {
 }
 
 /// Whether the tutor holds anything of a learner: an answer, an own word, a
-/// chosen voice, an answer of the inventory, a break. A stand with only
-/// packs loaded holds nothing.
+/// chosen voice, an answer of the inventory, a break, a text. A stand with
+/// only packs loaded holds nothing.
 ///
 /// # Errors
 ///
@@ -733,7 +910,7 @@ pub async fn holds_a_learner(pool: &SqlitePool) -> Result<bool> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM review) OR EXISTS (SELECT 1 FROM own_word)
              OR EXISTS (SELECT 1 FROM voice_choice) OR EXISTS (SELECT 1 FROM inventory)
-             OR EXISTS (SELECT 1 FROM break)",
+             OR EXISTS (SELECT 1 FROM break) OR EXISTS (SELECT 1 FROM text) OR EXISTS (SELECT 1 FROM pick)",
     )
     .fetch_one(pool)
     .await
@@ -756,7 +933,8 @@ pub struct Imported {
 /// Replaces the learner model with `model`.
 ///
 /// Everything of the learner goes - cards, answers, anchors, own words,
-/// voices, the inventory - and the model's takes its place, in one
+/// voices, the inventory, texts and the words taken from them - and the
+/// model's takes its place, in one
 /// transaction; the loaded material stays, and every formula and word of it
 /// the model never answered gets a new card. What was there is the caller's
 /// to keep first: the command line writes it to a file before calling this.
@@ -778,6 +956,8 @@ pub async fn import(pool: &SqlitePool, model: &Model, now: DateTime<Utc>) -> Res
         "DELETE FROM voice_choice",
         "DELETE FROM inventory",
         "DELETE FROM break",
+        "DELETE FROM pick",
+        "DELETE FROM text",
     ] {
         sqlx::query(statement)
             .execute(&mut *tx)
@@ -798,9 +978,14 @@ pub async fn import(pool: &SqlitePool, model: &Model, now: DateTime<Utc>) -> Res
     }
 
     let reviews = write_cards(&mut tx, &model.cards).await?;
+    // The texts before the anchors: an anchor may stand in a sentence only a
+    // text, or a word taken from it, brings.
+    write_reading(&mut tx, model).await?;
     let anchors_dropped = write_belongings(&mut tx, model).await?;
 
     pack::give_every_subject_a_card(&mut tx, now).await?;
+    // The texts replaced may have held sentences nothing shows now.
+    reading::drop_unshown_sentences(&mut tx).await?;
 
     let loaded: BTreeMap<String, i64> = sqlx::query_as::<_, (String, i64)>("SELECT id, version FROM pack")
         .fetch_all(&mut *tx)
@@ -884,6 +1069,55 @@ async fn write_cards(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, cards: &[Card
     }
 
     Ok(reviews)
+}
+
+/// Writes the texts, each sentence kept once among its language's, and the
+/// words taken from them.
+async fn write_reading(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, model: &Model) -> Result<()> {
+    for text in &model.texts {
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO text (language, title, format, added_at, opened_at, paragraph, finished_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        )
+        .bind(&text.language)
+        .bind(&text.title)
+        .bind(text.format.as_str())
+        .bind(stamp(text.added_at))
+        .bind(text.opened_at.map(stamp))
+        .bind(text.paragraph)
+        .bind(text.finished_at.map(stamp))
+        .fetch_one(&mut **tx)
+        .await
+        .with_context(|| format!("failed to write the text {:?}", text.title))?;
+        let mut position = 0i64;
+        for (paragraph, sentences) in text.paragraphs.iter().enumerate() {
+            for sentence in sentences {
+                let sentence_id = reading::keep_sentence(tx, &text.language, sentence).await?;
+                sqlx::query("INSERT INTO text_sentence (text_id, position, paragraph, sentence_id) VALUES (?, ?, ?, ?)")
+                    .bind(id)
+                    .bind(position)
+                    .bind(i64::try_from(paragraph).unwrap_or(i64::MAX))
+                    .bind(sentence_id)
+                    .execute(&mut **tx)
+                    .await
+                    .with_context(|| format!("failed to write a sentence of the text {:?}", text.title))?;
+                position += 1;
+            }
+        }
+    }
+    for pick in &model.picks {
+        let sentence_id = reading::keep_sentence(tx, &pick.sentence.language, &pick.sentence.text).await?;
+        sqlx::query("INSERT INTO pick (word_id, sentence_id, form, start, picked_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(&pick.word)
+            .bind(sentence_id)
+            .bind(&pick.form)
+            .bind(pick.start)
+            .bind(stamp(pick.at))
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("failed to write the word {} taken from a text", pick.word))?;
+    }
+    Ok(())
 }
 
 /// Writes the anchors, own words, voices and inventory; how many anchors
@@ -1022,11 +1256,14 @@ pub async fn standing_at(pool: &SqlitePool, at: DateTime<Utc>) -> Result<Snapsho
         }
     }
 
-    let taught: BTreeSet<String> = sqlx::query_scalar("SELECT id FROM word")
+    // The deck as it stood: the packs' words, and those taken from texts by
+    // then.
+    let taught: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT id FROM word")
         .fetch_all(pool)
         .await
         .context("failed to read the words")?
         .into_iter()
+        .chain(model.picks.iter().map(|pick| pick.word.clone()))
         .collect();
     let mut words: Vec<Held> = taught
         .iter()

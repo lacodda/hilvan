@@ -17,6 +17,11 @@
 //! other answers a typed turn may give ("I'd like" for "I would like"), and
 //! the slots that take the learner's own words (ADR 0007).
 //!
+//! Beside its own words a pack carries a glossary: what every lemma of the
+//! language's lexicon means in the learner's language, one line each in a
+//! file next to the pack. The reader glosses any word of a text with it
+//! (ADR 0012).
+//!
 //! Loading is idempotent: the same pack loaded twice leaves the database as
 //! it was, and a pack whose contents changed replaces its own formulas and
 //! words without touching what the learner has learnt about them.
@@ -52,6 +57,13 @@ pub struct Pack {
     /// The words the formulas' sentences teach.
     #[serde(default, rename = "word")]
     pub words: Vec<Word>,
+    /// The file of the glossary, next to the pack's own: `glossary.tsv`.
+    #[serde(default)]
+    pub glossary: Option<String>,
+    /// The glossary as [`Pack::read`] found it: each lemma and what it means,
+    /// in the order of the file.
+    #[serde(skip)]
+    pub glosses: Vec<(String, String)>,
 }
 
 /// A word a pack teaches: a lemma of the language being learnt, and what it
@@ -72,6 +84,27 @@ pub struct Word {
 #[must_use]
 pub fn word_id(language: &str, lemma: &str) -> String {
     format!("{language}:{}", lemma.to_lowercase())
+}
+
+/// Reads a glossary file: `#` comments, then `lemma<TAB>gloss` a line.
+///
+/// # Errors
+///
+/// Fails on a line that is not two tab-separated fields, with its number.
+pub fn read_glossary(text: &str) -> Result<Vec<(String, String)>> {
+    let mut glosses = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split('\t');
+        let (Some(lemma), Some(gloss), None) = (fields.next(), fields.next(), fields.next()) else {
+            bail!("line {} is not `lemma<TAB>gloss`: {line:?}", index + 1);
+        };
+        glosses.push((lemma.to_string(), gloss.trim().to_string()));
+    }
+    Ok(glosses)
 }
 
 /// Which of the three ways a shape can be said.
@@ -228,7 +261,12 @@ impl Pack {
     pub fn read(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path).with_context(|| format!("cannot read the pack at {}", path.display()))?;
-        let pack: Self = toml::from_str(&text).with_context(|| format!("{} is not a valid pack file", path.display()))?;
+        let mut pack: Self = toml::from_str(&text).with_context(|| format!("{} is not a valid pack file", path.display()))?;
+        if let Some(name) = &pack.glossary {
+            let file = path.parent().unwrap_or_else(|| Path::new(".")).join(name);
+            let text = std::fs::read_to_string(&file).with_context(|| format!("cannot read the glossary at {}", file.display()))?;
+            pack.glosses = read_glossary(&text).with_context(|| format!("{} is not a valid glossary", file.display()))?;
+        }
         pack.validate().with_context(|| format!("the pack at {} cannot be loaded", path.display()))?;
         Ok(pack)
     }
@@ -245,8 +283,9 @@ impl Pack {
     /// sample, a slot with no values, a duplicate slot name within a formula,
     /// a slot whose name has no matching `<placeholder>` in the pattern, a
     /// form without a family, two formulas claiming the same form of the
-    /// same family, or a word that is not where the pack says it is (see
-    /// `validate_words`).
+    /// same family, a word that is not where the pack says it is (see
+    /// `validate_words`), or a glossary that does not match the lexicon (see
+    /// `validate_glossary`).
     pub fn validate(&self) -> Result<()> {
         if self.id.trim().is_empty() {
             bail!("the pack has no id");
@@ -297,7 +336,44 @@ impl Pack {
 
         self.validate_parents()?;
         self.validate_families()?;
-        self.validate_words()
+        self.validate_words()?;
+        self.validate_glossary()
+    }
+
+    /// The rules a glossary keeps: every line a lemma of the language's
+    /// lexicon, written as the lexicon writes it, glossed once and not
+    /// emptily.
+    ///
+    /// A gloss for a lemma the lexicon lacks would be shown for no word of
+    /// any text, and a second gloss for one it has would be a coin toss.
+    /// A glossary does not have to cover the whole lexicon: a word without a
+    /// gloss is shown without one.
+    fn validate_glossary(&self) -> Result<()> {
+        if self.glossary.is_some() && self.glosses.is_empty() {
+            bail!("the glossary {:?} holds no lines", self.glossary.as_deref().unwrap_or_default());
+        }
+        if self.glosses.is_empty() {
+            return Ok(());
+        }
+        let Some(lexicon) = lexicon::of(&self.target) else {
+            bail!("the pack has a glossary, but hilvan has no lexicon of {} to hold it to", self.target);
+        };
+        let mut seen = HashSet::new();
+        for (lemma, gloss) in &self.glosses {
+            if lexicon.entry(lemma).is_none_or(|entry| entry.lemma != *lemma) {
+                bail!(
+                    "the glossary glosses {lemma:?}, which is not a lemma of the {} lexicon as it is written there",
+                    self.target
+                );
+            }
+            if gloss.trim().is_empty() {
+                bail!("the glossary gives {lemma:?} no gloss");
+            }
+            if !seen.insert(lemma.as_str()) {
+                bail!("the glossary glosses {lemma:?} twice");
+            }
+        }
+        Ok(())
     }
 
     /// The rules that make the parents a tree the learner can climb.
@@ -662,15 +738,13 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
 
     insert_parents(&mut tx, pack).await?;
 
-    // A sentence no formula shows any more is gone, and an anchor in it with
+    insert_glossary(&mut tx, pack).await?;
+
+    // A sentence nothing shows any more is gone, and an anchor in it with
     // it: the word is heard in the first sentence it is met in until it is
-    // answered again. Formulas are the only thing that shows sentences
-    // today; a text in the reader will be the second, and has to be counted
-    // here when it comes.
-    sqlx::query("DELETE FROM sentence WHERE id NOT IN (SELECT sentence_id FROM formula_sentence)")
-        .execute(&mut *tx)
-        .await
-        .context("failed to drop the sentences no formula shows any more")?;
+    // answered again. A formula shows sentences, a text in the reader shows
+    // them, and a word taken from a sentence keeps that sentence for itself.
+    crate::reading::drop_unshown_sentences(&mut tx).await?;
 
     // A card per formula per direction and per word, created once. `ON
     // CONFLICT DO NOTHING` is what makes a reload keep the learner's history:
@@ -704,6 +778,25 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
         new_cards,
         changed: true,
     })
+}
+
+/// Replaces the pack's glossary with the one it carries now.
+async fn insert_glossary(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack) -> Result<()> {
+    sqlx::query("DELETE FROM gloss WHERE pack_id = ?")
+        .bind(&pack.id)
+        .execute(&mut **tx)
+        .await
+        .context("failed to clear the previous glossary of the pack")?;
+    for (lemma, gloss) in &pack.glosses {
+        sqlx::query("INSERT INTO gloss (pack_id, word_id, text) VALUES (?, ?, ?)")
+            .bind(&pack.id)
+            .bind(word_id(&pack.target, lemma))
+            .bind(gloss)
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("failed to insert the gloss of {lemma}"))?;
+    }
+    Ok(())
 }
 
 /// Links every formula to its parents. After every formula is in: a parent
@@ -839,7 +932,8 @@ async fn insert_sample(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack
 /// A word no pack teaches that the learner holds is not an orphan while its
 /// language's lexicon knows it: the inventory declares words of the
 /// language, not of a pack. Its card is the learner's, as a card never
-/// answered is nobody's.
+/// answered is nobody's - unless the learner took the word from a text,
+/// which makes even its new card theirs.
 ///
 /// # Errors
 ///
@@ -848,7 +942,7 @@ pub async fn orphaned_cards(pool: &SqlitePool) -> Result<Vec<String>> {
     let rows = sqlx::query(
         "SELECT DISTINCT kind, subject_id, state FROM card
          WHERE (kind IN ('formula', 'formula-recognise') AND subject_id NOT IN (SELECT id FROM formula))
-            OR (kind = 'word' AND subject_id NOT IN (SELECT id FROM word))
+            OR (kind = 'word' AND subject_id NOT IN (SELECT id FROM word) AND subject_id NOT IN (SELECT word_id FROM pick))
          ORDER BY subject_id",
     )
     .fetch_all(pool)
@@ -884,6 +978,7 @@ pub async fn language_being_learnt(pool: &SqlitePool) -> Result<Option<String>> 
 /// Makes the card every loaded formula and word is owed, new, where it has
 /// none: what a load does for its own pack, done for all of them - after
 /// the learner model was replaced, say, by one that never met some of them.
+/// A word taken from a text is owed one too.
 ///
 /// # Errors
 ///
@@ -894,7 +989,8 @@ pub async fn give_every_subject_a_card(tx: &mut sqlx::Transaction<'_, sqlx::Sqli
          SELECT kind, id, 'new', 0.0, 0.0, ?1, 0, 0 FROM (
              SELECT 'formula' AS kind, id FROM formula
              UNION ALL SELECT 'formula-recognise', id FROM formula
-             UNION ALL SELECT 'word', id FROM word)
+             UNION ALL SELECT 'word', id FROM word
+             UNION ALL SELECT 'word', word_id FROM pick)
          WHERE true
          ON CONFLICT (kind, subject_id) DO NOTHING",
     )
@@ -1543,6 +1639,54 @@ order = 10
             "the formulas' sentences should carry a vocabulary, the pack marks {} words",
             pack.words.len()
         );
+    }
+
+    #[test]
+    fn the_shipped_glossary_glosses_every_lemma_of_the_lexicon() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("packs/en-from-ru/pack.toml");
+        let pack = Pack::read(&path).expect("the shipped pack should load with its glossary");
+        let english = lexicon::of("en").unwrap();
+        let glossed: HashSet<&str> = pack.glosses.iter().map(|(lemma, _)| lemma.as_str()).collect();
+        let missing: Vec<&str> = english
+            .entries()
+            .map(|entry| entry.lemma.as_str())
+            .filter(|lemma| !glossed.contains(lemma))
+            .take(10)
+            .collect();
+        assert!(missing.is_empty(), "the reader would show these without a meaning: {missing:?}");
+        // The learner's own language, never the code's: a gloss with no
+        // Cyrillic in it is a word left untranslated.
+        let untranslated: Vec<&(String, String)> = pack
+            .glosses
+            .iter()
+            .filter(|(_, gloss)| !gloss.chars().any(|ch| ('\u{0400}'..='\u{04FF}').contains(&ch)))
+            .take(10)
+            .collect();
+        assert!(untranslated.is_empty(), "{untranslated:?}");
+    }
+
+    fn glossed(lines: &str) -> Result<()> {
+        let mut pack = worded(1, "врач", "Он врач.");
+        pack.glossary = Some("glossary.tsv".to_string());
+        pack.glosses = read_glossary(lines)?;
+        pack.validate()
+    }
+
+    #[test]
+    fn a_glossary_holds_to_the_lexicon_once_a_lemma() {
+        glossed("# a comment\n\nhouse\tдом\nI\tя\n").expect("a lemma as the lexicon writes it");
+        for (lines, complaint) in [
+            ("zxqv\tчто-то\n", "not a lemma"),
+            ("houses\tдома\n", "not a lemma"),
+            ("i\tя\n", "not a lemma"),
+            ("house\tдом\nhouse\tздание\n", "twice"),
+            ("house\t \n", "no gloss"),
+            ("house дом\n", "line 1"),
+            ("# only a comment\n", "holds no lines"),
+        ] {
+            let error = glossed(lines).unwrap_err();
+            assert!(format!("{error:#}").contains(complaint), "{lines:?}: {error:#}");
+        }
     }
 
     #[test]

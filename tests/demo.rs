@@ -5,7 +5,8 @@
 //! shown with. `cargo test --test demo -- --ignored` makes it, by driving the
 //! tutor's own code through those weeks - the inventory on the first evening,
 //! a sitting most days, typed turns with the slips a learner makes, words of
-//! their own, a long weekend away and a few days that went missing - and
+//! their own, a long weekend away and a few days that went missing, a text
+//! read with a few words taken from it - and
 //! writes `demo/learner.json`.
 //!
 //! The other tests hold that file, and every model file, to what the format
@@ -23,9 +24,11 @@ use hilvan::inventory;
 use hilvan::model::{self, Model};
 use hilvan::own::{self, NewWord};
 use hilvan::pack::{self, OwnKind, Pack};
+use hilvan::reading;
 use hilvan::say::Template;
 use hilvan::scheduling::{Rating, Scheduler, Source};
 use hilvan::study::{self, Answer, Asked, Graded, Subject, Turn, Value};
+use hilvan::words;
 use serde_json::Value as Json;
 use sqlx::SqlitePool;
 
@@ -48,7 +51,7 @@ async fn tutor() -> (SqlitePool, tempfile::TempDir) {
 }
 
 fn schema() -> jsonschema::Validator {
-    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-2.json")).expect("the schema should be in the docs");
+    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-3.json")).expect("the schema should be in the docs");
     let schema: Json = serde_json::from_str(&text).expect("the schema should be JSON");
     jsonschema::options()
         .should_validate_formats(true)
@@ -252,6 +255,83 @@ async fn own_word(pool: &SqlitePool, kind: OwnKind, native: &str, target: &str, 
     own::add(pool, &word, now).await.unwrap();
 }
 
+/// A text the demo learner reads: written for the demo, plain enough for
+/// three weeks in.
+const MARKET: &str = "# A morning at the market
+
+Every Saturday my sister and I walk to the market near the river. It opens early, and the best bread is gone by nine.
+
+The man who sells apples knows us. He always asks about our mother, and he always gives us one more apple than we pay for.
+
+Last week it rained, but the market was full anyway. People stood under the old bridge with their bags and talked about the weather.
+
+My sister bought flowers for the kitchen table. I bought cheese, a few tomatoes and a small jar of honey.
+
+On the way home we stopped at a cafe. The coffee was strong, and the window was warm from the sun that suddenly came out.
+";
+
+/// Subtitles the demo learner has added and not opened yet.
+const EPISODE: &str = "1
+00:00:01,000 --> 00:00:03,200
+Are you coming to the party tonight?
+
+2
+00:00:03,400 --> 00:00:05,000
+- I can't. I have to work late.
+
+3
+00:00:09,000 --> 00:00:11,500
+That's a shame. Maybe next time.
+";
+
+/// The market, read the way the reader is used: the first paragraph swept
+/// as known, a few words taken into the deck where they stand, the place
+/// kept two paragraphs in.
+async fn read_the_market(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<Utc>) {
+    let addition = reading::Addition {
+        title: None,
+        body: MARKET.to_string(),
+        format: None,
+    };
+    let added = reading::add(pool, &addition, *now).await.unwrap();
+    let text = reading::read(pool, added.id).await.unwrap();
+
+    // "I know the rest" over the first paragraph: every word not in hand,
+    // as the learner swipes it.
+    let unknown: Vec<String> = text.paragraphs[0]
+        .iter()
+        .flat_map(|line| &line.tokens)
+        .filter(|token| !token.piece.name)
+        .flat_map(|token| token.piece.parts.iter().flatten())
+        .map(|&index| index as usize)
+        .filter(|&index| text.holds[index].is_none())
+        .map(|index| text.lemmas[index].clone())
+        .filter(|_| dice.chance(0.9))
+        .collect();
+    *now += Duration::seconds(40);
+    words::declare(pool, &unknown, *now).await.unwrap();
+
+    for (paragraph, word) in [(2, "en:bridge"), (2, "en:weather"), (3, "en:honey")] {
+        let (sentence, start) = text.paragraphs[paragraph]
+            .iter()
+            .find_map(|line| {
+                line.tokens
+                    .iter()
+                    .find(|token| token.piece.parts.iter().flatten().any(|&index| text.lemmas[index as usize] == word))
+                    .map(|token| (line.sentence, i64::from(token.start)))
+            })
+            .unwrap_or_else(|| panic!("{word} should stand in paragraph {paragraph} of the market"));
+        *now += Duration::seconds(25);
+        words::pick(pool, word, sentence, start, *now).await.unwrap();
+    }
+    *now += Duration::minutes(3);
+    let place = reading::Place {
+        paragraph: Some(2),
+        finished: None,
+    };
+    reading::place(pool, added.id, place, *now).await.unwrap();
+}
+
 /// Three weeks of a fictional learner, as the tutor recorded them, told as
 /// of the morning after the last evening.
 async fn three_weeks() -> Model {
@@ -287,7 +367,18 @@ async fn three_weeks() -> Model {
                 own_word(&pool, OwnKind::Noun, "велосипед", "a bicycle", now).await;
             }
             9 => own_word(&pool, OwnKind::Verb, "водить", "drive", now).await,
-            21 => own_word(&pool, OwnKind::Noun, "сад", "a garden", now).await,
+            // After the weekend away, a text: read before the sitting, so
+            // the words taken from it open in the evening's queue.
+            15 => read_the_market(&pool, &mut dice, &mut now).await,
+            21 => {
+                own_word(&pool, OwnKind::Noun, "сад", "a garden", now).await;
+                let episode = reading::Addition {
+                    title: Some("Episode 1".to_string()),
+                    body: EPISODE.to_string(),
+                    format: None,
+                };
+                reading::add(&pool, &episode, now).await.unwrap();
+            }
             _ => {}
         }
         // Most evenings, not all of them; always the last, so the demo's
@@ -338,6 +429,8 @@ fn lines(model: &Model) -> String {
         list("voices", &model.voices),
         list("inventory", &model.inventory),
         list("breaks", &model.breaks),
+        list("texts", &model.texts),
+        list("picks", &model.picks),
     ];
     format!("{{\n{}\n}}\n", body.join(",\n"))
 }
@@ -391,10 +484,12 @@ fn the_demo_learner_learns_from_the_pack_that_ships() {
         .flat_map(|formula| &formula.samples)
         .map(|sample| sample.target.as_str())
         .collect();
+    // A word taken from a text is heard in the sentence it was taken from.
+    let taken: Vec<&str> = demo.picks.iter().map(|pick| pick.sentence.text.as_str()).collect();
     for anchor in &demo.anchors {
         assert!(
-            sentences.contains(&anchor.sentence.text.as_str()),
-            "the anchor of {} is in no sample: {:?}",
+            sentences.contains(&anchor.sentence.text.as_str()) || taken.contains(&anchor.sentence.text.as_str()),
+            "the anchor of {} is in no sample and no sentence a word was taken from: {:?}",
             anchor.word,
             anchor.sentence.text
         );
@@ -562,12 +657,20 @@ async fn an_import_replaces_the_learner_and_gives_what_it_never_met_a_new_card()
     smaller.anchors.clear();
     smaller.inventory.clear();
     smaller.own_words.truncate(1);
+    smaller.texts.truncate(1);
+    smaller.picks.clear();
     model::import(&pool, &smaller, now()).await.unwrap();
 
     let after = model::export(&pool, now()).await.unwrap();
     assert_eq!(after.cards, smaller.cards, "nothing of the learner before should remain");
     assert_eq!(after.own_words.len(), 1);
     assert_eq!(after.inventory, Vec::new());
+    assert_eq!((after.texts.len(), after.picks.len()), (1, 0));
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence WHERE text = 'Are you coming to the party tonight?'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, 0, "the sentences of a text the model does not have go with it");
     let new: i64 = sqlx::query_scalar("SELECT count(*) FROM card WHERE state = 'new'")
         .fetch_one(&pool)
         .await
@@ -638,6 +741,13 @@ fn broken() -> Vec<(&'static str, Json)> {
     case("a card of no kind", &|d| d["cards"][0]["kind"] = "sentence".into());
     case("a word in capitals", &|d| d["inventory"][0]["word"] = "en:House".into());
     case("an own word of a third kind", &|d| d["own_words"][0]["kind"] = "adjective".into());
+    case("a text of no format", &|d| d["texts"][0]["format"] = "epub".into());
+    case("a text with nothing to read", &|d| d["texts"][0]["paragraphs"] = Json::Array(Vec::new()));
+    case("a word taken from nowhere", &|d| d["picks"][0]["start"] = (-1).into());
+    case("a taken word in capitals", &|d| d["picks"][0]["word"] = "en:Bridge".into());
+    case("a file without its texts", &|d| {
+        d.as_object_mut().unwrap().remove("texts");
+    });
     case("a right turn that failed", &|d| {
         let attempt = d["cards"]
             .as_array_mut()
@@ -701,6 +811,22 @@ fn import_refuses_what_a_schema_cannot_say() {
         until: Some(answer + Duration::hours(1)),
     }];
     assert!(holding.check().is_err(), "a break holding an answer");
+
+    let mut past_the_end = demo();
+    past_the_end.texts[0].paragraph = i64::try_from(past_the_end.texts[0].paragraphs.len()).unwrap();
+    assert!(past_the_end.check().is_err(), "a place past the end of a text");
+
+    let mut taken_twice = demo();
+    taken_twice.picks.push(taken_twice.picks[0].clone());
+    assert!(taken_twice.check().is_err(), "a word taken from one sentence twice");
+
+    let mut elsewhere = demo();
+    elsewhere.picks[0].sentence.language = "ru".to_string();
+    assert!(elsewhere.check().is_err(), "a word taken from a sentence of another language");
+
+    let mut hollow = demo();
+    hollow.texts[0].paragraphs[1].clear();
+    assert!(hollow.check().is_err(), "a text with an empty paragraph");
 }
 
 #[test]

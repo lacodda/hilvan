@@ -5,12 +5,16 @@
 //! with a paid engine behind it, so every sentence is checked against what
 //! the loaded packs can actually say: a sentence in either language, an
 //! explanation, a sentence a formula's `say` makes of its slot values, or a
-//! word the packs teach, said on its own.
+//! word the packs teach, said on its own. The reader adds the sentences of
+//! the learner's texts, which are sentences like the packs', and any lemma of
+//! the language's lexicon said on its own - a word tapped in a text: a list
+//! of ten thousand words, not free text.
 
 use anyhow::{Context, Result};
 use serde::Serialize;
 use sqlx::{Row, SqlitePool};
 
+use crate::lexicon;
 use crate::say::{Template, every_sentence};
 use crate::study::{self, Value};
 
@@ -45,6 +49,12 @@ pub async fn speakable(pool: &SqlitePool, language: &str, text: &str) -> Result<
     .await
     .context("failed to look the text up in the material")?;
     if stored > 0 {
+        return Ok(true);
+    }
+    if lexicon::of(language)
+        .and_then(|lexicon| lexicon.entry(text))
+        .is_some_and(|entry| entry.lemma == text)
+    {
         return Ok(true);
     }
 
@@ -206,7 +216,9 @@ gloss = "дом"
         assert!(speakable(&pool, "en", "He is tired.").await.unwrap(), "a sentence the formula says");
         assert!(speakable(&pool, "en", "home").await.unwrap(), "a word, said on its own and slowly");
         assert!(!speakable(&pool, "ru", "home").await.unwrap(), "the word in the wrong language");
-        assert!(!speakable(&pool, "en", "house").await.unwrap(), "a word no pack teaches");
+        assert!(speakable(&pool, "en", "house").await.unwrap(), "a lemma of the lexicon, tapped in a text");
+        assert!(!speakable(&pool, "en", "houses").await.unwrap(), "a form is said in its sentence, not alone");
+        assert!(!speakable(&pool, "en", "zxqv").await.unwrap(), "a word of no lexicon");
         assert!(
             speakable(&pool, "en", "  I am tired.  ").await.unwrap(),
             "surrounding space is not a different sentence"

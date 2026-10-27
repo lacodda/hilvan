@@ -1,0 +1,39 @@
+# How English is written, for reading a text: what a list of lemmas and
+# their forms cannot say by itself.
+#
+# Read by src/lexicon.rs and built into the binary with lexicon.tsv. Written
+# by hand, unlike lexicon.tsv: these are a few rules of the written language,
+# not counts. The code knows no English; it applies what is written here.
+
+# Words written with a full stop that does not end the sentence, lowercase
+# and without the stop: "Mr. Brown came." is one sentence. A single letter
+# with a stop - an initial, "J. R. R." - never ends one either.
+abbreviations = ["mr", "mrs", "ms", "dr", "st", "jr", "sr", "prof", "rev", "gen", "col", "lt", "sgt", "capt", "mt", "ft", "vs", "approx", "dept", "est", "fig"]
+
+# Endings that are a word of their own, written onto the word before them:
+# "they're" is "they" and "be". Each lists the lemmas it can be - "would"
+# is a form of "will", so "'d" names "will". An empty
+# list is an ending that adds no word to count - the "'s" of "doctor's", and
+# of "it's", whose "is" or "has" every learner has long before the "it".
+[clitics]
+"n't" = ["not"]
+"'re" = ["be"]
+"'m" = ["be"]
+"'ll" = ["will"]
+"'ve" = ["have"]
+"'d" = ["will", "have"]
+"'s" = []
+
+# Whole spellings that are more than one word and that the endings above
+# cannot split, because what is left is not a word: the "ca" of "can't".
+# Each is the words it is made of, each word the lemmas it can be.
+[whole]
+"can't" = [["can"], ["not"]]
+"won't" = [["will"], ["not"]]
+"shan't" = [["shall"], ["not"]]
+"ain't" = [["be"], ["not"]]
+"let's" = [["let"], ["us"]]
+"gonna" = [["go"], ["to"]]
+"wanna" = [["want"], ["to"]]
+"gotta" = [["get"], ["to"]]
+"ok" = [["okay"]]

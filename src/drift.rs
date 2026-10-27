@@ -130,7 +130,9 @@ async fn week(pool: &SqlitePool, from: DateTime<Utc>, to: DateTime<Utc>) -> Resu
     // first would lose the answer a Monday slip slipped from.
     let rows = sqlx::query(
         "SELECT c.kind, c.subject_id, c.state, x.reviewed_at, x.before_source,
-                f.name AS formula_name, w.lemma, w.gloss
+                f.name AS formula_name, w.lemma,
+                COALESCE(w.gloss, (SELECT g.text FROM gloss g JOIN pack p ON p.id = g.pack_id
+                                   WHERE g.word_id = c.subject_id ORDER BY p.loaded_at, p.id LIMIT 1)) AS gloss
          FROM (
              SELECT r.card_id, r.rating, r.source, r.reviewed_at, r.elapsed_days, r.id,
                     LAG(r.rating) OVER answers AS before_rating,
@@ -170,9 +172,19 @@ async fn week(pool: &SqlitePool, from: DateTime<Utc>, to: DateTime<Utc>) -> Resu
                 Some(direction),
                 None,
             ),
+            // A word no pack teaches - declared, or taken from a text - is
+            // named as its lexicon writes it, its gloss the glossary's.
             Kind::Word => (
-                row.get::<Option<String>, _>("lemma")
-                    .unwrap_or_else(|| id.split_once(':').map_or_else(|| id.clone(), |(_, lemma)| lemma.to_string())),
+                row.get::<Option<String>, _>("lemma").unwrap_or_else(|| {
+                    id.split_once(':').map_or_else(
+                        || id.clone(),
+                        |(language, lemma)| {
+                            crate::lexicon::of(language)
+                                .and_then(|lexicon| lexicon.entry(lemma))
+                                .map_or_else(|| lemma.to_string(), |entry| entry.lemma.clone())
+                        },
+                    )
+                }),
                 None,
                 row.get::<Option<String>, _>("gloss"),
             ),

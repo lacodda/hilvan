@@ -3,7 +3,7 @@
 //! JSON in, JSON out, through two buffers in the module's own memory: the app
 //! asks for an input buffer of the length it needs, writes the request into
 //! it, calls the function, and reads the reply from the output buffer. No
-//! bindings generator - the whole interface is four exports, and a tool that
+//! bindings generator - the whole interface is five exports, and a tool that
 //! has to match a library version on every machine that builds the app costs
 //! more than the twenty lines of JavaScript it saves (`web/src/core.ts`).
 //!
@@ -16,6 +16,7 @@ use std::cell::RefCell;
 
 use hilvan_core::answer::{Checked, Failure};
 use hilvan_core::check::{self, Formula, Turn};
+use hilvan_core::cover::{self, Coverage, Hold, Piece, Standing};
 use hilvan_core::rating::Rating;
 use serde::{Deserialize, Serialize};
 
@@ -34,11 +35,27 @@ struct RateRequest {
     easy: bool,
 }
 
+/// What `cover` is asked: the running words of a text, and what the learner
+/// holds of each lemma they name.
+#[derive(Deserialize)]
+struct CoverRequest {
+    pieces: Vec<Piece>,
+    holds: Vec<Option<Hold>>,
+}
+
+/// How a text stands, and each of its running words.
+#[derive(Serialize)]
+struct Covered {
+    coverage: Coverage,
+    standings: Vec<Standing>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Reply {
     Checked(Checked),
     Rating(Rating),
+    Covered(Covered),
     Error(String),
 }
 
@@ -68,6 +85,15 @@ pub fn rate_json(request: &[u8]) -> Vec<u8> {
     answer(request, |request: RateRequest| Reply::Rating(check::rate(&request.failures, request.easy)))
 }
 
+/// How much of a text the learner holds, word by word.
+#[must_use]
+pub fn cover_json(request: &[u8]) -> Vec<u8> {
+    answer(request, |request: CoverRequest| {
+        let (coverage, standings) = cover::cover(&request.pieces, &request.holds);
+        Reply::Covered(Covered { coverage, standings })
+    })
+}
+
 thread_local! {
     static INPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
@@ -86,7 +112,7 @@ fn run(handle: fn(&[u8]) -> Vec<u8>) -> usize {
 /// and writes through it, inside the module's memory.
 #[allow(unsafe_code)]
 mod exports {
-    use super::{INPUT, OUTPUT, check_json, rate_json, run};
+    use super::{INPUT, OUTPUT, check_json, cover_json, rate_json, run};
 
     /// Makes the input buffer `length` bytes long; where to write it.
     #[unsafe(no_mangle)]
@@ -108,6 +134,12 @@ mod exports {
     #[unsafe(no_mangle)]
     pub extern "C" fn rate() -> usize {
         run(rate_json)
+    }
+
+    /// Counts the text in the input buffer; the length of the reply.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn cover() -> usize {
+        run(cover_json)
     }
 
     /// Where the last reply starts.
@@ -160,6 +192,17 @@ mod tests {
     fn a_round_is_graded_as_the_server_would() {
         assert_eq!(reply(&rate_json(br#"{ "failures": [null, "order"], "easy": false }"#))["rating"], "again");
         assert_eq!(reply(&rate_json(br#"{ "failures": [null, null], "easy": true }"#))["rating"], "easy");
+    }
+
+    #[test]
+    fn a_text_is_counted_as_the_server_counts_it() {
+        let request = br#"{ "pieces": [{ "parts": [[0]] }, { "parts": [[1], [0]] }, { "parts": [], "name": true }, { "parts": [] }],
+                            "holds": ["sewn", null] }"#;
+        let reply = reply(&cover_json(request));
+        assert_eq!(reply["covered"]["standings"], serde_json::json!(["sewn", "unknown", "name", "beyond"]));
+        assert_eq!(reply["covered"]["coverage"]["words"], 3);
+        assert_eq!(reply["covered"]["coverage"]["sewn"], 1);
+        assert_eq!(reply["covered"]["coverage"]["names"], 1);
     }
 
     #[test]

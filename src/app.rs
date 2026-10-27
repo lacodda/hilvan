@@ -25,6 +25,7 @@ use crate::drift;
 use crate::inventory;
 use crate::model;
 use crate::own::{self, NewWord, Refused};
+use crate::reading::{self, Addition, Place};
 use crate::study::{self, Answer, AnswerError, Graded, Sent};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
 use crate::words;
@@ -62,6 +63,13 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
         .route("/own-words/{id}", delete(remove_own_word))
         .route("/words/{id}", get(word))
         .route("/words/{id}/review", post(review_word))
+        .route("/words/{id}/examples", get(word_examples))
+        .route("/words/{id}/picks", post(pick_word))
+        .route("/words/{id}/picks/{sentence}", delete(unpick_word))
+        .route("/declarations", post(declare_words))
+        .route("/declarations/take-back", post(take_back_words))
+        .route("/texts", get(texts).post(add_text))
+        .route("/texts/{id}", get(text).patch(place_in_text).delete(remove_text))
         .route("/speech", get(speech))
         .route("/listen", get(listen))
         .route("/voices", get(voices_screen))
@@ -369,6 +377,150 @@ async fn review_word(State(state): State<AppState>, UrlPath(id): UrlPath<String>
     match study::review_word(&state.pool, &id, sent, Utc::now()).await {
         Ok(reviewed) => Json(reviewed).into_response(),
         Err(error) => answer_failed(error),
+    }
+}
+
+/// How many sentences of their own material the reader shows for a word.
+const EXAMPLES: usize = 4;
+
+async fn word_examples(State(state): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+    match words::examples(&state.pool, &id, EXAMPLES).await {
+        Ok(examples) => Json(examples).into_response(),
+        Err(error) => failed("the examples of a word could not be read", &error),
+    }
+}
+
+/// What the learner holds of some words after the reader changed them: by
+/// id, `null` for a word they hold nothing of.
+async fn holds_after(pool: &SqlitePool, ids: &[String]) -> Result<serde_json::Map<String, serde_json::Value>, anyhow::Error> {
+    let holds = words::holds_of(pool, ids).await?;
+    Ok(ids.iter().map(|id| (id.clone(), json!(holds.get(id)))).collect())
+}
+
+fn word_refused(error: words::Refused) -> Response {
+    let status = match error {
+        words::Refused::NotAWord(_) | words::Refused::NotThere { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+        words::Refused::NoSentence(_) => StatusCode::NOT_FOUND,
+        words::Refused::Database(error) => return failed("the word could not be saved", &error),
+    };
+    (status, Json(json!({ "error": error.to_string() }))).into_response()
+}
+
+/// Where a word was taken from: the sentence, and the character it starts at.
+#[derive(Deserialize)]
+struct Taken {
+    sentence: i64,
+    start: i64,
+}
+
+async fn pick_word(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(taken): Json<Taken>) -> Response {
+    if let Err(error) = words::pick(&state.pool, &id, taken.sentence, taken.start, Utc::now()).await {
+        return word_refused(error);
+    }
+    match holds_after(&state.pool, std::slice::from_ref(&id)).await {
+        Ok(holds) => Json(json!({ "holds": holds })).into_response(),
+        Err(error) => failed("the word could not be read back", &error),
+    }
+}
+
+async fn unpick_word(State(state): State<AppState>, UrlPath((id, sentence)): UrlPath<(String, i64)>) -> Response {
+    if let Err(error) = words::unpick(&state.pool, &id, sentence).await {
+        return failed("the word could not be taken back", &error);
+    }
+    match holds_after(&state.pool, std::slice::from_ref(&id)).await {
+        Ok(holds) => Json(json!({ "holds": holds })).into_response(),
+        Err(error) => failed("the word could not be read back", &error),
+    }
+}
+
+/// Words the reader says something of at once.
+#[derive(Deserialize)]
+struct Said {
+    words: Vec<String>,
+}
+
+/// How many words one declaration may carry: a paragraph's worth many
+/// times over, and not a dictionary.
+const DECLARED_AT_ONCE: usize = 2_000;
+
+async fn declare_words(State(state): State<AppState>, Json(said): Json<Said>) -> Response {
+    if said.words.len() > DECLARED_AT_ONCE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({ "error": format!("at most {DECLARED_AT_ONCE} words at once") })),
+        )
+            .into_response();
+    }
+    let declared = match words::declare(&state.pool, &said.words, Utc::now()).await {
+        Ok(declared) => declared,
+        Err(error) => return word_refused(error),
+    };
+    match holds_after(&state.pool, &said.words).await {
+        Ok(holds) => Json(json!({ "declared": declared, "holds": holds })).into_response(),
+        Err(error) => failed("the words could not be read back", &error),
+    }
+}
+
+async fn take_back_words(State(state): State<AppState>, Json(said): Json<Said>) -> Response {
+    if said.words.len() > DECLARED_AT_ONCE {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({ "error": format!("at most {DECLARED_AT_ONCE} words at once") })),
+        )
+            .into_response();
+    }
+    let taken = match words::take_back(&state.pool, &said.words, Utc::now()).await {
+        Ok(taken) => taken,
+        Err(error) => return failed("the declarations could not be taken back", &error),
+    };
+    match holds_after(&state.pool, &said.words).await {
+        Ok(holds) => Json(json!({ "taken": taken, "holds": holds })).into_response(),
+        Err(error) => failed("the words could not be read back", &error),
+    }
+}
+
+fn text_refused(error: reading::Refused) -> Response {
+    let status = match error {
+        reading::Refused::NoLanguage => StatusCode::CONFLICT,
+        reading::Refused::Empty => StatusCode::UNPROCESSABLE_ENTITY,
+        reading::Refused::NotFound(_) => StatusCode::NOT_FOUND,
+        reading::Refused::Database(error) => return failed("the text could not be read or saved", &error),
+    };
+    (status, Json(json!({ "error": error.to_string() }))).into_response()
+}
+
+async fn texts(State(state): State<AppState>) -> Response {
+    match reading::list(&state.pool).await {
+        Ok(texts) => Json(texts).into_response(),
+        Err(error) => failed("the texts could not be read", &error),
+    }
+}
+
+async fn add_text(State(state): State<AppState>, Json(addition): Json<Addition>) -> Response {
+    match reading::add(&state.pool, &addition, Utc::now()).await {
+        Ok(summary) => (StatusCode::CREATED, Json(summary)).into_response(),
+        Err(error) => text_refused(error),
+    }
+}
+
+async fn text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match reading::read(&state.pool, id).await {
+        Ok(text) => Json(text).into_response(),
+        Err(error) => text_refused(error),
+    }
+}
+
+async fn place_in_text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>, Json(place): Json<Place>) -> Response {
+    match reading::place(&state.pool, id, place, Utc::now()).await {
+        Ok(summary) => Json(summary).into_response(),
+        Err(error) => text_refused(error),
+    }
+}
+
+async fn remove_text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match reading::remove(&state.pool, id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => text_refused(error),
     }
 }
 
@@ -984,6 +1136,76 @@ gloss = "дом"
     }
 
     #[tokio::test]
+    async fn a_text_is_read_and_its_words_are_known_taken_and_given_back() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let call = |method: &str, uri: &str, body: &str| app.clone().oneshot(json_request(method, uri, body));
+
+        let response = call("POST", "/api/texts", r#"{"body":"She went to the house. Harry went home.\n\nIt was late."}"#)
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let added = body_json(response).await;
+        assert_eq!(
+            (added["title"].as_str(), added["paragraphs"].as_i64()),
+            (Some("She went to the house."), Some(2))
+        );
+        let id = added["id"].as_i64().unwrap();
+
+        let text = body_json(call("GET", &format!("/api/texts/{id}"), "").await.unwrap()).await;
+        let first = &text["paragraphs"][0][0];
+        assert_eq!(first["text"], "She went to the house.");
+        let went = &first["tokens"][1];
+        assert_eq!((went["start"].as_i64(), went["length"].as_i64()), (Some(4), Some(4)));
+        let lemma = |token: &serde_json::Value| text["lemmas"][usize::try_from(token["parts"][0][0].as_u64().unwrap()).unwrap()].clone();
+        assert_eq!(lemma(went), "en:go");
+        assert_eq!(text["paragraphs"][0][1]["tokens"][0]["name"], true, "Harry is a name");
+        assert_eq!(text["coverage"]["names"], 1);
+
+        let declared = body_json(call("POST", "/api/declarations", r#"{"words":["en:she","en:go"]}"#).await.unwrap()).await;
+        assert_eq!(declared["declared"], json!(["en:she", "en:go"]));
+        assert_eq!(declared["holds"]["en:go"], "sewn");
+        let response = call("POST", "/api/declarations", r#"{"words":["en:zxqv"]}"#).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let sentence = first["sentence"].as_i64().unwrap();
+        let taken = call("POST", "/api/words/en:house/picks", &format!(r#"{{"sentence":{sentence},"start":16}}"#))
+            .await
+            .unwrap();
+        assert_eq!(taken.status(), StatusCode::OK);
+        assert_eq!(body_json(taken).await["holds"]["en:house"], "deck");
+        let wrong = call("POST", "/api/words/en:house/picks", &format!(r#"{{"sentence":{sentence},"start":0}}"#))
+            .await
+            .unwrap();
+        assert_eq!(wrong.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let examples = body_json(call("GET", "/api/words/en:house/examples", "").await.unwrap()).await;
+        assert_eq!(examples[0]["text"], "She went to the house.");
+        assert_eq!(examples[0]["source"]["kind"], "text");
+
+        let listed = body_json(call("GET", "/api/texts", "").await.unwrap()).await;
+        assert_eq!(
+            (listed[0]["coverage"]["sewn"].as_i64(), listed[0]["coverage"]["deck"].as_i64()),
+            (Some(3), Some(1))
+        );
+
+        let back = call("DELETE", &format!("/api/words/en:house/picks/{sentence}"), "").await.unwrap();
+        assert_eq!(body_json(back).await["holds"]["en:house"], serde_json::Value::Null);
+        let taken_back = body_json(call("POST", "/api/declarations/take-back", r#"{"words":["en:go"]}"#).await.unwrap()).await;
+        assert_eq!(
+            (taken_back["taken"].clone(), taken_back["holds"]["en:go"].clone()),
+            (json!(["en:go"]), serde_json::Value::Null)
+        );
+
+        let placed = body_json(call("PATCH", &format!("/api/texts/{id}"), r#"{"paragraph":1,"finished":true}"#).await.unwrap()).await;
+        assert_eq!(placed["paragraph"], 1);
+        assert!(placed["finished_at"].is_string());
+        assert_eq!(call("DELETE", &format!("/api/texts/{id}"), "").await.unwrap().status(), StatusCode::NO_CONTENT);
+        assert_eq!(call("GET", &format!("/api/texts/{id}"), "").await.unwrap().status(), StatusCode::NOT_FOUND);
+        let empty = call("POST", "/api/texts", r#"{"body":"  1 2 3  "}"#).await.unwrap();
+        assert_eq!(empty.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
     async fn a_word_comes_back_with_its_sentence_and_answering_it_schedules_it() {
         let dir = web_root();
         let app = open(taught().await, &dir);
@@ -1012,7 +1234,16 @@ gloss = "дом"
         assert_eq!(response.status(), StatusCode::OK);
         assert_ne!(body_json(response).await["stitch"], "new");
 
-        for (method, uri) in [("GET", "/api/words/en:nonsense"), ("POST", "/api/words/en:nonsense/review")] {
+        // A lemma of the lexicon no pack teaches is a word all the same - the
+        // reader asks for any - and one with no card cannot be answered.
+        let response = app.clone().oneshot(json_request("GET", "/api/words/en:house", "")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(body_json(response).await["lemma"], "house");
+        for (method, uri) in [
+            ("GET", "/api/words/en:zxqv"),
+            ("POST", "/api/words/en:zxqv/review"),
+            ("POST", "/api/words/en:house/review"),
+        ] {
             let response = app.clone().oneshot(json_request(method, uri, &sent(r#"{"rating":"good"}"#))).await.unwrap();
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {uri}");
         }

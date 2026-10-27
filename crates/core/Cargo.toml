@@ -4,7 +4,7 @@ name = "hilvan-core"
 # to WebAssembly, inside the tutor app - it is versioned with them.
 edition = "2024"
 rust-version = "1.94"
-description = "What hilvan decides the same way on the server and on the phone: whether a typed answer is right, and the grade a round of them earns"
+description = "What hilvan decides the same way on the server and on the phone: whether a typed answer is right, the grade a round of them earns, and how much of a text is the learner's"
 license = "MIT"
 repository = "https://github.com/lacodda/hilvan"
 publish = false

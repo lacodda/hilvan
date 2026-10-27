@@ -1,7 +1,8 @@
 id = "en-from-ru"
-version = 5
+version = 6
 native = "ru"
 target = "en"
+glossary = "glossary.tsv"
 
 # ---------------------------------------------------------------------------
 # 1. to be (present) - the foundation formula everything else assumes

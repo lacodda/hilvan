@@ -18,7 +18,6 @@ use sqlx::SqlitePool;
 
 use crate::lexicon::{self, LEVELS};
 use crate::pack::{self, word_id};
-use crate::scheduling::Kind;
 use crate::study;
 
 /// How far down the frequency list the inventory goes: the last level. Past
@@ -234,27 +233,8 @@ pub async fn undo(pool: &SqlitePool, word: &str, now: DateTime<Utc>) -> Result<(
         .context("failed to read an answer of the inventory")?;
     let Some(known) = known else { return Ok(()) };
 
-    if known {
-        let asked: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM review r JOIN card c ON c.id = r.card_id
-                            WHERE c.kind = 'word' AND c.subject_id = ? AND r.source = 'asked')",
-        )
-        .bind(word)
-        .fetch_one(&mut *tx)
-        .await
-        .context("failed to ask whether a word has been answered")?;
-        if asked {
-            return Err(Refused::Asked(word.to_string()));
-        }
-        sqlx::query(
-            "DELETE FROM review WHERE source = 'declared'
-               AND card_id IN (SELECT id FROM card WHERE kind = 'word' AND subject_id = ?)",
-        )
-        .bind(word)
-        .execute(&mut *tx)
-        .await
-        .context("failed to take a declaration back")?;
-        study::replay(&mut tx, Kind::Word, word, now).await?;
+    if known && !study::take_back(&mut tx, word, now).await? {
+        return Err(Refused::Asked(word.to_string()));
     }
 
     sqlx::query("DELETE FROM inventory WHERE word_id = ?")

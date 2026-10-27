@@ -15,6 +15,7 @@ pub mod lexicon;
 pub mod model;
 pub mod own;
 pub mod pack;
+pub mod reading;
 pub mod scheduling;
 pub mod study;
 pub mod voice;

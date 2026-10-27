@@ -529,11 +529,8 @@ async fn debt(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result
          WHERE c.kind IN ('formula', 'formula-recognise') AND c.state != 'new'
          UNION ALL
          SELECT c.id, c.kind, c.due, c.last_reviewed,
-                (SELECT min(fc.introduced_at) FROM sentence_word sw
-                 JOIN formula_sentence fs ON fs.sentence_id = sw.sentence_id
-                 JOIN card fc ON fc.kind = 'formula' AND fc.subject_id = fs.formula_id AND fc.state != 'new'
-                 WHERE sw.word_id = w.id) AS met_at
-         FROM card c JOIN word w ON w.id = c.subject_id
+                (SELECT min(m.met_at) FROM met m WHERE m.word_id = c.subject_id) AS met_at
+         FROM card c
          WHERE c.kind = 'word' AND c.state != 'new'",
     )
     .fetch_all(pool)
@@ -1044,6 +1041,39 @@ pub(crate) async fn declare(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, word_i
         .with_context(|| format!("the card of {word_id} vanished while it was declared"))
 }
 
+/// Takes a declaration back, inside the caller's transaction: the word's
+/// card is what its other answers leave - new, or gone when only the
+/// declaration had made it (see [`replay`]). False, and nothing changed,
+/// when the drill has asked the word since: that history stands on the
+/// declaration.
+///
+/// # Errors
+///
+/// Fails when the database rejects a statement.
+pub(crate) async fn take_back(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, word_id: &str, now: DateTime<Utc>) -> Result<bool> {
+    let asked: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM review r JOIN card c ON c.id = r.card_id
+                        WHERE c.kind = 'word' AND c.subject_id = ? AND r.source = 'asked')",
+    )
+    .bind(word_id)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to ask whether a word has been answered")?;
+    if asked {
+        return Ok(false);
+    }
+    sqlx::query(
+        "DELETE FROM review WHERE source = 'declared'
+           AND card_id IN (SELECT id FROM card WHERE kind = 'word' AND subject_id = ?)",
+    )
+    .bind(word_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to take a declaration back")?;
+    replay(tx, Kind::Word, word_id, now).await?;
+    Ok(true)
+}
+
 /// Sets a card to what its answers leave: the history played through the
 /// scheduler from the first answer, each answer's review row rewritten with
 /// the step it took, and the card row with the last. With no answers left
@@ -1097,8 +1127,11 @@ pub(crate) async fn replay(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: K
     }
 
     let Some(card) = steps.last().map(|step| &step.card) else {
+        // A word stays in the deck, new, while a pack teaches it or the
+        // learner took it from a text; a word only a declaration had brought
+        // is nobody's once the declaration is gone.
         let taught: bool = match kind {
-            Kind::Word => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM word WHERE id = ?)"),
+            Kind::Word => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM word WHERE id = ?1) OR EXISTS (SELECT 1 FROM pick WHERE word_id = ?1)"),
             Kind::Formula(_) => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM formula WHERE id = ?)"),
         }
         .bind(subject)
@@ -2265,7 +2298,11 @@ gloss = "зонт"
         let doctor = words::word(&pool, "en:doctor").await.unwrap();
         let texts: Vec<_> = doctor.contexts.iter().map(|context| context.text.as_str()).collect();
         assert_eq!(texts, vec!["He is a doctor.", "My friend is a doctor."]);
-        assert_eq!(doctor.contexts[0].formula, "f0", "a shared sentence stands where it is first shown");
+        assert_eq!(
+            doctor.contexts[0].source,
+            words::Source::Formula { id: "f0".into() },
+            "a shared sentence stands where it is first shown"
+        );
     }
 
     #[tokio::test]
