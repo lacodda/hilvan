@@ -3,7 +3,7 @@ title: The learner model file
 description: Everything hilvan knows about its learner, as one JSON file - what is in it, the published schema, export, import, snapshots of past days and the demo learner.
 ---
 
-Everything the tutor knows about its learner fits in one JSON file: every card that has been answered with every answer behind it and the turns typed for it, the learner's own words, the voices they chose, their answers in the [inventory](/hilvan/guides/your-first-week/#what-you-already-know) and the [breaks](/hilvan/guides/your-first-week/#a-break) they took. It moves a learner to another stand, keeps a copy that does not need hilvan to read, and tells the model as it stood on any past day.
+Everything the tutor knows about its learner fits in one JSON file: every card that has been answered with every answer behind it and the turns typed for it, the learner's own words, the voices they chose, their answers in the [inventory](/hilvan/guides/your-first-week/#what-you-already-know), the [breaks](/hilvan/guides/your-first-week/#a-break) they took, the [texts](/hilvan/guides/reading/) they read and the words they took from them. It moves a learner to another stand, keeps a copy that does not need hilvan to read, and tells the model as it stood on any past day.
 
 The material is not in it. Packs are files of their own and the lexicon is built into the binary; the model names the packs it was learnt on and keys everything on what outlives a reload of a pack - a formula's id, a word's lemma, a sentence's text.
 
@@ -11,23 +11,23 @@ The material is not in it. Packs are files of their own and the lexicon is built
 
 The format is published as a JSON Schema (draft 2020-12):
 
-**[`https://lacodda.github.io/hilvan/schema/learner-model-2.json`](/hilvan/schema/learner-model-2.json)**
+**[`https://lacodda.github.io/hilvan/schema/learner-model-3.json`](/hilvan/schema/learner-model-3.json)**
 
 Every file names it in `$schema`, and every file hilvan writes follows it - the test suite checks each export against it. What the schema refuses, `hilvan import` refuses too; import also checks what a schema cannot say: nothing listed twice, and every language the file names is one it lists. A change that would make a reader of this format misread a file is a new format, with a schema of its own.
 
-Format 2 (from v0.7.0) adds `breaks`. hilvan reads only the format it writes, so a file of format 1 is refused; its schema stays published at [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
+Format 3 (from v0.9.0) adds `texts` and `picks`; format 2 (from v0.7.0) added `breaks`. hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
 
 ## What is in it
 
 ```json
 {
-  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-2.json",
-  "format": 2,
+  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-3.json",
+  "format": 3,
   "exported_at": "2026-10-12T15:00:00Z",
   "as_of": "2026-10-12T15:00:00Z",
-  "app": { "name": "hilvan", "version": "0.7.0" },
+  "app": { "name": "hilvan", "version": "0.9.0" },
   "languages": [{ "code": "ru", "native": true }, { "code": "en", "native": false }],
-  "packs": [{ "id": "en-from-ru", "version": 5 }],
+  "packs": [{ "id": "en-from-ru", "version": 6 }],
   "cards": [
     {
       "kind": "formula", "subject": "be-present-statement", "state": "sewn",
@@ -49,7 +49,17 @@ Format 2 (from v0.7.0) adds `breaks`. hilvan reads only the format it writes, so
   "own_words": [{ "language": "en", "kind": "verb", "native": "<its meaning>", "target": "cook", "created_at": "2026-09-20T19:10:00Z" }],
   "voices": [],
   "inventory": [{ "word": "en:house", "known": true, "at": "2026-09-18T18:52:04Z" }],
-  "breaks": [{ "from": "2026-09-25T19:30:00Z", "until": "2026-09-29T07:00:00Z" }]
+  "breaks": [{ "from": "2026-09-25T19:30:00Z", "until": "2026-09-29T07:00:00Z" }],
+  "texts": [
+    {
+      "language": "en", "title": "A morning at the market", "format": "markdown",
+      "added_at": "2026-10-20T18:41:00Z", "opened_at": "2026-10-20T18:45:55Z", "paragraph": 2, "finished_at": null,
+      "paragraphs": [["Every Saturday my sister and I walk to the market near the river.", "It opens early."], ["Last week it rained."]]
+    }
+  ],
+  "picks": [
+    { "word": "en:rain", "sentence": { "language": "en", "text": "Last week it rained." }, "form": "rained", "start": 13, "at": "2026-10-20T18:42:05Z" }
+  ]
 }
 ```
 
@@ -62,6 +72,8 @@ Format 2 (from v0.7.0) adds `breaks`. hilvan reads only the format it writes, so
 | `attempts` | The turns typed for a said formula: what was asked, the answer it was read against, what was typed and what failed - `formula`, `order` or `word`. |
 | `anchors` | The sentence each word is heard in, by its text. |
 | `inventory` | Every answer of the inventory, yes and no. |
+| `texts` | The texts the learner reads, whole: paragraphs of sentences, how each came in, where the learner stopped and whether they said they had read it. |
+| `picks` | The words taken into the deck from a sentence of a text, by the sentence's text: the sentence is one the word was met in, and it outlives the text. |
 | `breaks` | The breaks taken, earliest first: the stretches the schedule's clock stood still. `until` is `null` for one still going on. They do not overlap, only the last may lack an end, and none holds an asked answer - one may start at the moment of the last answer, which is how an absence is counted afterwards. |
 
 A card's `state`, `stability`, `difficulty`, `due`, `reps` and `lapses` are what its reviews leave when played through FSRS in order; they are in the file so a reader does not have to replay to know them. `due` is FSRS's own: when a card actually comes back is that, moved by the breaks its interval spans.
@@ -84,13 +96,13 @@ hilvan load-pack packs/en-from-ru/pack.toml   # the material first
 hilvan import me.json
 ```
 
-An import **replaces** the learner model: every card, answer, anchor, own word, voice, inventory answer and break goes, and the file's take their place, in one transaction. Before that, the model being replaced is written to a file beside the database - `hilvan-model-before-import-<moment>.json`, in the data volume on a stand - so an import is never the end of anything. Every formula and word of the loaded packs that the file never answered gets a new card.
+An import **replaces** the learner model: every card, answer, anchor, own word, voice, inventory answer, break, text and word taken from one goes, and the file's take their place, in one transaction. Before that, the model being replaced is written to a file beside the database - `hilvan-model-before-import-<moment>.json`, in the data volume on a stand - so an import is never the end of anything. Every formula and word of the loaded packs that the file never answered gets a new card.
 
-What does not fit is said rather than lost: an anchor whose sentence no loaded pack shows is dropped (the word is heard in the first sentence it is met in until it is answered again), and a pack the model was learnt on that is not loaded here is named - its cards are kept and wait for it.
+What does not fit is said rather than lost: an anchor whose sentence nothing shows - no loaded pack, no text, no word taken from it - is dropped (the word is heard in the first sentence it is met in until it is answered again), and a pack the model was learnt on that is not loaded here is named - its cards are kept and wait for it.
 
 ## Snapshots
 
-The model as it stood at a moment is not stored anywhere: it is the review log up to that moment, played through the scheduler again. Any moment since the first answer can be asked about, by `hilvan export --at`, by `GET /api/model?at=`, and on the **Then and now** screen, which sets a day of your choosing beside today. A snapshot carries the voices chosen now - a choice keeps no date - and the breaks begun by then, one that had not ended by then as still going on.
+The model as it stood at a moment is not stored anywhere: it is the review log up to that moment, played through the scheduler again. Any moment since the first answer can be asked about, by `hilvan export --at`, by `GET /api/model?at=`, and on the **Then and now** screen, which sets a day of your choosing beside today. A snapshot carries the voices chosen now - a choice keeps no date - and the breaks begun by then, one that had not ended by then as still going on; the texts added by then, at the place the learner is in each now, which keeps no history either; and the words taken from them by then.
 
 ## The demo learner
 
@@ -99,8 +111,8 @@ hilvan load-pack packs/en-from-ru/pack.toml
 hilvan load-demo
 ```
 
-A fictional learner, three weeks into English from Russian on the shipped pack: an inventory of the commonest thousand words on the first evening and three hundred more later, a sitting most evenings, typed turns with the slips a learner makes, four words of their own, a long weekend away taken as a break, and three missed evenings counted as one afterwards. It is what the screenshots in these docs show, and a quick way to look around a new stand. It is moved in time when loaded, so its last evening of study is yesterday's.
+A fictional learner, three weeks into English from Russian on the shipped pack: an inventory of the commonest thousand words on the first evening and three hundred more later, a sitting most evenings, typed turns with the slips a learner makes, four words of their own, a long weekend away taken as a break, three missed evenings counted as one afterwards, a text read with the rest of its first paragraph swept as known and three words taken from it, and the subtitles of an episode not opened yet. It is what the screenshots in these docs show, and a quick way to look around a new stand. It is moved in time when loaded, so its last evening of study is yesterday's.
 
-`load-demo` refuses a tutor that already holds a learner - an answer, an own word, a chosen voice, an inventory answer or a break: a demo is never what is meant over someone's own history. Give it a database of its own (`HILVAN_DATABASE_URL`).
+`load-demo` refuses a tutor that already holds a learner - an answer, an own word, a chosen voice, an inventory answer, a break or a text: a demo is never what is meant over someone's own history. Give it a database of its own (`HILVAN_DATABASE_URL`).
 
 The demo is not written by hand: it is three weeks of the tutor's own code, driven by a test (`cargo test --test demo -- --ignored`), and every release checks that it still follows the schema, still learns from the pack that ships, and that every card in it is what its answers leave.

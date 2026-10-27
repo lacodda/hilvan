@@ -14,8 +14,8 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 <p align="center">
   <img src="https://raw.githubusercontent.com/lacodda/hilvan/main/docs/site/public/screenshots/today.png" alt="Today: what is due, formulas by state, words against the levels" width="200">
   <img src="https://raw.githubusercontent.com/lacodda/hilvan/main/docs/site/public/screenshots/drill.png" alt="A typed turn: the shape came, a word did not" width="200">
-  <img src="https://raw.githubusercontent.com/lacodda/hilvan/main/docs/site/public/screenshots/inventory.png" alt="What you already know: one of the commonest words at a time" width="200">
-  <img src="https://raw.githubusercontent.com/lacodda/hilvan/main/docs/site/public/screenshots/then-and-now.png" alt="Then and now: a day three weeks ago beside today" width="200">
+  <img src="https://raw.githubusercontent.com/lacodda/hilvan/main/docs/site/public/screenshots/reader.png" alt="A text in the reader: the words not yours yet underlined, and how much of it is yours" width="200">
+  <img src="https://raw.githubusercontent.com/lacodda/hilvan/main/docs/site/public/screenshots/word.png" alt="A tapped word: its sentence, its meaning, I know it and Into the deck" width="200">
 </p>
 
 ## What you get
@@ -24,8 +24,9 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 - **Typed, checked, mended by cause.** You type the sentence; the tutor checks it, tells a slipped shape from a missed word or the wrong order, grades the formula itself, and sends a missed word back to its own card. Nouns and verbs of your own life go into the drill beside the pack's.
 - **Words from the sentences you meet.** Each worked example marks the words it teaches; a word opens once you have met its sentence, is asked in that sentence by ear, and counts toward the commonest 1,000, 2,000 and 5,000 words of English.
 - **Every sentence heard.** The language you learn is spoken by a native ElevenLabs voice, your own by Piper running beside the tutor - slowly while a formula is new, at speaking speed once it holds. Each sound is made once and kept, and the paid budget shows how long it will last.
+- **Any text, measured.** Paste an article or import subtitles: the reader says how much of it is already yours, glosses any word you tap, and puts the ones you do not know into the deck with the sentence you met them in. A swipe says you know the rest of a paragraph.
 - **A start from what you know.** On the first evening the commonest words go by one at a time; the ones you know start sewn and are checked when a sentence brings them, so the levels begin where you are, not at zero.
-- **Your learner model, yours.** Every answer, own word and inventory answer downloads as one JSON file with a [published schema](https://lacodda.github.io/hilvan/reference/learner-model/), imports on another stand, and shows any past day beside today.
+- **Your learner model, yours.** Every answer, own word, inventory answer and text downloads as one JSON file with a [published schema](https://lacodda.github.io/hilvan/reference/learner-model/), imports on another stand, and shows any past day beside today.
 - **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
 - **A sitting wherever you are.** On a phone in one hand, in the five or ten minutes you have, with the tutor out of reach: each typed turn is checked on the device by the tutor's own code, and the answers arrive, in order, when it can be reached.
 - **A password on the door.** The server refuses to run open and says so in its first log line if you skip it.
@@ -67,7 +68,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.8.0**, early, built for one learner: thirty formulas for a Russian speaker, a schedule that stops for a break, and sittings that run out of the tutor's reach. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
+**v0.9.0**, early, built for one learner: thirty formulas for a Russian speaker, a schedule that stops for a break, sittings that run out of the tutor's reach, and a reader that measures any text against what you know. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
 
 ## Documentation
 

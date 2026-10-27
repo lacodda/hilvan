@@ -94,6 +94,24 @@ A word is never learnt alone: it enters the learner's deck only inside a sentenc
 
 A word marked in several sentences is one word with several contexts: one card, and the sentence it was first met in is the one it is heard in.
 
+### Glossary
+
+The reader glosses any word of any text, not only the words the pack teaches, so a pack carries a glossary: what every lemma of the language's [lexicon](/hilvan/reference/lexicon/) means in the pack's native language. It is a file next to `pack.toml`, named by the pack:
+
+```toml
+glossary = "glossary.tsv"
+```
+
+```text
+# lemma <TAB> gloss
+rain	дождь; идти (о дожде)
+suddenly	вдруг, внезапно
+```
+
+One line a lemma, written as the lexicon writes it (`I`, `Monday`); `#` starts a comment. A gloss is the commonest senses, commonest first: senses apart with `; `, words of one sense with `, `. A word the pack teaches keeps its own `[[word]]` gloss - the sense its sentences use - and the glossary says what every other word means. A glossary need not cover the whole lexicon: a word without a gloss is shown without one.
+
+The glossary of `en-from-ru` glosses all ten thousand lemmas of the English lexicon. It was written once by a language model from the list of lemmas, and is corrected by hand since: it is edited, not generated again.
+
 The same `target` in two formulas is one sentence. It has one translation and one set of words, and the loader holds the two formulas to that.
 
 ### The sentence it says
@@ -202,6 +220,7 @@ The loader rejects a pack outright rather than loading it partway - a half-loade
 - A sample marks a word the pack declares no `[[word]]` for, marks the same word twice, or marks a word its sentence does not hold in any form.
 - A `[[word]]` is in no sentence - it could never enter the deck - has no gloss, is more than one word, or shares its lemma with another, whatever the case.
 - The same sentence is translated two ways, or marked with different words, in two formulas.
+- The glossary glosses a lemma the lexicon does not have, or writes it otherwise than the lexicon does (`i` for `I`), glosses a lemma twice or with nothing, has a line that is not `lemma<TAB>gloss`, holds no lines at all, or belongs to a pack of a language hilvan has no lexicon for.
 
 ## Loading
 
@@ -212,8 +231,8 @@ hilvan load-pack packs/en-from-ru/pack.toml
 Safe to run on every start of the container, or by hand whenever the file changes:
 
 - **The same version loaded twice is a no-op.** Nothing is written, and the command says so.
-- **A changed version (a bumped `version`) replaces the pack's formulas, slots and words**, but every card and review history stays - a card is keyed on the formula's `id` or the word's lemma, not on the pack's version, so correcting a formula's wording or a word's gloss does not reset a month of learning it.
-- **A sentence is kept by what it says.** A corrected translation leaves it the same sentence, and a word goes on being heard in it. A sentence no formula shows any more is dropped, and a word that was heard in it is heard in the first sentence it is met in until it is answered again.
+- **A changed version (a bumped `version`) replaces the pack's formulas, slots, words and glossary**, but every card and review history stays - a card is keyed on the formula's `id` or the word's lemma, not on the pack's version, so correcting a formula's wording or a word's gloss does not reset a month of learning it.
+- **A sentence is kept by what it says.** A corrected translation leaves it the same sentence, and a word goes on being heard in it. A sentence nothing shows any more - no formula, no text of the learner's, no word taken from it - is dropped, and a word that was heard in it is heard in the first sentence it is met in until it is answered again.
 - **A formula or a word removed from the pack is not deleted.** Its card is kept, and the command reports it as an orphan so the removal can be confirmed as intentional rather than silently losing the learner's history:
 
   ```

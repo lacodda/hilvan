@@ -27,6 +27,16 @@ Each lemma lists the spellings it takes - *go*: *goes*, *going*, *gone*, *went*.
 
 A language without a lexicon still loads packs, but only the lemma's own spelling is found in a sentence: a guess at another language's forms would be a wrong answer given with confidence.
 
+## Reading a text
+
+The [reader](/hilvan/guides/reading/) maps every running word of a text to the lemmas it can be, and needs a few rules of written English that a list of lemmas cannot say. They are data too, in [`lexicons/en/reading.toml`](https://github.com/lacodda/hilvan/blob/main/lexicons/en/reading.toml), built in with the lexicon:
+
+- **Endings that are a word of their own.** *they're* is *they* and *be*, *don't* is *do* and *not*, *you'd* is *you* and *will* or *have* - *would* is a form of *will*. The *'s* of *doctor's* and of *it's* adds no word to count.
+- **Spellings no ending splits.** *can't*, *won't*, *let's*, *gonna*: the stem left over is no word, so each is listed whole.
+- **Abbreviations.** *Mr.*, *Dr.*, *St.* end no sentence; neither does a single capital with a stop - an initial.
+
+A spelling the lexicon has is taken whole before any rule: *cannot* and *o'clock* are words of their own. A hyphenated word is its parts when the whole is not a word. A spelling the lexicon has as several lemmas - *left* is *leave* and *left* - stays both: which one a sentence means takes understanding it.
+
 ## Transcription
 
 The word card shows each word's transcription in IPA, American, with the stress mark before its syllable: *doctor* /ˈdɑktɚ/. A word of one syllable carries no mark.

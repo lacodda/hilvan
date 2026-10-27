@@ -439,7 +439,7 @@ An answer given during a [break](#breaks) ends it.
 
 ### `GET /api/words/{id}`
 
-One word, with the sentences it has been met in. `{id}` is the language and the lowercase lemma, `en:doctor`.
+One word, with the sentences it has been met in. `{id}` is the language and the lowercase lemma, `en:doctor`: any word a pack teaches and any lemma of the language's [lexicon](/hilvan/reference/lexicon/) - the reader asks for every word of a text.
 
 **Response** `200`:
 
@@ -458,16 +458,16 @@ One word, with the sentences it has been met in. `{id}` is the language and the 
       "translation": "<its meaning>",
       "form": "doctor",
       "start": 8,
-      "formula": "be-present-statement",
+      "source": { "kind": "formula", "id": "be-present-statement" },
       "anchor": true
     },
     {
       "sentence": 14,
-      "text": "Is she a doctor?",
-      "translation": "<its meaning>",
+      "text": "The doctor came at nine.",
+      "translation": null,
       "form": "doctor",
       "start": 9,
-      "formula": "be-present-question",
+      "source": { "kind": "text", "id": 3, "title": "A morning at the market" },
       "anchor": false
     }
   ],
@@ -478,14 +478,53 @@ One word, with the sentences it has been met in. `{id}` is the language and the 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `lemma` | string | As written: `doctor`, `I`, `Monday`. |
-| `gloss` | string | What it means, from the pack, in the learner's own language. |
+| `gloss` | string \| null | What it means in the learner's own language: the pack's own gloss for a word it teaches - the sense its sentences use - and its [glossary](/hilvan/reference/packs/#glossary) for any other; `null` when neither has one. |
 | `ipa` | string \| null | How it sounds, from the [lexicon](/hilvan/reference/lexicon/#transcription). |
 | `rank` | integer \| null | Its place among the lemmas of the language, 1 the commonest; `null` past the end of the lexicon. |
 | `level` | `1000` \| `2000` \| `5000` \| null | The smallest level that holds it; `null` past the last. |
-| `contexts` | array | The sentences it has been met in - those of formulas already answered - its anchor first. A word not met anywhere yet shows every sentence that holds it. A sentence two formulas share is one context. |
+| `contexts` | array | The sentences it has been met in - those of formulas already answered, and those it was [taken into the deck](#post-apiwordsidpicks) from - its anchor first. A word not met anywhere yet shows every sentence of a pack that holds it. A sentence two formulas share is one context. |
+| `contexts[].translation` | string \| null | What the sentence means; `null` for a sentence of a text, which comes without one. |
+| `contexts[].source` | object | Where the sentence comes from: `{ "kind": "formula", "id" }`, or `{ "kind": "text", "id", "title" }` - both `null` once the text is gone and the sentence is kept for the word taken from it. |
 | `contexts[].anchor` | boolean | Whether this is the sentence the word is heard in. It is fixed by the word's first answer and kept. |
 
 **Response** `404` when `{id}` names no word.
+
+### `GET /api/words/{id}/examples`
+
+Sentences of the learner's own material the word stands in, by any of its forms: the examples of formulas already started - which say what they mean - first, then the sentences of the texts they read. At most four.
+
+**Response** `200`:
+
+```json
+[
+  { "sentence": 2, "text": "He is a doctor.", "translation": "<its meaning>", "start": 8, "length": 6, "source": { "kind": "formula", "id": "be-present-statement" } },
+  { "sentence": 41, "text": "The doctor's car was red.", "translation": null, "start": 4, "length": 8, "source": { "kind": "text", "id": 3, "title": "Out" } }
+]
+```
+
+`start` and `length` are counted in characters - code points - and mark the running word, possessive and all. An empty list for a word the material does not hold, or a spelling that is no lemma.
+
+### `POST /api/words/{id}/picks`
+
+Puts a word into the deck from a sentence of a text: the word that stands at character `start` of sentence `sentence`. The sentence becomes one the word has been met in - it opens among the first new words of a day, in the order taken, and it is asked and heard there. A word already in hand gains the sentence as one more context. The sentence outlives the text it came from.
+
+```json
+{ "sentence": 41, "start": 4 }
+```
+
+**Response** `200`: what the learner holds of the word now - `"deck"`, `"basted"`, `"sewn"` or `null`:
+
+```json
+{ "holds": { "en:doctor": "deck" } }
+```
+
+**Response** `422` when `{id}` is not a lemma of the language being learnt, or the word at `start` is not that word - "went" stands for `en:go`, and nothing stands for it inside a word. **Response** `404` for a sentence that is not there. Taking a word from the same sentence twice changes nothing.
+
+### `DELETE /api/words/{id}/picks/{sentence}`
+
+Takes a word back out of the deck from a sentence. A word nobody asked yet, that no pack teaches and no other sentence was taken for, leaves the deck; its anchor goes if it was this sentence.
+
+**Response** `200`: `{ "holds": { ... } }`, as above.
 
 ### `POST /api/words/{id}/review`
 
@@ -617,6 +656,133 @@ Answers, oldest first - a list, so a screen that lost its connection can send wh
 Takes an answer back: the word is asked again, and a yes leaves the word's card as it was before - new for a word a pack teaches, gone otherwise. Taking back an answer never given is fine.
 
 **Response** `200`: the run as it stands after. **Response** `409` when the word has been answered in the drill since the yes - that history stands on it.
+
+## Declarations
+
+"I know it" said of words outside the inventory - a word tapped in a text, or every word of a paragraph not yet in hand. Each is a declaration on the word's card exactly as a yes of the inventory is: sewn at once, not an answer, checked when a sentence brings the word.
+
+### `POST /api/declarations`
+
+```json
+{ "words": ["en:flower", "en:cheese", "en:tomato"] }
+```
+
+**Response** `200`: the words declared - a word already in hand, answered or declared before, is left as it is and not listed - and what the learner holds of each word sent.
+
+```json
+{ "declared": ["en:flower", "en:tomato"], "holds": { "en:flower": "sewn", "en:cheese": "basted", "en:tomato": "sewn" } }
+```
+
+**Response** `422` when a word is not a lemma of the language being learnt; nothing is declared then. At most 2,000 words a request.
+
+### `POST /api/declarations/take-back`
+
+Takes declarations back, as the inventory's `DELETE` does: each card is what its other answers leave, and the inventory asks the word again. A word the drill has asked since keeps its declaration and is not listed.
+
+```json
+{ "words": ["en:flower"] }
+```
+
+**Response** `200`: `{ "taken": [...], "holds": { ... } }`.
+
+## Texts
+
+What the learner reads. A text is kept as sentences in paragraphs; every running word is read through the lexicon into the lemmas it can be, and the text says how much of it the learner holds. See [Reading](/hilvan/guides/reading/).
+
+### `GET /api/texts`
+
+Every text, the one opened last first and those never opened after them, newest first.
+
+**Response** `200`:
+
+```json
+[
+  {
+    "id": 3,
+    "title": "A morning at the market",
+    "language": "en",
+    "format": "markdown",
+    "added_at": "2026-10-20T18:41:00Z",
+    "opened_at": "2026-10-20T18:45:55Z",
+    "paragraph": 2,
+    "paragraphs": 5,
+    "finished_at": null,
+    "coverage": { "words": 120, "sewn": 101, "basted": 4, "deck": 3, "unknown": 11, "beyond": 1, "names": 0 }
+  }
+]
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `format` | `plain` \| `markdown` \| `subtitles` | How it came in. |
+| `paragraph` | integer | The paragraph the learner stopped at, from 0. |
+| `finished_at` | string \| null | When the learner said they had read it. |
+| `coverage.words` | integer | Running words counted: every word but names. |
+| `coverage.sewn`, `.basted` | integer | Running words the learner holds - what "yours" counts. |
+| `coverage.deck` | integer | Words in the deck and not started: met in a sentence or taken from one. |
+| `coverage.unknown` | integer | Words of the lexicon not in hand. |
+| `coverage.beyond` | integer | Spellings the lexicon does not have: counted, and never the learner's. |
+| `coverage.names` | integer | Names, left out of `words`. |
+
+A running word is held when every word it is made of is - "don't" is *do* and *not* - and a word is held when any lemma its spelling can be is: "left" is *leave* or *left*.
+
+### `POST /api/texts`
+
+```json
+{ "title": "Episode 1", "body": "1\n00:00:01,000 --> 00:00:03,200\nAre you coming tonight?\n", "format": "subtitles" }
+```
+
+`title` and `format` may be left out: the title is then taken from a markdown text's first heading, or from its first sentence; the format is told from the text - subtitles when a line times a cue, markdown when a line is a heading or a link or bold stands in it, plain otherwise.
+
+**Response** `201`: the text as the list shows it. **Response** `422` for a text with no sentence in it; `409` before a pack is loaded - the reader reads the language a pack teaches.
+
+### `GET /api/texts/{id}`
+
+The text as the reader shows it: the list's fields, and every sentence with its running words.
+
+```json
+{
+  "id": 3,
+  "title": "A morning at the market",
+  "paragraphs": 5,
+  "lines": [[{ "sentence": 41, "text": "Harry went home.", "tokens": [
+    { "start": 0, "length": 5, "parts": [], "name": true },
+    { "start": 6, "length": 4, "parts": [[0]], "name": false },
+    { "start": 11, "length": 4, "parts": [[1]], "name": false }
+  ] }]],
+  "lemmas": ["en:go", "en:home"],
+  "holds": ["sewn", null]
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `lines` | array of arrays | Each paragraph, the sentences in it. |
+| `tokens[].start`, `.length` | integer | Where the running word stands, in characters. |
+| `tokens[].parts` | array of arrays | The words it is made of, each the lemmas it can be, as indices into `lemmas`. Empty for a name and for a spelling the lexicon does not have. |
+| `tokens[].name` | boolean | A capitalised word the lexicon does not have, or one inside a sentence it has only as a rare word - and that spelling capitalised anywhere else in the text. |
+| `lemmas` | array | Every lemma the text's words can be. |
+| `holds` | array | What the learner holds of each, by the same index: `"deck"`, `"basted"`, `"sewn"` or `null`. |
+
+The app counts the coverage again from `tokens` and `holds` after every change, with the code the server counts it with.
+
+**Response** `404` for no such text.
+
+### `PATCH /api/texts/{id}`
+
+Where the learner is, and whether they have read it all. Either field may be left out; every call marks the text opened now.
+
+```json
+{ "paragraph": 2, "finished": true }
+```
+
+**Response** `200`: the text as the list shows it. A paragraph past the end is the last. `finished: true` keeps the moment it was first said; `false` takes it back.
+
+### `DELETE /api/texts/{id}`
+
+Lets a text go. The words taken from it stay in the deck with their sentences.
+
+**Response** `204`. **Response** `404` for no such text.
 
 ## Learner model
 

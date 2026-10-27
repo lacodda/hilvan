@@ -94,3 +94,12 @@ word is and how it sounds are not written here - the lexicon of the language
 says them (`lexicons/en`).
 
 This pack marks 126 words across its 150 sentences.
+
+## Glossary
+
+`glossary.tsv` says what every lemma of the English lexicon means in Russian,
+one `lemma<TAB>gloss` a line, and `glossary = "glossary.tsv"` in the pack
+names it. The reader glosses any word of a text with it; a word the pack
+teaches keeps its own `[[word]]` gloss, the sense its sentences use. It was
+written once by a language model from the list of lemmas and is corrected by
+hand since - edit a line, bump the pack's `version`, load it again.
