@@ -1153,13 +1153,14 @@ gloss = "дом"
         let id = added["id"].as_i64().unwrap();
 
         let text = body_json(call("GET", &format!("/api/texts/{id}"), "").await.unwrap()).await;
-        let first = &text["paragraphs"][0][0];
+        assert_eq!(text["paragraphs"], 2, "the count, said once");
+        let first = &text["lines"][0][0];
         assert_eq!(first["text"], "She went to the house.");
         let went = &first["tokens"][1];
         assert_eq!((went["start"].as_i64(), went["length"].as_i64()), (Some(4), Some(4)));
         let lemma = |token: &serde_json::Value| text["lemmas"][usize::try_from(token["parts"][0][0].as_u64().unwrap()).unwrap()].clone();
         assert_eq!(lemma(went), "en:go");
-        assert_eq!(text["paragraphs"][0][1]["tokens"][0]["name"], true, "Harry is a name");
+        assert_eq!(text["lines"][0][1]["tokens"][0]["name"], true, "Harry is a name");
         assert_eq!(text["coverage"]["names"], 1);
 
         let declared = body_json(call("POST", "/api/declarations", r#"{"words":["en:she","en:go"]}"#).await.unwrap()).await;

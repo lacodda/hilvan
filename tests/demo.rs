@@ -298,7 +298,7 @@ async fn read_the_market(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<
 
     // "I know the rest" over the first paragraph: every word not in hand,
     // as the learner swipes it.
-    let unknown: Vec<String> = text.paragraphs[0]
+    let unknown: Vec<String> = text.lines[0]
         .iter()
         .flat_map(|line| &line.tokens)
         .filter(|token| !token.piece.name)
@@ -312,7 +312,7 @@ async fn read_the_market(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<
     words::declare(pool, &unknown, *now).await.unwrap();
 
     for (paragraph, word) in [(2, "en:bridge"), (2, "en:weather"), (3, "en:honey")] {
-        let (sentence, start) = text.paragraphs[paragraph]
+        let (sentence, start) = text.lines[paragraph]
             .iter()
             .find_map(|line| {
                 line.tokens

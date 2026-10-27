@@ -835,7 +835,7 @@ mod tests {
     /// A text with one sentence; its id.
     async fn sentence(pool: &SqlitePool, body: &str) -> i64 {
         let added = reading::add(pool, &plain("Out", body), at(0)).await.unwrap();
-        reading::read(pool, added.id).await.unwrap().paragraphs[0][0].sentence
+        reading::read(pool, added.id).await.unwrap().lines[0][0].sentence
     }
 
     /// Drills the formula once, its sample typed right: its sentence is met.
@@ -1028,6 +1028,22 @@ mod tests {
         );
         assert_eq!(examples(&pool, "en:doctor", 1).await.unwrap().len(), 1);
         assert!(examples(&pool, "en:is", 4).await.unwrap().is_empty(), "a form is no word");
+    }
+
+    #[tokio::test]
+    async fn a_taken_word_stays_in_the_deck_when_its_declaration_is_taken_back() {
+        let pool = tutor().await;
+        let taken = sentence(&pool, "She went to the house.").await;
+        pick(&pool, "en:house", taken, 16, at(1)).await.unwrap();
+        declare(&pool, &ids(&["en:house"]), at(2)).await.unwrap();
+        assert_eq!(reading::hold(&pool, "en:house").await.unwrap(), Some(Hold::Sewn));
+
+        take_back(&pool, &ids(&["en:house"]), at(3)).await.unwrap();
+        assert_eq!(
+            reading::hold(&pool, "en:house").await.unwrap(),
+            Some(Hold::Deck),
+            "taken from a text, it waits in the deck as before the declaration"
+        );
     }
 
     #[tokio::test]

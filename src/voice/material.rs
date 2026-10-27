@@ -218,6 +218,10 @@ gloss = "дом"
         assert!(!speakable(&pool, "ru", "home").await.unwrap(), "the word in the wrong language");
         assert!(speakable(&pool, "en", "house").await.unwrap(), "a lemma of the lexicon, tapped in a text");
         assert!(!speakable(&pool, "en", "houses").await.unwrap(), "a form is said in its sentence, not alone");
+        assert!(
+            !speakable(&pool, "en", "HOUSE").await.unwrap(),
+            "a lemma is said as the lexicon writes it, not in every casing"
+        );
         assert!(!speakable(&pool, "en", "zxqv").await.unwrap(), "a word of no lexicon");
         assert!(
             speakable(&pool, "en", "  I am tired.  ").await.unwrap(),

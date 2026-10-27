@@ -166,7 +166,7 @@ export function WordCard({
 
       {shown && (
         <section className="flex flex-col gap-4">
-          {anchor && <p className="text-xl text-dim">{anchor.translation}</p>}
+          {anchor && <p className="text-xl text-dim">{anchor.translation ?? fromText(anchor)}</p>}
           <div className="flex flex-col gap-1 border-t border-line pt-4">
             <div className="flex items-center justify-between gap-3">
               <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -175,7 +175,7 @@ export function WordCard({
               </p>
               <Speak url={wordUrl} label={`Hear "${word.lemma}" slowly`} />
             </div>
-            <p className="text-xl text-accent">{word.gloss}</p>
+            {word.gloss && <p className="text-xl text-accent">{word.gloss}</p>}
             {commonness(word) && <p className="text-sm text-faint">{commonness(word)}</p>}
           </div>
           {others.length > 0 && <Elsewhere contexts={others} language={word.languages.target} />}
@@ -200,6 +200,15 @@ export function WordCard({
         ))}
     </Shell>
   )
+}
+
+/**
+ * Where a sentence of a text comes from, in place of the translation a text
+ * does not carry: the learner read it there, and the meaning is theirs.
+ */
+function fromText(context: Context): string {
+  if (context.source.kind !== 'text') return ''
+  return context.source.title ? `From "${context.source.title}", which you read.` : 'From a text you read.'
 }
 
 /** A sentence with its word marked. */
@@ -227,7 +236,7 @@ function Elsewhere({ contexts, language }: { contexts: Context[]; language: stri
           <li key={context.sentence} className="flex items-start gap-3 rounded-md bg-raise px-3 py-2">
             <div className="flex flex-1 flex-col gap-0.5">
               <Sentence context={context} className="text-lg" />
-              <span className="text-base text-dim">{context.translation}</span>
+              <span className="text-base text-dim">{context.translation ?? fromText(context)}</span>
             </div>
             <Speak url={speechUrl(language, context.text, 'normal')} label={`Hear "${context.text}"`} />
           </li>

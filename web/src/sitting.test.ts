@@ -48,7 +48,7 @@ function word(id: string, isNew = false): WordDue {
       ipa: null,
       rank: 1,
       level: 1000,
-      contexts: [{ sentence: 1, text: 'I am at home.', translation: 'Я дома.', form: 'home', start: 8, formula: 'be', anchor: true }],
+      contexts: [{ sentence: 1, text: 'I am at home.', translation: 'Я дома.', form: 'home', start: 8, source: { kind: 'formula', id: 'be' }, anchor: true }],
       languages: { native: 'ru', target: 'en' },
     },
     stitch: isNew ? 'new' : 'sewn',

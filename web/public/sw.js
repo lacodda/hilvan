@@ -53,9 +53,18 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-/** The reads a sitting needs, kept as the tutor last answered them. */
+/**
+ * The reads a sitting needs, kept as the tutor last answered them - and the
+ * texts: one opened at home reads on the train.
+ */
 function isStudyRead(url) {
-  return url.pathname === '/api/today' || url.pathname.startsWith('/api/formulas/') || url.pathname.startsWith('/api/words/')
+  return (
+    url.pathname === '/api/today' ||
+    url.pathname.startsWith('/api/formulas/') ||
+    url.pathname.startsWith('/api/words/') ||
+    url.pathname === '/api/texts' ||
+    url.pathname.startsWith('/api/texts/')
+  )
 }
 
 function isSound(url) {

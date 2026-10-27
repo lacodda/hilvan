@@ -5,13 +5,15 @@
  * the tutor in reach or not - by the same Rust the server grades the answer
  * with when it arrives. The server checks every turn again then, and that
  * reading is the one the grade rests on; this one says "right" or "the shape
- * slipped" on a train, and says it the way the server will.
+ * slipped" on a train, and says it the way the server will. The reader
+ * counts a text here too: how much of it is the learner's, word by word,
+ * again after every tap - the arithmetic the server counts the list with.
  *
- * The module is four exports and two buffers (`crates/check/src/lib.rs`):
+ * The module is five exports and two buffers (`crates/check/src/lib.rs`):
  * the request is written into its memory as JSON, the reply read back out.
  */
 
-import type { Checked, Failure, Formula, Rating, Turn } from '@/api'
+import type { Checked, Coverage, Failure, Formula, Hold, Rating, Standing, Token, Turn } from '@/api'
 import wasmUrl from '@/check.wasm?url'
 
 interface Exports {
@@ -19,11 +21,22 @@ interface Exports {
   input: (length: number) => number
   check: () => number
   rate: () => number
+  cover: () => number
   output: () => number
 }
 
 /** What the checker answers, and everything a request can go wrong with. */
-type Reply = { checked: Checked } | { rating: Rating } | { error: string }
+type Reply =
+  | { checked: Checked }
+  | { rating: Rating }
+  | { covered: Covered }
+  | { error: string }
+
+/** How a text stands, and each of its running words, in order. */
+export interface Covered {
+  coverage: Coverage
+  standings: Standing[]
+}
 
 /** The checker, ready to be called. */
 export interface Checker {
@@ -31,6 +44,8 @@ export interface Checker {
   check: (formula: Formula, turn: Turn) => Checked
   /** The grade a round of turns earns. */
   rate: (failures: readonly (Failure | null)[], easy: boolean) => Rating
+  /** How a text's running words stand, given what the learner holds of each of its lemmas. */
+  cover: (tokens: readonly Pick<Token, 'parts' | 'name'>[], holds: readonly (Hold | null)[]) => Covered
 }
 
 /** A turn the checker could not read: a formula and a turn out of step. */
@@ -70,6 +85,12 @@ export async function checkerOf(source: BufferSource | Response | Promise<Respon
     rate: (failures, easy) => {
       const reply = call(exports.rate, { failures, easy })
       if ('rating' in reply) return reply.rating
+      throw new Unchecked('error' in reply ? reply.error : 'the checker answered something else')
+    },
+    cover: (tokens, holds) => {
+      const pieces = tokens.map(({ parts, name }) => ({ parts, name }))
+      const reply = call(exports.cover, { pieces, holds })
+      if ('covered' in reply) return reply.covered
       throw new Unchecked('error' in reply ? reply.error : 'the checker answered something else')
     },
   }

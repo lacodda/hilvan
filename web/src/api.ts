@@ -117,19 +117,25 @@ export interface Pace {
   answers: number
 }
 
+/**
+ * Where a sentence comes from: a worked example of a formula, or a text the
+ * learner reads - `id` and `title` null once the text is gone and the
+ * sentence is kept for a word taken from it.
+ */
+export type Source = { kind: 'formula'; id: string } | { kind: 'text'; id: number | null; title: string | null }
+
 /** One sentence a word stands in. */
 export interface Context {
   sentence: number
   /** The sentence, in the language being learnt. */
   text: string
-  /** What it means, in the learner's own. */
-  translation: string
+  /** What it means, in the learner's own; null for a sentence of a text. */
+  translation: string | null
   /** How the word is spelt here. */
   form: string
   /** The character the word starts at. */
   start: number
-  /** The formula whose example this is. */
-  formula: string
+  source: Source
   /** Whether this is the sentence the word is heard in. */
   anchor: boolean
 }
@@ -140,8 +146,8 @@ export interface Word {
   id: string
   /** As written: "doctor", "I", "Monday". */
   lemma: string
-  /** What it means, in the learner's own language. */
-  gloss: string
+  /** What it means, in the learner's own language; null when the pack has no gloss for it. */
+  gloss: string | null
   /** How it sounds, IPA. */
   ipa: string | null
   /** Its place among the commonest words of the language, 1 the commonest. */
@@ -492,6 +498,81 @@ export interface Standings {
   began: string | null
 }
 
+/** Where the learner stands with a lemma: in the deck and not started, being learnt, held. */
+export type Hold = 'deck' | 'basted' | 'sewn'
+
+/** How a running word of a text stands, as the core counts it. */
+export type Standing = 'name' | 'beyond' | 'unknown' | Hold
+
+/** How a text stands, counted in running words. Names are not in `words`. */
+export interface Coverage {
+  words: number
+  sewn: number
+  basted: number
+  deck: number
+  unknown: number
+  beyond: number
+  names: number
+}
+
+/** How a text came in. */
+export type TextFormat = 'plain' | 'markdown' | 'subtitles'
+
+/** A text as the list shows it. */
+export interface TextSummary {
+  id: number
+  title: string
+  language: string
+  format: TextFormat
+  added_at: string
+  opened_at: string | null
+  /** The paragraph the learner stopped at, from 0. */
+  paragraph: number
+  paragraphs: number
+  finished_at: string | null
+  coverage: Coverage
+}
+
+/** One running word of a sentence. */
+export interface Token {
+  /** The character it starts at, counted in code points. */
+  start: number
+  length: number
+  /** The words it is made of, each the lemmas it can be, as indices into the text's `lemmas`. */
+  parts: number[][]
+  name: boolean
+}
+
+/** One sentence of a text, read. */
+export interface Line {
+  sentence: number
+  text: string
+  tokens: Token[]
+}
+
+/** A text as the reader shows it. */
+export interface Text extends TextSummary {
+  /** Its paragraphs, each the sentences in it. */
+  lines: Line[][]
+  /** Every lemma its words can be, `en:go`. */
+  lemmas: string[]
+  /** What the learner holds of each, by the same index. */
+  holds: (Hold | null)[]
+}
+
+/** A sentence of the learner's own material a word stands in. */
+export interface Example {
+  sentence: number
+  text: string
+  translation: string | null
+  start: number
+  length: number
+  source: Source
+}
+
+/** What the learner holds of each word a change touched; null for nothing. */
+export type Holds = Record<string, Hold | null>
+
 /** Whether the door is locked, and whether this browser is through it. */
 export interface Session {
   required: boolean
@@ -578,6 +659,26 @@ export const api = {
   /** Removes a break as if it had never been taken. */
   removeBreak: (id: number) => remove(`/breaks/${id}`),
   drift: () => call<Drift>('/drift'),
+  texts: () => call<TextSummary[]>('/texts'),
+  /** One text, every word read. */
+  text: (id: number) => call<Text>(`/texts/${id}`),
+  addText: (body: string, title: string | null, format: TextFormat | null) =>
+    call<TextSummary>('/texts', { method: 'POST', body: JSON.stringify({ body, title, format }) }),
+  /** Where the learner is in a text, and whether they have read it all. */
+  placeInText: (id: number, place: { paragraph?: number; finished?: boolean }) =>
+    call<TextSummary>(`/texts/${id}`, { method: 'PATCH', body: JSON.stringify(place) }),
+  removeText: (id: number) => remove(`/texts/${id}`),
+  examples: (word: string) => call<Example[]>(`/words/${encodeURIComponent(word)}/examples`),
+  /** "I know these": declared; what the learner holds of each after. */
+  declare: (words: string[]) =>
+    call<{ declared: string[]; holds: Holds }>('/declarations', { method: 'POST', body: JSON.stringify({ words }) }),
+  takeBack: (words: string[]) =>
+    call<{ taken: string[]; holds: Holds }>('/declarations/take-back', { method: 'POST', body: JSON.stringify({ words }) }),
+  /** Into the deck, with the sentence it stands in. */
+  pick: (word: string, sentence: number, start: number) =>
+    call<{ holds: Holds }>(`/words/${encodeURIComponent(word)}/picks`, { method: 'POST', body: JSON.stringify({ sentence, start }) }),
+  unpick: (word: string, sentence: number) =>
+    call<{ holds: Holds }>(`/words/${encodeURIComponent(word)}/picks/${sentence}`, { method: 'DELETE' }),
 }
 
 /**

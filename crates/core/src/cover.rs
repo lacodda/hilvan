@@ -193,6 +193,9 @@ mod tests {
         let holds = [None, Some(Hold::Sewn)];
         assert_eq!(standing(&piece(&[&[0, 1]]), &holds), Standing::Sewn);
         assert_eq!(standing(&piece(&[&[1, 0]]), &holds), Standing::Sewn, "whichever comes first");
+        // Both held, one better than the other: the better one is how it reads.
+        let both = [Some(Hold::Deck), Some(Hold::Basted)];
+        assert_eq!(standing(&piece(&[&[0, 1]]), &both), Standing::Basted);
     }
 
     #[test]

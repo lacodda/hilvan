@@ -543,8 +543,9 @@ pub struct Line {
 pub struct Text {
     #[serde(flatten)]
     pub summary: Summary,
-    /// Its paragraphs, each the sentences in it.
-    pub paragraphs: Vec<Vec<Line>>,
+    /// Its paragraphs, each the sentences in it. Not `paragraphs`: the
+    /// summary beside it counts them under that name.
+    pub lines: Vec<Vec<Line>>,
     /// Every lemma its words can be, `en:go`: what the tokens' parts index.
     pub lemmas: Vec<String>,
     /// What the learner holds of each, by the same index.
@@ -788,7 +789,7 @@ pub async fn read(pool: &SqlitePool, id: i64) -> Result<Text, Refused> {
     }
     Ok(Text {
         summary,
-        paragraphs,
+        lines: paragraphs,
         lemmas: analysis.lemmas,
         holds: held,
     })
@@ -986,6 +987,20 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_rare_word_capitalised_inside_a_sentence_is_a_name_all_through_the_text() {
+        // The lexicon has "john" - a rare word, past the last level - so it
+        // is no spelling past the lexicon: only the capital inside a
+        // sentence says it is a name, and that holds where it opens one.
+        let analysis = analyse("en", &["Then John came home.", "John was late."]);
+        let names: Vec<bool> = analysis.tokens.iter().map(|line| line.iter().any(|token| token.piece.name)).collect();
+        assert_eq!(names, vec![true, true], "{analysis:?}");
+        assert!(!analysis.lemmas.contains(&"en:john".to_string()), "a name brings no lemma to count");
+        // A common word capitalised inside a sentence is still the word.
+        let common = analyse("en", &["We saw Rose."]);
+        assert!(!common.tokens[0][2].piece.name, "rose is among the levels");
+    }
+
+    #[test]
     fn a_piece_of_a_number_is_no_word() {
         let analysis = analyse("en", &["The 3rd time in the 1990s."]);
         let spelled: Vec<u32> = analysis.tokens[0].iter().map(|token| token.start).collect();
@@ -1061,11 +1076,7 @@ order = 1
         assert_eq!((added.title.as_str(), added.paragraphs, added.format), ("Visit", 2, Format::Plain));
 
         let text = read(&pool, added.id).await.unwrap();
-        let said: Vec<Vec<&str>> = text
-            .paragraphs
-            .iter()
-            .map(|lines| lines.iter().map(|line| line.text.as_str()).collect())
-            .collect();
+        let said: Vec<Vec<&str>> = text.lines.iter().map(|lines| lines.iter().map(|line| line.text.as_str()).collect()).collect();
         assert_eq!(said, vec![vec!["She went to the house."], vec!["He is a doctor.", "It was late."]]);
         let shared: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence WHERE text = 'He is a doctor.'")
             .fetch_one(&pool)
@@ -1090,7 +1101,7 @@ order = 1
         );
 
         crate::words::declare(&pool, &["en:she".to_string(), "en:go".to_string()], at(1)).await.unwrap();
-        let sentence = read(&pool, added.id).await.unwrap().paragraphs[0][0].sentence;
+        let sentence = read(&pool, added.id).await.unwrap().lines[0][0].sentence;
         crate::words::pick(&pool, "en:house", sentence, 16, at(2)).await.unwrap();
 
         let text = read(&pool, added.id).await.unwrap();
@@ -1113,14 +1124,14 @@ order = 1
         let pool = tutor().await;
         let added = add(&pool, &plain("t", "It was late."), at(0)).await.unwrap();
         crate::pack::load(&pool, &pack(2)).await.unwrap();
-        assert_eq!(read(&pool, added.id).await.unwrap().paragraphs[0][0].text, "It was late.");
+        assert_eq!(read(&pool, added.id).await.unwrap().lines[0][0].text, "It was late.");
     }
 
     #[tokio::test]
     async fn letting_a_text_go_keeps_the_sentence_a_word_was_taken_from() {
         let pool = tutor().await;
         let added = add(&pool, &plain("t", "Suddenly it rained. It was late."), at(0)).await.unwrap();
-        let sentence = read(&pool, added.id).await.unwrap().paragraphs[0][0].sentence;
+        let sentence = read(&pool, added.id).await.unwrap().lines[0][0].sentence;
         crate::words::pick(&pool, "en:suddenly", sentence, 0, at(1)).await.unwrap();
 
         remove(&pool, added.id).await.unwrap();

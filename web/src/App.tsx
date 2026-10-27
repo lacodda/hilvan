@@ -10,6 +10,8 @@ import {
   type OwnWord,
   type Read,
   type Standings,
+  type Text,
+  type TextSummary,
   type VoicesScreen as Voices,
 } from '@/api'
 import { BreakScreen } from '@/BreakScreen'
@@ -24,10 +26,12 @@ import { Mark } from '@/Mark'
 import { holdReads, holdShell, holdSounds, setBadge } from '@/offline'
 import { held, settle } from '@/outbox'
 import { OwnWordsScreen } from '@/OwnWordsScreen'
+import { ReaderScreen } from '@/ReaderScreen'
 import { SignIn } from '@/SignIn'
 import { badgeCount, cardOf, fitting, plan, soundsOf, unanswered, type Plan } from '@/sitting'
 import { opening as thenOpening } from '@/then'
 import { ThenAndNowScreen } from '@/ThenAndNowScreen'
+import { TextsScreen } from '@/TextsScreen'
 import { TodayScreen } from '@/TodayScreen'
 import { noteLine } from '@/schedule'
 import { VoicesScreen } from '@/VoicesScreen'
@@ -114,6 +118,8 @@ type View =
   | { kind: 'break' }
   | { kind: 'drift'; drift: Promise<Drift> }
   | { kind: 'device' }
+  | { kind: 'texts'; texts: Promise<TextSummary[]> }
+  | { kind: 'reading'; text: Promise<Text> }
 
 /**
  * The tutor.
@@ -328,6 +334,24 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
     return <DeviceScreen day={day} onLeave={backToToday} onSignedOut={reload} />
   }
 
+  const openText = (id: number) => setView({ kind: 'reading', text: api.text(id) })
+
+  if (view.kind === 'texts') {
+    return (
+      <Suspense fallback={<Shell>Gathering your texts…</Shell>}>
+        <TextsScreen texts={view.texts} onOpen={openText} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
+  if (view.kind === 'reading') {
+    return (
+      <Suspense fallback={<Shell>Opening the text…</Shell>}>
+        <ReaderScreen key={String(view.text)} text={view.text} onLeave={() => setView({ kind: 'texts', texts: api.texts() })} />
+      </Suspense>
+    )
+  }
+
   if (view.kind === 'drilling') {
     const due = view.items[view.index]
     if (!due) {
@@ -360,6 +384,7 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
       day={day}
       onStart={(items) => setView({ kind: 'drilling', items, index: 0 })}
       onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
+      onRead={() => setView({ kind: 'texts', texts: api.texts() })}
       onVoices={() => setView({ kind: 'voices', screen: api.voices() })}
       onOwnWords={() => setView({ kind: 'own-words', words: api.ownWords() })}
       onInventory={() => setView({ kind: 'inventory', run: api.inventory() })}

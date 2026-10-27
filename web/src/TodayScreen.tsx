@@ -32,6 +32,7 @@ export function TodayScreen({
   day,
   onStart,
   onListen,
+  onRead,
   onVoices,
   onOwnWords,
   onInventory,
@@ -46,6 +47,8 @@ export function TodayScreen({
   /** Starts a sitting over these cards: the whole queue, or what fits a few minutes. */
   onStart: (items: Due[]) => void
   onListen: () => void
+  /** Your texts, and reading one. */
+  onRead: () => void
   onVoices: () => void
   onOwnWords: () => void
   onInventory: () => void
@@ -139,6 +142,13 @@ export function TodayScreen({
           <span className="block text-base text-faint">Hear a sentence, recall what it means, then look. Nothing is graded.</span>
         </Button>
       )}
+
+      {/* Reading needs nothing started: any text says how much of it is
+          already yours, and what is not goes into the deck from there. */}
+      <Button onClick={onRead} variant="ghost" size={null} className="flex-col items-start px-4 py-3 text-left whitespace-normal text-text">
+        <span className="block text-xl font-medium">Read</span>
+        <span className="block text-base text-faint">A text of your own: see how much of it is yours, tap a word you do not know.</span>
+      </Button>
 
       {/* Starting from what is known: the commonest words, one question
           each. Offered here for the start; once a word is declared known,
@@ -265,7 +275,7 @@ function YourWords({ words }: { words: Words }) {
       <h3 className="text-base font-medium tracking-caption text-dim uppercase">Your words</h3>
       <p className="text-xl">
         {started === 0 ? 'None started yet' : `${words.counts.sewn} sewn, ${words.counts.basted} basted`}
-        <span className="text-base text-faint"> - {total} in your formulas' sentences</span>
+        <span className="text-base text-faint"> - {total} in your deck</span>
       </p>
       <div className="flex flex-col gap-3">
         {words.levels.map((level) => (
