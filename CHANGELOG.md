@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0] - 2026-10-26
+
+### Breaking Changes
+- The learner model file is format 3, described by learner-model-3.json, and carries `texts` and `picks`; files of format 2 are refused. The pack is version 6, with a glossary of every lemma of the lexicon: load it again. The demo learner is made again with a text read and words taken from it.
+
+### Documentation
+- Explain reading, the glossary and format 3, and bump to 0.9.0
+
+### Features
+- Read any text as the learner's own and take its words into the deck
+- Read a text, tap a word, take it into the deck, sweep the rest as known
+
 ## [0.8.0] - 2026-10-20
 
 ### Breaking Changes
