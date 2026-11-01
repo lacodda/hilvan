@@ -262,7 +262,7 @@ export function ReaderScreen({
       told.current === null ? 0 : PLACE_AFTER_MS,
     )
     return () => window.clearTimeout(timer)
-  }, [at, text.id, chapter.paragraph])
+  }, [at, text.id, chapter])
 
   const finish = (read: boolean) => {
     setFinished(read)
