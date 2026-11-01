@@ -515,22 +515,78 @@ export interface Coverage {
   names: number
 }
 
-/** How a text came in. */
-export type TextFormat = 'plain' | 'markdown' | 'subtitles'
+/** How a text came in: written out, a web page, a Wikipedia article, a book. */
+export type TextFormat = 'plain' | 'markdown' | 'subtitles' | 'html' | 'wiki' | 'epub' | 'fb2'
+
+/** A chapter as a list or the contents show it. */
+export interface ChapterSummary {
+  /** Its place among the chapters, from 0. */
+  position: number
+  title: string | null
+  /** The paragraph it starts at, through the whole text. */
+  paragraph: number
+  paragraphs: number
+  coverage: Coverage
+}
 
 /** A text as the list shows it. */
 export interface TextSummary {
   id: number
   title: string
+  author: string | null
+  /** The link it came from; null for a text pasted or opened from a file. */
+  source: string | null
   language: string
   format: TextFormat
   added_at: string
   opened_at: string | null
-  /** The paragraph the learner stopped at, from 0. */
+  /** The paragraph the learner stopped at, through the whole text, from 0. */
   paragraph: number
   paragraphs: number
   finished_at: string | null
   coverage: Coverage
+  /** How many chapters it has: 1 for anything but a book. */
+  chapters: number
+  /** The chapter the learner stopped in. */
+  chapter: ChapterSummary
+}
+
+/** What to read next: a text of the learner's at the chapter they are in, or an item of the shelf. */
+export type NextRead =
+  | {
+      kind: 'text'
+      id: number
+      title: string
+      /** The chapter, for a book. */
+      chapter: number | null
+      chapter_title: string | null
+      /** How much of it is the learner's, in whole percent. */
+      yours: number
+      started: boolean
+    }
+  | { kind: 'shelf'; id: string; title: string; author: string | null; estimate: number }
+
+/** The learner's texts, and what to read next. */
+export interface Texts {
+  texts: TextSummary[]
+  next: NextRead | null
+}
+
+/** An open text of the shelf. */
+export interface ShelfItem {
+  id: string
+  kind: 'book' | 'article'
+  title: string
+  author: string | null
+  source: string
+  /** Running words, names left out. */
+  words: number
+  /** The lexicon it needs for 95% of it; null past the whole lexicon. */
+  level: number | null
+  /** About how much of it is the learner's, in percent. */
+  estimate: number
+  /** The learner's text it became, once taken. */
+  taken: number | null
 }
 
 /** One running word of a sentence. */
@@ -550,9 +606,13 @@ export interface Line {
   tokens: Token[]
 }
 
-/** A text as the reader shows it. */
+/** A chapter of a text as the reader shows it. */
 export interface Text extends TextSummary {
-  /** Its paragraphs, each the sentences in it. */
+  /** Every chapter, with how much of each is the learner's. */
+  contents: ChapterSummary[]
+  /** The chapter shown: its position among `contents`. */
+  shown: number
+  /** The shown chapter's paragraphs, each the sentences in it. */
   lines: Line[][]
   /** Every lemma its words can be, `en:go`. */
   lemmas: string[]
@@ -659,11 +719,23 @@ export const api = {
   /** Removes a break as if it had never been taken. */
   removeBreak: (id: number) => remove(`/breaks/${id}`),
   drift: () => call<Drift>('/drift'),
-  texts: () => call<TextSummary[]>('/texts'),
-  /** One text, every word read. */
-  text: (id: number) => call<Text>(`/texts/${id}`),
+  texts: () => call<Texts>('/texts'),
+  /** One chapter of a text, every word read: the one asked for, or the one the learner stopped in. */
+  text: (id: number, chapter?: number) => call<Text>(chapter === undefined ? `/texts/${id}` : `/texts/${id}?chapter=${chapter}`),
   addText: (body: string, title: string | null, format: TextFormat | null) =>
     call<TextSummary>('/texts', { method: 'POST', body: JSON.stringify({ body, title, format }) }),
+  /** A file as it is - a book, a page, subtitles - read by the tutor; its name says what it is. */
+  addFile: (file: Blob, name: string) =>
+    call<TextSummary>(`/texts/file?${new URLSearchParams({ name }).toString()}`, {
+      method: 'POST',
+      body: file,
+      headers: { 'content-type': 'application/octet-stream' },
+    }),
+  /** A text by its link: a Gutenberg book, a Wikipedia article, a page, a file. */
+  addLink: (url: string) => call<TextSummary>('/texts/link', { method: 'POST', body: JSON.stringify({ url }) }),
+  shelf: () => call<{ items: ShelfItem[] }>('/shelf').then((body) => body.items),
+  /** Takes an item of the shelf: fetched by the tutor and kept as a text. */
+  takeFromShelf: (id: string) => call<TextSummary>(`/shelf/${encodeURIComponent(id)}`, { method: 'POST' }),
   /** Where the learner is in a text, and whether they have read it all. */
   placeInText: (id: number, place: { paragraph?: number; finished?: boolean }) =>
     call<TextSummary>(`/texts/${id}`, { method: 'PATCH', body: JSON.stringify(place) }),
@@ -688,6 +760,9 @@ export const api = {
 export function modelUrl(at?: string): string {
   return at ? `/api/model?${new URLSearchParams({ at }).toString()}` : '/api/model'
 }
+
+/** Where the words taken from texts download as a file for Anki. */
+export const ANKI_URL = '/api/picks/anki'
 
 /** A DELETE, which answers with no body. */
 async function remove(path: string): Promise<void> {

@@ -15,7 +15,7 @@
 
 /** The caches, named as `public/sw.js` names them. */
 const SHELL = `hilvan-shell-${__APP_VERSION__}`
-const STUDY = 'hilvan-study'
+const STUDY = `hilvan-study-${__APP_VERSION__}`
 const SOUND = 'hilvan-sound'
 
 /** Where the worker finds the number for the icon. */

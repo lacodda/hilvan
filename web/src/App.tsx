@@ -9,9 +9,10 @@ import {
   type InventoryRun,
   type OwnWord,
   type Read,
+  type ShelfItem,
   type Standings,
   type Text,
-  type TextSummary,
+  type Texts,
   type VoicesScreen as Voices,
 } from '@/api'
 import { BreakScreen } from '@/BreakScreen'
@@ -27,6 +28,7 @@ import { holdReads, holdShell, holdSounds, setBadge } from '@/offline'
 import { held, settle } from '@/outbox'
 import { OwnWordsScreen } from '@/OwnWordsScreen'
 import { ReaderScreen } from '@/ReaderScreen'
+import { ShelfScreen } from '@/ShelfScreen'
 import { SignIn } from '@/SignIn'
 import { badgeCount, cardOf, fitting, plan, soundsOf, unanswered, type Plan } from '@/sitting'
 import { opening as thenOpening } from '@/then'
@@ -118,8 +120,10 @@ type View =
   | { kind: 'break' }
   | { kind: 'drift'; drift: Promise<Drift> }
   | { kind: 'device' }
-  | { kind: 'texts'; texts: Promise<TextSummary[]> }
-  | { kind: 'reading'; text: Promise<Text> }
+  | { kind: 'texts'; texts: Promise<Texts> }
+  | { kind: 'shelf'; items: Promise<ShelfItem[]> }
+  /** A text at a chapter, or - `chapter` undefined - at the one the learner stopped in. */
+  | { kind: 'reading'; id: number; chapter: number | undefined; text: Promise<Text> }
 
 /**
  * The tutor.
@@ -334,20 +338,30 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
     return <DeviceScreen day={day} onLeave={backToToday} onSignedOut={reload} />
   }
 
-  const openText = (id: number) => setView({ kind: 'reading', text: api.text(id) })
+  const openText = (id: number, chapter?: number) => setView({ kind: 'reading', id, chapter, text: api.text(id, chapter) })
+  const toTexts = () => setView({ kind: 'texts', texts: api.texts() })
 
   if (view.kind === 'texts') {
     return (
       <Suspense fallback={<Shell>Gathering your texts…</Shell>}>
-        <TextsScreen texts={view.texts} onOpen={openText} onLeave={backToToday} />
+        <TextsScreen texts={view.texts} onOpen={openText} onShelf={() => setView({ kind: 'shelf', items: api.shelf() })} onLeave={backToToday} />
+      </Suspense>
+    )
+  }
+
+  if (view.kind === 'shelf') {
+    return (
+      <Suspense fallback={<Shell>Taking the shelf down…</Shell>}>
+        <ShelfScreen items={view.items} onOpen={openText} onLeave={toTexts} />
       </Suspense>
     )
   }
 
   if (view.kind === 'reading') {
+    const { id } = view
     return (
       <Suspense fallback={<Shell>Opening the text…</Shell>}>
-        <ReaderScreen key={String(view.text)} text={view.text} onLeave={() => setView({ kind: 'texts', texts: api.texts() })} />
+        <ReaderScreen key={`${id}:${view.chapter ?? 'place'}`} text={view.text} onChapter={(chapter) => openText(id, chapter)} onLeave={toTexts} />
       </Suspense>
     )
   }
@@ -384,7 +398,7 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
       day={day}
       onStart={(items) => setView({ kind: 'drilling', items, index: 0 })}
       onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
-      onRead={() => setView({ kind: 'texts', texts: api.texts() })}
+      onRead={toTexts}
       onVoices={() => setView({ kind: 'voices', screen: api.voices() })}
       onOwnWords={() => setView({ kind: 'own-words', words: api.ownWords() })}
       onInventory={() => setView({ kind: 'inventory', run: api.inventory() })}

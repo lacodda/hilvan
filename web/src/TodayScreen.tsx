@@ -147,7 +147,7 @@ export function TodayScreen({
           already yours, and what is not goes into the deck from there. */}
       <Button onClick={onRead} variant="ghost" size={null} className="flex-col items-start px-4 py-3 text-left whitespace-normal text-text">
         <span className="block text-xl font-medium">Read</span>
-        <span className="block text-base text-faint">A text of your own: see how much of it is yours, tap a word you do not know.</span>
+        <span className="block text-base text-faint">A book, an article, a text of your own: see how much of it is yours, tap a word you do not know.</span>
       </Button>
 
       {/* Starting from what is known: the commonest words, one question

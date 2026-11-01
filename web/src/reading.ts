@@ -4,7 +4,7 @@
  * known, how much of a text is the learner's, and what a file is.
  */
 
-import type { Coverage, Hold, Holds, Line, Text, TextFormat, TextSummary, Token } from '@/api'
+import type { ChapterSummary, Coverage, Hold, Holds, Line, NextRead, ShelfItem, Text, TextSummary, Token } from '@/api'
 
 /** A stretch of a sentence: a running word (by its place among the sentence's tokens) or what stands between words. */
 export interface Run {
@@ -101,30 +101,84 @@ export function coverageLine(coverage: Coverage): string {
   return `${share}% yours${deck}`
 }
 
-/** How far into a text the learner is: "paragraph 3 of 12", or "read". */
-export function placeLine(summary: Pick<TextSummary, 'paragraph' | 'paragraphs' | 'finished_at' | 'opened_at'>): string {
+/**
+ * How far into a text the learner is: "paragraph 3 of 12", "chapter 3 of
+ * 12" for a book, or "read".
+ */
+export function placeLine(summary: Pick<TextSummary, 'paragraph' | 'paragraphs' | 'finished_at' | 'opened_at' | 'chapters' | 'chapter'>): string {
   if (summary.finished_at !== null) return 'Read'
-  if (summary.opened_at === null) return 'Not opened yet'
+  if (summary.opened_at === null) return summary.chapters > 1 ? `Not opened yet · ${summary.chapters} chapters` : 'Not opened yet'
+  if (summary.chapters > 1) return `Chapter ${summary.chapter.position + 1} of ${summary.chapters}`
   return `Paragraph ${summary.paragraph + 1} of ${summary.paragraphs}`
 }
 
-/** What a file is, by its name; null to let the tutor tell from what is in it. */
-export function formatOf(name: string): TextFormat | null {
-  const extension = name.toLowerCase().split('.').at(-1)
-  if (extension === 'md' || extension === 'markdown') return 'markdown'
-  if (extension === 'srt' || extension === 'vtt') return 'subtitles'
-  if (extension === 'txt') return 'plain'
-  return null
+/**
+ * Where the learner stopped, in the shown chapter's own paragraphs; null
+ * when they stopped in another chapter.
+ */
+export function placeIn(text: Pick<Text, 'paragraph' | 'contents' | 'shown'>): number | null {
+  const chapter = text.contents[text.shown]
+  if (!chapter) return null
+  const local = text.paragraph - chapter.paragraph
+  return local >= 0 && local < chapter.paragraphs ? local : null
 }
 
-/** A title from a file's name: the extension off, the separators spaces. */
-export function titleOf(name: string): string {
-  const stem = name.replace(/\.[^.]+$/, '')
-  return stem.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim()
+/** A paragraph of a chapter as the tutor keeps the place: counted through the whole text. */
+export function throughText(chapter: Pick<ChapterSummary, 'paragraph'>, paragraph: number): number {
+  return chapter.paragraph + paragraph
 }
 
-/** The files the reader takes. */
-export const ACCEPTED = '.txt,.md,.markdown,.srt,.vtt,text/plain,text/markdown'
+/** A chapter's name: its title, or its number where the book names none. */
+export function chapterName(chapter: Pick<ChapterSummary, 'position' | 'title'>): string {
+  return chapter.title ?? `Chapter ${chapter.position + 1}`
+}
+
+/** The lexicon a shelf item needs, in words: "2,000 words", or "more than 10,000". */
+export function levelLine(level: number | null): string {
+  return level === null ? 'more than 10,000 words' : `${level.toLocaleString('en')} words`
+}
+
+/** The window a next text aims at, in percent of its words being yours. */
+export const WINDOW = { low: 95, high: 98 } as const
+
+/** How a share of a text's words stands to the window: inside it, under it, over it. */
+export function fit(share: number): 'inside' | 'harder' | 'easier' {
+  if (share < WINDOW.low) return 'harder'
+  if (share > WINDOW.high) return 'easier'
+  return 'inside'
+}
+
+/** What the next text is, in a line: the title, the chapter, and how much is yours. */
+export function nextLine(next: NextRead): { title: string; detail: string } {
+  if (next.kind === 'shelf') {
+    const by = next.author ? ` · ${next.author}` : ''
+    return { title: next.title, detail: `From the shelf${by} · about ${next.estimate}% yours` }
+  }
+  const chapter = next.chapter === null ? '' : `${next.chapter_title ?? `Chapter ${next.chapter + 1}`} · `
+  return { title: next.title, detail: `${chapter}${next.yours}% yours` }
+}
+
+/** Why the next text is the one: whether it stands in the window, or is the nearest to it. */
+export function nextReason(next: NextRead): string {
+  const share = next.kind === 'shelf' ? next.estimate : next.yours
+  switch (fit(share)) {
+    case 'inside':
+      return `Between ${WINDOW.low}% and ${WINDOW.high}% of it is yours: enough to read on your own, with a few new words to take.`
+    case 'easier':
+      return `Nothing on your list or the shelf sits between ${WINDOW.low}% and ${WINDOW.high}% yours; this one is a little easier.`
+    case 'harder':
+      return `Nothing yet sits between ${WINDOW.low}% and ${WINDOW.high}% yours; this one is the nearest. Every word you take or sweep moves it closer.`
+  }
+}
+
+/** The shelf in the order a learner chooses from: the most of it theirs first. */
+export function shelfOrder(items: readonly ShelfItem[]): ShelfItem[] {
+  return [...items].sort((a, b) => b.estimate - a.estimate || a.words - b.words)
+}
+
+/** The files the reader takes: books, pages, subtitles and plain or marked text. */
+export const ACCEPTED =
+  '.txt,.md,.markdown,.srt,.vtt,.html,.htm,.xhtml,.epub,.fb2,.zip,text/plain,text/markdown,text/html,application/epub+zip'
 
 /** How far a finger has to travel across a paragraph to say "I know the rest". */
 export const SWIPE = 80

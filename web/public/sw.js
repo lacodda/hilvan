@@ -19,8 +19,12 @@
 
 const VERSION = '__APP_VERSION__'
 const SHELL = `hilvan-shell-${VERSION}`
-/** Named again in `src/offline.ts`. */
-const STUDY = 'hilvan-study'
+/**
+ * Named again in `src/offline.ts`. Kept by version, as the shell is: the
+ * reads are the tutor's answers, and a version that changes what an answer
+ * looks like must not be handed the last one's from the road.
+ */
+const STUDY = `hilvan-study-${VERSION}`
 const SOUND = 'hilvan-sound'
 
 /**
@@ -48,7 +52,13 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((names) => Promise.all(names.filter((name) => name.startsWith('hilvan-shell-') && name !== SHELL).map((name) => caches.delete(name))))
+      .then((names) =>
+        Promise.all(
+          names
+            .filter((name) => (name.startsWith('hilvan-shell-') && name !== SHELL) || (name.startsWith('hilvan-study') && name !== STUDY))
+            .map((name) => caches.delete(name)),
+        ),
+      )
       .then(() => self.clients.claim()),
   )
 })

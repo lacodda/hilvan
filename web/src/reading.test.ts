@@ -4,7 +4,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Coverage, Hold, Line } from '@/api'
 import { checkerOf, type Checker } from '@/core'
-import { coverageLine, formatOf, offsets, paragraphAt, placeLine, restOf, runs, swipe, SWIPE, titleOf, tokensOf, withHolds, yours } from '@/reading'
+import type { ShelfItem } from '@/api'
+import { chapterName, coverageLine, fit, levelLine, nextLine, nextReason, offsets, paragraphAt, placeIn, placeLine, restOf, runs, shelfOrder, swipe, SWIPE, throughText, tokensOf, withHolds, yours } from '@/reading'
 
 describe('a swipe across a paragraph', () => {
   const start = { x: 40, y: 300 }
@@ -103,21 +104,52 @@ describe('how much is yours', () => {
   })
 
   it('says where the learner is', () => {
-    const at = { paragraph: 2, paragraphs: 12, finished_at: null, opened_at: '2026-10-20T18:00:00Z' }
+    const chapter = { position: 0, title: null, paragraph: 0, paragraphs: 12, coverage: none }
+    const at = { paragraph: 2, paragraphs: 12, finished_at: null, opened_at: '2026-10-20T18:00:00Z', chapters: 1, chapter }
     expect(placeLine(at)).toBe('Paragraph 3 of 12')
     expect(placeLine({ ...at, opened_at: null })).toBe('Not opened yet')
     expect(placeLine({ ...at, finished_at: '2026-10-21T18:00:00Z' })).toBe('Read')
+    const book = { ...at, paragraph: 40, paragraphs: 300, chapters: 12, chapter: { ...chapter, position: 2 } }
+    expect(placeLine(book)).toBe('Chapter 3 of 12')
+    expect(placeLine({ ...book, opened_at: null })).toBe('Not opened yet · 12 chapters')
+  })
+
+  it('keeps the place through the whole book, and finds it in the chapter it is in', () => {
+    const chapter = (position: number, paragraph: number, paragraphs: number) => ({ position, title: null, paragraph, paragraphs, coverage: none })
+    const contents = [chapter(0, 0, 4), chapter(1, 4, 10), chapter(2, 14, 3)]
+    expect(placeIn({ paragraph: 6, contents, shown: 1 })).toBe(2)
+    expect(placeIn({ paragraph: 4, contents, shown: 1 })).toBe(0)
+    expect(placeIn({ paragraph: 14, contents, shown: 1 })).toBeNull()
+    expect(placeIn({ paragraph: 3, contents, shown: 1 })).toBeNull()
+    expect(throughText(contents[1]!, 2)).toBe(6)
+  })
+
+  it('names a chapter by its title, or its number where the book names none', () => {
+    expect(chapterName({ position: 4, title: 'The Storm' })).toBe('The Storm')
+    expect(chapterName({ position: 4, title: null })).toBe('Chapter 5')
   })
 })
 
-describe('a file', () => {
-  it('is told by its name, or left to the tutor', () => {
-    expect(formatOf('Notes.MD')).toBe('markdown')
-    expect(formatOf('episode.srt')).toBe('subtitles')
-    expect(formatOf('episode.vtt')).toBe('subtitles')
-    expect(formatOf('story.txt')).toBe('plain')
-    expect(formatOf('story')).toBeNull()
-    expect(titleOf('the_old-man and_the sea.txt')).toBe('the old man and the sea')
+describe('the next text', () => {
+  it('stands inside the window from 95 to 98 percent, or under or over it', () => {
+    expect([fit(94), fit(95), fit(98), fit(99)]).toEqual(['harder', 'inside', 'inside', 'easier'])
+  })
+
+  it('says what it is and why', () => {
+    const text = { kind: 'text', id: 3, title: 'Alice', chapter: 2, chapter_title: 'CHAPTER III.', yours: 96, started: true } as const
+    expect(nextLine(text)).toEqual({ title: 'Alice', detail: 'CHAPTER III. · 96% yours' })
+    expect(nextLine({ ...text, chapter: null, chapter_title: null })).toEqual({ title: 'Alice', detail: '96% yours' })
+    const shelf = { kind: 'shelf', id: 'simple-cat', title: 'Cat', author: null, estimate: 88 } as const
+    expect(nextLine(shelf)).toEqual({ title: 'Cat', detail: 'From the shelf · about 88% yours' })
+    expect(nextReason(text)).toMatch(/^Between 95% and 98%/)
+    expect(nextReason(shelf)).toMatch(/the nearest/)
+  })
+
+  it('puts the shelf in the order of how much is yours, the shorter first between equals', () => {
+    const item = (id: string, estimate: number, words: number): ShelfItem => ({ id, kind: 'book', title: id, author: null, source: id, words, level: 2000, estimate, taken: null })
+    expect(shelfOrder([item('a', 80, 10), item('b', 90, 500), item('c', 90, 100)]).map((one) => one.id)).toEqual(['c', 'b', 'a'])
+    expect(levelLine(2000)).toBe('2,000 words')
+    expect(levelLine(null)).toBe('more than 10,000 words')
   })
 })
 
