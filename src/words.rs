@@ -834,8 +834,9 @@ mod tests {
 
     /// A text with one sentence; its id.
     async fn sentence(pool: &SqlitePool, body: &str) -> i64 {
-        let added = reading::add(pool, &plain("Out", body), at(0)).await.unwrap();
-        reading::read(pool, added.id).await.unwrap().lines[0][0].sentence
+        let library = reading::Library::default();
+        let added = reading::add(pool, &library, &plain("Out", body), at(0)).await.unwrap();
+        reading::read(pool, &library, added.id, None).await.unwrap().lines[0][0].sentence
     }
 
     /// Drills the formula once, its sample typed right: its sentence is met.

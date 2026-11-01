@@ -284,15 +284,39 @@ impl Lexicon {
     }
 }
 
+const ENGLISH_LEXICON: &str = include_str!("../lexicons/en/lexicon.tsv");
+const ENGLISH_WRITING: &str = include_str!("../lexicons/en/reading.toml");
+
 static ENGLISH: LazyLock<Lexicon> = LazyLock::new(|| {
     // Built into the binary and parsed by a test on every gate run, so a
     // malformed file never reaches a stand: this cannot fail at runtime
     // without failing the build first.
-    let lexicon = Lexicon::parse(include_str!("../lexicons/en/lexicon.tsv")).unwrap_or_else(|error| panic!("the English lexicon is malformed: {error}"));
-    let writing =
-        Writing::parse(include_str!("../lexicons/en/reading.toml")).unwrap_or_else(|error| panic!("the English reading rules are malformed: {error}"));
+    let lexicon = Lexicon::parse(ENGLISH_LEXICON).unwrap_or_else(|error| panic!("the English lexicon is malformed: {error}"));
+    let writing = Writing::parse(ENGLISH_WRITING).unwrap_or_else(|error| panic!("the English reading rules are malformed: {error}"));
     lexicon.with_writing(writing)
 });
+
+/// What a text of a language is read with, as one short string: the
+/// SHA-256 of its lexicon and its rules of writing. Whatever was counted of
+/// a text with another fingerprint was counted with another reading.
+#[must_use]
+pub fn fingerprint(language: &str) -> Option<String> {
+    use std::fmt::Write as _;
+
+    use sha2::{Digest, Sha256};
+    let (lexicon, writing) = match language {
+        "en" => (ENGLISH_LEXICON, ENGLISH_WRITING),
+        _ => return None,
+    };
+    let mut hash = Sha256::new();
+    hash.update(lexicon.as_bytes());
+    hash.update([0]);
+    hash.update(writing.as_bytes());
+    Some(hash.finalize().iter().take(12).fold(String::new(), |mut hex, byte| {
+        let _ = write!(hex, "{byte:02x}");
+        hex
+    }))
+}
 
 /// The lexicon of a language, when hilvan has one.
 #[must_use]

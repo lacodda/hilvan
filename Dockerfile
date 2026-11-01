@@ -44,6 +44,7 @@ RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs && ca
 COPY src/ src/
 COPY migrations/ migrations/
 COPY lexicons/ lexicons/
+COPY shelves/ shelves/
 COPY demo/ demo/
 # Migrations, the lexicon and the demo learner are embedded at compile time,
 # so a change to any of them has to invalidate the build. Touching the entry

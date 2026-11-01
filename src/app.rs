@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Path as UrlPath, Query, Request, State},
+    body::Bytes,
+    extract::{DefaultBodyLimit, Path as UrlPath, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -19,13 +20,17 @@ use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
+use crate::anki;
 use crate::auth;
 use crate::breaks;
 use crate::drift;
+use crate::import::{self, web};
 use crate::inventory;
+use crate::lexicon;
 use crate::model;
 use crate::own::{self, NewWord, Refused};
-use crate::reading::{self, Addition, Place};
+use crate::reading::{self, Addition, Arrival, Library, Place};
+use crate::shelf;
 use crate::study::{self, Answer, AnswerError, Graded, Sent};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
 use crate::words;
@@ -37,6 +42,27 @@ pub struct AppState {
     pub password_hash: Option<Arc<str>>,
     /// The engines that speak, and the cache behind them.
     pub voices: Voices,
+    /// The texts as they read, kept while the server runs.
+    pub library: Library,
+    /// What a text by a link is fetched with.
+    pub web: reqwest::Client,
+}
+
+impl AppState {
+    /// The state of a server over a database.
+    #[must_use]
+    pub fn new(pool: SqlitePool, password_hash: Option<String>, voices: Voices) -> Self {
+        Self {
+            pool,
+            password_hash: password_hash.filter(|hash| !hash.trim().is_empty()).map(Into::into),
+            voices,
+            library: Library::default(),
+            web: web::client().unwrap_or_else(|error| {
+                tracing::error!(%error, "the client for links could not start; links will not be followed");
+                reqwest::Client::new()
+            }),
+        }
+    }
 }
 
 /// The router: the API under `/api`, the tutor app everywhere else.
@@ -46,12 +72,12 @@ pub struct AppState {
 /// than a 404. The API never falls through to it: a misspelled endpoint has to
 /// look like a mistake, not like a page.
 pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, voices: Voices) -> Router {
-    let state = AppState {
-        pool,
-        password_hash: password_hash.filter(|hash| !hash.trim().is_empty()).map(Into::into),
-        voices,
-    };
+    routes(AppState::new(pool, password_hash, voices), web_dir)
+}
 
+/// The router over a state made beforehand: what the server runs, so it can
+/// read the library while the router answers.
+pub fn routes(state: AppState, web_dir: &Path) -> Router {
     // Everything the learner's own data flows through sits behind the door;
     // health and the session endpoints are what a locked-out client is still
     // allowed to ask.
@@ -69,7 +95,12 @@ pub fn router(pool: SqlitePool, password_hash: Option<String>, web_dir: &Path, v
         .route("/declarations", post(declare_words))
         .route("/declarations/take-back", post(take_back_words))
         .route("/texts", get(texts).post(add_text))
+        .route("/texts/file", post(add_file).layer(DefaultBodyLimit::max(web::LIMIT)))
+        .route("/texts/link", post(add_link))
         .route("/texts/{id}", get(text).patch(place_in_text).delete(remove_text))
+        .route("/shelf", get(shelf_items))
+        .route("/shelf/{id}", post(take_from_shelf))
+        .route("/picks/anki", get(anki_file))
         .route("/speech", get(speech))
         .route("/listen", get(listen))
         .route("/voices", get(voices_screen))
@@ -483,44 +514,222 @@ fn text_refused(error: reading::Refused) -> Response {
     let status = match error {
         reading::Refused::NoLanguage => StatusCode::CONFLICT,
         reading::Refused::Empty => StatusCode::UNPROCESSABLE_ENTITY,
-        reading::Refused::NotFound(_) => StatusCode::NOT_FOUND,
+        reading::Refused::NotFound(_) | reading::Refused::NoChapter(..) => StatusCode::NOT_FOUND,
         reading::Refused::Database(error) => return failed("the text could not be read or saved", &error),
     };
     (status, Json(json!({ "error": error.to_string() }))).into_response()
 }
 
+fn refused(status: StatusCode, error: &impl std::fmt::Display) -> Response {
+    (status, Json(json!({ "error": error.to_string() }))).into_response()
+}
+
+/// The learner's texts, and what to read next among them and the shelf.
+#[derive(Serialize)]
+struct Texts {
+    texts: Vec<reading::Summary>,
+    next: Option<shelf::Next>,
+}
+
 async fn texts(State(state): State<AppState>) -> Response {
-    match reading::list(&state.pool).await {
-        Ok(texts) => Json(texts).into_response(),
+    let read = async {
+        let texts = reading::list(&state.pool, &state.library).await?;
+        let language = crate::pack::language_being_learnt(&state.pool).await?;
+        let items = match language.as_deref().and_then(shelf::of) {
+            Some(shelf) => shelf::items(shelf, &reading::holds(&state.pool).await?, &texts),
+            None => Vec::new(),
+        };
+        let next = shelf::next(&texts, &items);
+        Ok::<_, anyhow::Error>(Texts { texts, next })
+    };
+    match read.await {
+        Ok(library) => Json(library).into_response(),
         Err(error) => failed("the texts could not be read", &error),
     }
 }
 
 async fn add_text(State(state): State<AppState>, Json(addition): Json<Addition>) -> Response {
-    match reading::add(&state.pool, &addition, Utc::now()).await {
+    match reading::add(&state.pool, &state.library, &addition, Utc::now()).await {
         Ok(summary) => (StatusCode::CREATED, Json(summary)).into_response(),
         Err(error) => text_refused(error),
     }
 }
 
-async fn text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
-    match reading::read(&state.pool, id).await {
+/// The file a text is read from: its name says what it is.
+#[derive(Deserialize)]
+struct Named {
+    #[serde(default)]
+    name: Option<String>,
+}
+
+/// Keeps what came of an import.
+async fn keep(state: &AppState, arrival: Arrival) -> Response {
+    match reading::keep(&state.pool, &state.library, arrival, Utc::now()).await {
+        Ok(summary) => (StatusCode::CREATED, Json(summary)).into_response(),
+        Err(error) => text_refused(error),
+    }
+}
+
+async fn add_file(State(state): State<AppState>, Query(named): Query<Named>, body: Bytes) -> Response {
+    let language = match reading::language(&state.pool).await {
+        Ok(language) => language,
+        Err(error) => return text_refused(error),
+    };
+    let name = named.name.as_deref();
+    // A book is read in a fraction of a second; a large one is work for a
+    // processor, not for the runtime answering other requests.
+    let read = tokio::task::spawn_blocking({
+        let name = name.map(str::to_string);
+        move || import::file(name.as_deref(), &body, lexicon::of(&language))
+    })
+    .await;
+    let imported = match read {
+        Ok(Ok(imported)) => imported,
+        Ok(Err(error)) => return refused(StatusCode::UNPROCESSABLE_ENTITY, &error),
+        Err(error) => return failed("the file could not be read", &anyhow::Error::from(error)),
+    };
+    // A file named after its text names it when the text does not.
+    let stem = name
+        .map(|name| name.rsplit(['/', '\\']).next().unwrap_or(name))
+        .map(|name| name.split('.').next().unwrap_or(name).replace(['_', '-'], " "))
+        .filter(|stem| !stem.trim().is_empty());
+    let title = imported.document.title.is_none().then_some(stem).flatten();
+    keep(
+        &state,
+        Arrival {
+            format: imported.format,
+            document: imported.document,
+            source: None,
+            title,
+            author: None,
+        },
+    )
+    .await
+}
+
+/// A text by its link.
+#[derive(Deserialize)]
+struct Link {
+    url: String,
+}
+
+async fn fetch(state: &AppState, link: &str) -> Result<web::Fetched, Box<Response>> {
+    let language = reading::language(&state.pool).await.map_err(|error| Box::new(text_refused(error)))?;
+    web::fetch(&state.web, link, lexicon::of(&language)).await.map_err(|error| {
+        let status = match error {
+            web::Unfetched::NotALink(_) | web::Unfetched::Unreadable(_) | web::Unfetched::TooLarge | web::Unfetched::NoArticle => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+            web::Unfetched::Unreachable(_) | web::Unfetched::Refused(_) => StatusCode::BAD_GATEWAY,
+        };
+        Box::new(refused(status, &error))
+    })
+}
+
+async fn add_link(State(state): State<AppState>, Json(link): Json<Link>) -> Response {
+    let fetched = match fetch(&state, &link.url).await {
+        Ok(fetched) => fetched,
+        Err(response) => return *response,
+    };
+    keep(
+        &state,
+        Arrival {
+            format: fetched.format,
+            document: fetched.document,
+            source: Some(fetched.source),
+            title: None,
+            author: None,
+        },
+    )
+    .await
+}
+
+/// Which chapter of a text to read.
+#[derive(Deserialize)]
+struct Which {
+    #[serde(default)]
+    chapter: Option<u32>,
+}
+
+async fn text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>, Query(which): Query<Which>) -> Response {
+    match reading::read(&state.pool, &state.library, id, which.chapter).await {
         Ok(text) => Json(text).into_response(),
         Err(error) => text_refused(error),
     }
 }
 
 async fn place_in_text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>, Json(place): Json<Place>) -> Response {
-    match reading::place(&state.pool, id, place, Utc::now()).await {
+    match reading::place(&state.pool, &state.library, id, place, Utc::now()).await {
         Ok(summary) => Json(summary).into_response(),
         Err(error) => text_refused(error),
     }
 }
 
 async fn remove_text(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
-    match reading::remove(&state.pool, id).await {
+    match reading::remove(&state.pool, &state.library, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => text_refused(error),
+    }
+}
+
+/// The shelf of the language being learnt, each item with how much of it
+/// is the learner's.
+async fn shelf_items(State(state): State<AppState>) -> Response {
+    let read = async {
+        let Some(shelf) = crate::pack::language_being_learnt(&state.pool).await?.as_deref().and_then(shelf::of) else {
+            return Ok(Vec::new());
+        };
+        let texts = reading::list(&state.pool, &state.library).await?;
+        Ok::<_, anyhow::Error>(shelf::items(shelf, &reading::holds(&state.pool).await?, &texts))
+    };
+    match read.await {
+        Ok(items) => Json(json!({ "items": items })).into_response(),
+        Err(error) => failed("the shelf could not be read", &error),
+    }
+}
+
+/// Takes an item of the shelf: fetched from its source and kept as a text,
+/// under the title and author the shelf gives it.
+async fn take_from_shelf(State(state): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+    let language = match reading::language(&state.pool).await {
+        Ok(language) => language,
+        Err(error) => return text_refused(error),
+    };
+    let Some(entry) = shelf::of(&language)
+        .and_then(|shelf| shelf.items.iter().find(|(entry, _)| entry.id == id))
+        .map(|(entry, _)| entry.clone())
+    else {
+        return refused(StatusCode::NOT_FOUND, &format!("the shelf has no {id}"));
+    };
+    let fetched = match fetch(&state, &entry.source).await {
+        Ok(fetched) => fetched,
+        Err(response) => return *response,
+    };
+    keep(
+        &state,
+        Arrival {
+            format: fetched.format,
+            document: fetched.document,
+            source: Some(entry.source),
+            title: Some(entry.title),
+            author: entry.author,
+        },
+    )
+    .await
+}
+
+/// The words taken from texts as a file for Anki.
+async fn anki_file(State(state): State<AppState>) -> Response {
+    match anki::notes(&state.pool).await {
+        Ok(notes) => (
+            [
+                (header::CONTENT_TYPE, "text/tab-separated-values; charset=utf-8"),
+                (header::CONTENT_DISPOSITION, "attachment; filename=\"hilvan-words.txt\""),
+            ],
+            anki::file(&notes),
+        )
+            .into_response(),
+        Err(error) => failed("the words could not be read", &error),
     }
 }
 
@@ -1185,9 +1394,10 @@ gloss = "дом"
 
         let listed = body_json(call("GET", "/api/texts", "").await.unwrap()).await;
         assert_eq!(
-            (listed[0]["coverage"]["sewn"].as_i64(), listed[0]["coverage"]["deck"].as_i64()),
+            (listed["texts"][0]["coverage"]["sewn"].as_i64(), listed["texts"][0]["coverage"]["deck"].as_i64()),
             (Some(3), Some(1))
         );
+        assert_eq!(listed["next"]["kind"], "text", "a text of the learner's or the shelf: {}", listed["next"]);
 
         let back = call("DELETE", &format!("/api/words/en:house/picks/{sentence}"), "").await.unwrap();
         assert_eq!(body_json(back).await["holds"]["en:house"], serde_json::Value::Null);
@@ -1204,6 +1414,156 @@ gloss = "дом"
         assert_eq!(call("GET", &format!("/api/texts/{id}"), "").await.unwrap().status(), StatusCode::NOT_FOUND);
         let empty = call("POST", "/api/texts", r#"{"body":"  1 2 3  "}"#).await.unwrap();
         assert_eq!(empty.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn a_book_comes_in_as_a_file_and_is_read_a_chapter_at_a_time() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let upload = |name: &str, bytes: Vec<u8>| {
+            Request::post(format!("/api/texts/file?name={name}"))
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from(bytes))
+                .unwrap()
+        };
+        let response = app
+            .clone()
+            .oneshot(upload("small-book.epub", crate::import::epub::tests::book()))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let added = body_json(response).await;
+        assert_eq!(
+            (
+                added["title"].as_str(),
+                added["author"].as_str(),
+                added["format"].as_str(),
+                added["chapters"].as_i64()
+            ),
+            (Some("A Small Book"), Some("Ann Writer"), Some("epub"), Some(2))
+        );
+        assert_eq!(added["chapter"]["title"], "Chapter One", "the chapter the learner is in");
+        let id = added["id"].as_i64().unwrap();
+
+        let second = body_json(
+            app.clone()
+                .oneshot(json_request("GET", &format!("/api/texts/{id}?chapter=1"), ""))
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!((second["shown"].as_i64(), second["contents"].as_array().map(Vec::len)), (Some(1), Some(2)));
+        assert_eq!(second["lines"][0][0]["text"], "The second day was warm.");
+        assert_eq!(second["contents"][1]["paragraph"], 2, "where the chapter starts through the whole book");
+        let missing = app
+            .clone()
+            .oneshot(json_request("GET", &format!("/api/texts/{id}?chapter=7"), ""))
+            .await
+            .unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+        // A book with its pictures is larger than a request usually is.
+        let picture = "x".repeat(3 << 20);
+        let heavy = crate::import::epub::tests::book_with(&[("OEBPS/plate.jpg", &picture)]);
+        assert!(heavy.len() > 3 << 20);
+        let response = app.clone().oneshot(upload("illustrated.epub", heavy)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED, "a book of three megabytes");
+
+        // A file named after its text, with nothing in it saying its title.
+        let response = app.clone().oneshot(upload("the_rain-today.txt", b"It rained all day.".to_vec())).await.unwrap();
+        assert_eq!(body_json(response).await["title"], "the rain today");
+        let junk = app
+            .clone()
+            .oneshot(upload("notes.zip", crate::import::epub::tests::zip(&[("a.txt", "x")])))
+            .await
+            .unwrap();
+        assert_eq!(junk.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn a_page_comes_in_by_its_link() {
+        let page = Router::new()
+            .route(
+                "/cats",
+                get(|| async {
+                    (
+                        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                        "<html><head><title>Cats | Site</title></head><body><nav><p>Home and news and more.</p></nav><article><h1>All about cats</h1><p>Cats are small animals.</p></article></body></html>",
+                    )
+                }),
+            )
+            .route("/gone", get(|| async { StatusCode::NOT_FOUND }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, page).await });
+
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let link = |url: String| json_request("POST", "/api/texts/link", &json!({ "url": url }).to_string());
+        let response = app.clone().oneshot(link(format!("http://{at}/cats"))).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let added = body_json(response).await;
+        assert_eq!((added["title"].as_str(), added["format"].as_str()), (Some("All about cats"), Some("html")));
+        assert_eq!(added["source"], format!("http://{at}/cats"));
+        assert_eq!(added["coverage"]["words"], 4, "the article, not the navigation");
+
+        let gone = app.clone().oneshot(link(format!("http://{at}/gone"))).await.unwrap();
+        assert_eq!(gone.status(), StatusCode::BAD_GATEWAY);
+        let nonsense = app.clone().oneshot(link("file:///etc/passwd".to_string())).await.unwrap();
+        assert_eq!(nonsense.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn the_shelf_says_how_much_of_each_item_is_yours_and_the_list_what_to_read_next() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let shelf = body_json(app.clone().oneshot(json_request("GET", "/api/shelf", "")).await.unwrap()).await;
+        let items = shelf["items"].as_array().unwrap();
+        assert!(items.len() >= 40);
+        assert!(items.iter().all(|item| item["estimate"].is_u64() && item["taken"].is_null()));
+        let unknown = app.clone().oneshot(json_request("POST", "/api/shelf/no-such-book", "")).await.unwrap();
+        assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+
+        // Nothing of the learner's yet: the shelf's nearest item is next.
+        let listed = body_json(app.clone().oneshot(json_request("GET", "/api/texts", "")).await.unwrap()).await;
+        assert_eq!(listed["texts"], json!([]));
+        assert_eq!(listed["next"]["kind"], "shelf");
+    }
+
+    #[tokio::test]
+    async fn the_words_taken_go_to_anki_as_a_file() {
+        let dir = web_root();
+        let app = open(taught().await, &dir);
+        let added = body_json(
+            app.clone()
+                .oneshot(json_request("POST", "/api/texts", r#"{"body":"She went to the house."}"#))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let text = body_json(
+            app.clone()
+                .oneshot(json_request("GET", &format!("/api/texts/{}", added["id"]), ""))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let sentence = text["lines"][0][0]["sentence"].as_i64().unwrap();
+        app.clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/words/en:house/picks",
+                &format!(r#"{{"sentence":{sentence},"start":16}}"#),
+            ))
+            .await
+            .unwrap();
+        let response = app.clone().oneshot(json_request("GET", "/api/picks/anki", "")).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/tab-separated-values; charset=utf-8");
+        assert!(response.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().contains("hilvan-words.txt"));
+        let body = String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        assert!(body.starts_with("#separator:tab\n"));
+        assert!(body.contains("She went to the <b>house</b>."), "{body}");
     }
 
     #[tokio::test]

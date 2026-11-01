@@ -1,0 +1,438 @@
+# The English shelf: open texts for a learner to read next.
+#
+# Books of Project Gutenberg - public domain in the United States - and
+# articles of the Simple English Wikipedia (CC BY-SA 4.0), written for
+# readers still learning English. Nothing of their text is kept here: an
+# item is fetched from its source when the learner takes it, and the text
+# keeps its source as its link.
+#
+# Written by hand. Beside it, profiles.tsv is measured from the texts:
+# `cargo test --test shelf -- --ignored` after any change here.
+
+language = "en"
+
+# Books, from stories for children to the novels people want to read.
+
+[[item]]
+id = "gutenberg-11757"
+kind = "book"
+title = "The Velveteen Rabbit"
+author = "Margery Williams"
+source = "https://www.gutenberg.org/ebooks/11757"
+
+[[item]]
+id = "gutenberg-21"
+kind = "book"
+title = "Aesop's Fables"
+author = "Aesop"
+source = "https://www.gutenberg.org/ebooks/21"
+
+[[item]]
+id = "gutenberg-902"
+kind = "book"
+title = "The Happy Prince and Other Tales"
+author = "Oscar Wilde"
+source = "https://www.gutenberg.org/ebooks/902"
+
+[[item]]
+id = "gutenberg-55"
+kind = "book"
+title = "The Wonderful Wizard of Oz"
+author = "L. Frank Baum"
+source = "https://www.gutenberg.org/ebooks/55"
+
+[[item]]
+id = "gutenberg-11"
+kind = "book"
+title = "Alice's Adventures in Wonderland"
+author = "Lewis Carroll"
+source = "https://www.gutenberg.org/ebooks/11"
+
+[[item]]
+id = "gutenberg-2591"
+kind = "book"
+title = "Grimms' Fairy Tales"
+author = "Jacob Grimm and Wilhelm Grimm"
+source = "https://www.gutenberg.org/ebooks/2591"
+
+[[item]]
+id = "gutenberg-2781"
+kind = "book"
+title = "Just So Stories"
+author = "Rudyard Kipling"
+source = "https://www.gutenberg.org/ebooks/2781"
+
+[[item]]
+id = "gutenberg-500"
+kind = "book"
+title = "The Adventures of Pinocchio"
+author = "Carlo Collodi"
+source = "https://www.gutenberg.org/ebooks/500"
+
+[[item]]
+id = "gutenberg-16"
+kind = "book"
+title = "Peter Pan"
+author = "J. M. Barrie"
+source = "https://www.gutenberg.org/ebooks/16"
+
+[[item]]
+id = "gutenberg-113"
+kind = "book"
+title = "The Secret Garden"
+author = "Frances Hodgson Burnett"
+source = "https://www.gutenberg.org/ebooks/113"
+
+[[item]]
+id = "gutenberg-146"
+kind = "book"
+title = "A Little Princess"
+author = "Frances Hodgson Burnett"
+source = "https://www.gutenberg.org/ebooks/146"
+
+[[item]]
+id = "gutenberg-271"
+kind = "book"
+title = "Black Beauty"
+author = "Anna Sewell"
+source = "https://www.gutenberg.org/ebooks/271"
+
+[[item]]
+id = "gutenberg-236"
+kind = "book"
+title = "The Jungle Book"
+author = "Rudyard Kipling"
+source = "https://www.gutenberg.org/ebooks/236"
+
+[[item]]
+id = "gutenberg-289"
+kind = "book"
+title = "The Wind in the Willows"
+author = "Kenneth Grahame"
+source = "https://www.gutenberg.org/ebooks/289"
+
+[[item]]
+id = "gutenberg-215"
+kind = "book"
+title = "The Call of the Wild"
+author = "Jack London"
+source = "https://www.gutenberg.org/ebooks/215"
+
+[[item]]
+id = "gutenberg-46"
+kind = "book"
+title = "A Christmas Carol"
+author = "Charles Dickens"
+source = "https://www.gutenberg.org/ebooks/46"
+
+[[item]]
+id = "gutenberg-35"
+kind = "book"
+title = "The Time Machine"
+author = "H. G. Wells"
+source = "https://www.gutenberg.org/ebooks/35"
+
+[[item]]
+id = "gutenberg-103"
+kind = "book"
+title = "Around the World in Eighty Days"
+author = "Jules Verne"
+source = "https://www.gutenberg.org/ebooks/103"
+
+[[item]]
+id = "gutenberg-120"
+kind = "book"
+title = "Treasure Island"
+author = "Robert Louis Stevenson"
+source = "https://www.gutenberg.org/ebooks/120"
+
+[[item]]
+id = "gutenberg-74"
+kind = "book"
+title = "The Adventures of Tom Sawyer"
+author = "Mark Twain"
+source = "https://www.gutenberg.org/ebooks/74"
+
+[[item]]
+id = "gutenberg-1661"
+kind = "book"
+title = "The Adventures of Sherlock Holmes"
+author = "Arthur Conan Doyle"
+source = "https://www.gutenberg.org/ebooks/1661"
+
+[[item]]
+id = "gutenberg-2852"
+kind = "book"
+title = "The Hound of the Baskervilles"
+author = "Arthur Conan Doyle"
+source = "https://www.gutenberg.org/ebooks/2852"
+
+[[item]]
+id = "gutenberg-43"
+kind = "book"
+title = "The Strange Case of Dr Jekyll and Mr Hyde"
+author = "Robert Louis Stevenson"
+source = "https://www.gutenberg.org/ebooks/43"
+
+[[item]]
+id = "gutenberg-5200"
+kind = "book"
+title = "Metamorphosis"
+author = "Franz Kafka"
+source = "https://www.gutenberg.org/ebooks/5200"
+
+[[item]]
+id = "gutenberg-45"
+kind = "book"
+title = "Anne of Green Gables"
+author = "L. M. Montgomery"
+source = "https://www.gutenberg.org/ebooks/45"
+
+[[item]]
+id = "gutenberg-514"
+kind = "book"
+title = "Little Women"
+author = "Louisa May Alcott"
+source = "https://www.gutenberg.org/ebooks/514"
+
+[[item]]
+id = "gutenberg-64317"
+kind = "book"
+title = "The Great Gatsby"
+author = "F. Scott Fitzgerald"
+source = "https://www.gutenberg.org/ebooks/64317"
+
+[[item]]
+id = "gutenberg-36"
+kind = "book"
+title = "The War of the Worlds"
+author = "H. G. Wells"
+source = "https://www.gutenberg.org/ebooks/36"
+
+[[item]]
+id = "gutenberg-174"
+kind = "book"
+title = "The Picture of Dorian Gray"
+author = "Oscar Wilde"
+source = "https://www.gutenberg.org/ebooks/174"
+
+[[item]]
+id = "gutenberg-84"
+kind = "book"
+title = "Frankenstein"
+author = "Mary Shelley"
+source = "https://www.gutenberg.org/ebooks/84"
+
+[[item]]
+id = "gutenberg-1342"
+kind = "book"
+title = "Pride and Prejudice"
+author = "Jane Austen"
+source = "https://www.gutenberg.org/ebooks/1342"
+
+[[item]]
+id = "gutenberg-345"
+kind = "book"
+title = "Dracula"
+author = "Bram Stoker"
+source = "https://www.gutenberg.org/ebooks/345"
+
+# Articles of the Simple English Wikipedia, on things of every day.
+
+[[item]]
+id = "simple-cat"
+kind = "article"
+title = "Cat"
+source = "https://simple.wikipedia.org/wiki/Cat"
+
+[[item]]
+id = "simple-dog"
+kind = "article"
+title = "Dog"
+source = "https://simple.wikipedia.org/wiki/Dog"
+
+[[item]]
+id = "simple-horse"
+kind = "article"
+title = "Horse"
+source = "https://simple.wikipedia.org/wiki/Horse"
+
+[[item]]
+id = "simple-elephant"
+kind = "article"
+title = "Elephant"
+source = "https://simple.wikipedia.org/wiki/Elephant"
+
+[[item]]
+id = "simple-bee"
+kind = "article"
+title = "Bee"
+source = "https://simple.wikipedia.org/wiki/Bee"
+
+[[item]]
+id = "simple-dinosaur"
+kind = "article"
+title = "Dinosaur"
+source = "https://simple.wikipedia.org/wiki/Dinosaur"
+
+[[item]]
+id = "simple-tree"
+kind = "article"
+title = "Tree"
+source = "https://simple.wikipedia.org/wiki/Tree"
+
+[[item]]
+id = "simple-bread"
+kind = "article"
+title = "Bread"
+source = "https://simple.wikipedia.org/wiki/Bread"
+
+[[item]]
+id = "simple-coffee"
+kind = "article"
+title = "Coffee"
+source = "https://simple.wikipedia.org/wiki/Coffee"
+
+[[item]]
+id = "simple-tea"
+kind = "article"
+title = "Tea"
+source = "https://simple.wikipedia.org/wiki/Tea"
+
+[[item]]
+id = "simple-chocolate"
+kind = "article"
+title = "Chocolate"
+source = "https://simple.wikipedia.org/wiki/Chocolate"
+
+[[item]]
+id = "simple-rice"
+kind = "article"
+title = "Rice"
+source = "https://simple.wikipedia.org/wiki/Rice"
+
+[[item]]
+id = "simple-sun"
+kind = "article"
+title = "Sun"
+source = "https://simple.wikipedia.org/wiki/Sun"
+
+[[item]]
+id = "simple-moon"
+kind = "article"
+title = "Moon"
+source = "https://simple.wikipedia.org/wiki/Moon"
+
+[[item]]
+id = "simple-earth"
+kind = "article"
+title = "Earth"
+source = "https://simple.wikipedia.org/wiki/Earth"
+
+[[item]]
+id = "simple-weather"
+kind = "article"
+title = "Weather"
+source = "https://simple.wikipedia.org/wiki/Weather"
+
+[[item]]
+id = "simple-volcano"
+kind = "article"
+title = "Volcano"
+source = "https://simple.wikipedia.org/wiki/Volcano"
+
+[[item]]
+id = "simple-ocean"
+kind = "article"
+title = "Ocean"
+source = "https://simple.wikipedia.org/wiki/Ocean"
+
+[[item]]
+id = "simple-rain"
+kind = "article"
+title = "Rain"
+source = "https://simple.wikipedia.org/wiki/Rain"
+
+[[item]]
+id = "simple-pizza"
+kind = "article"
+title = "Pizza"
+source = "https://simple.wikipedia.org/wiki/Pizza"
+
+[[item]]
+id = "simple-music"
+kind = "article"
+title = "Music"
+source = "https://simple.wikipedia.org/wiki/Music"
+
+[[item]]
+id = "simple-football"
+kind = "article"
+title = "Association football"
+source = "https://simple.wikipedia.org/wiki/Association_football"
+
+[[item]]
+id = "simple-olympic-games"
+kind = "article"
+title = "Olympic Games"
+source = "https://simple.wikipedia.org/wiki/Olympic_Games"
+
+[[item]]
+id = "simple-bicycle"
+kind = "article"
+title = "Bicycle"
+source = "https://simple.wikipedia.org/wiki/Bicycle"
+
+[[item]]
+id = "simple-train"
+kind = "article"
+title = "Train"
+source = "https://simple.wikipedia.org/wiki/Train"
+
+[[item]]
+id = "simple-airplane"
+kind = "article"
+title = "Airplane"
+source = "https://simple.wikipedia.org/wiki/Airplane"
+
+[[item]]
+id = "simple-computer"
+kind = "article"
+title = "Computer"
+source = "https://simple.wikipedia.org/wiki/Computer"
+
+[[item]]
+id = "simple-internet"
+kind = "article"
+title = "Internet"
+source = "https://simple.wikipedia.org/wiki/Internet"
+
+[[item]]
+id = "simple-book"
+kind = "article"
+title = "Book"
+source = "https://simple.wikipedia.org/wiki/Book"
+
+[[item]]
+id = "simple-christmas"
+kind = "article"
+title = "Christmas"
+source = "https://simple.wikipedia.org/wiki/Christmas"
+
+[[item]]
+id = "simple-london"
+kind = "article"
+title = "London"
+source = "https://simple.wikipedia.org/wiki/London"
+
+[[item]]
+id = "simple-paris"
+kind = "article"
+title = "Paris"
+source = "https://simple.wikipedia.org/wiki/Paris"
+
+[[item]]
+id = "simple-solar-system"
+kind = "article"
+title = "Solar System"
+source = "https://simple.wikipedia.org/wiki/Solar_System"

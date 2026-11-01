@@ -6,7 +6,7 @@
 //! tutor's own code through those weeks - the inventory on the first evening,
 //! a sitting most days, typed turns with the slips a learner makes, words of
 //! their own, a long weekend away and a few days that went missing, a text
-//! read with a few words taken from it - and
+//! read with a few words taken from it, a book opened from a file - and
 //! writes `demo/learner.json`.
 //!
 //! The other tests hold that file, and every model file, to what the format
@@ -20,7 +20,9 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, Utc};
 use hilvan::breaks;
+use hilvan::import;
 use hilvan::inventory;
+use hilvan::lexicon;
 use hilvan::model::{self, Model};
 use hilvan::own::{self, NewWord};
 use hilvan::pack::{self, OwnKind, Pack};
@@ -51,7 +53,7 @@ async fn tutor() -> (SqlitePool, tempfile::TempDir) {
 }
 
 fn schema() -> jsonschema::Validator {
-    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-3.json")).expect("the schema should be in the docs");
+    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-4.json")).expect("the schema should be in the docs");
     let schema: Json = serde_json::from_str(&text).expect("the schema should be JSON");
     jsonschema::options()
         .should_validate_formats(true)
@@ -284,17 +286,59 @@ Are you coming to the party tonight?
 That's a shame. Maybe next time.
 ";
 
+/// A short book the demo learner opens: three chapters of a story written
+/// for the demo, as a `FictionBook`.
+const BOOK: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0">
+<description><title-info><author><first-name>Hilvan</first-name><last-name>Demo</last-name></author><book-title>The Lighthouse</book-title><lang>en</lang></title-info></description>
+<body>
+<section><title><p>Chapter 1</p><p>The Keeper</p></title>
+<p>There was a lighthouse at the end of the road, and an old man lived in it. Every evening he climbed the stairs and lit the lamp.</p>
+<p>The ships saw the light from far away. They knew where the rocks were, and they went home safely.</p>
+</section>
+<section><title><p>Chapter 2</p><p>The Storm</p></title>
+<p>One night a storm came from the sea. The wind was loud, the rain was cold, and the lamp went out.</p>
+<p>The old man found a candle in the kitchen. He carried it up the stairs, slowly, with both hands.</p>
+</section>
+<section><title><p>Chapter 3</p><p>The Morning</p></title>
+<p>In the morning the sea was quiet again. A small boat came to the rocks, and a girl jumped out.</p>
+<p>"We saw your candle," she said. "My father is a fisherman. He is home because of you."</p>
+</section>
+</body>
+</FictionBook>"#;
+
+/// The book, opened from a file and read through its first chapter: the
+/// place kept at the start of the second.
+async fn open_the_book(pool: &SqlitePool, library: &reading::Library, now: &mut DateTime<Utc>) {
+    let imported = import::file(Some("the-lighthouse.fb2"), BOOK.as_bytes(), lexicon::of("en")).unwrap();
+    assert_eq!(imported.document.chapters.len(), 3, "the demo book is three chapters");
+    let arrival = reading::Arrival {
+        format: imported.format,
+        document: imported.document,
+        source: None,
+        title: None,
+        author: None,
+    };
+    let added = reading::keep(pool, library, arrival, *now).await.unwrap();
+    *now += Duration::minutes(6);
+    let place = reading::Place {
+        paragraph: Some(2),
+        finished: None,
+    };
+    reading::place(pool, library, added.id, place, *now).await.unwrap();
+}
+
 /// The market, read the way the reader is used: the first paragraph swept
 /// as known, a few words taken into the deck where they stand, the place
 /// kept two paragraphs in.
-async fn read_the_market(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<Utc>) {
+async fn read_the_market(pool: &SqlitePool, library: &reading::Library, dice: &mut Dice, now: &mut DateTime<Utc>) {
     let addition = reading::Addition {
         title: None,
         body: MARKET.to_string(),
         format: None,
     };
-    let added = reading::add(pool, &addition, *now).await.unwrap();
-    let text = reading::read(pool, added.id).await.unwrap();
+    let added = reading::add(pool, library, &addition, *now).await.unwrap();
+    let text = reading::read(pool, library, added.id, None).await.unwrap();
 
     // "I know the rest" over the first paragraph: every word not in hand,
     // as the learner swipes it.
@@ -329,13 +373,14 @@ async fn read_the_market(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<
         paragraph: Some(2),
         finished: None,
     };
-    reading::place(pool, added.id, place, *now).await.unwrap();
+    reading::place(pool, library, added.id, place, *now).await.unwrap();
 }
 
 /// Three weeks of a fictional learner, as the tutor recorded them, told as
 /// of the morning after the last evening.
 async fn three_weeks() -> Model {
     let (pool, _data) = tutor().await;
+    let library = reading::Library::default();
     let mut dice = Dice(0x6869_6C76_616E_2121);
 
     for day in 0..DAYS {
@@ -369,7 +414,10 @@ async fn three_weeks() -> Model {
             9 => own_word(&pool, OwnKind::Verb, "водить", "drive", now).await,
             // After the weekend away, a text: read before the sitting, so
             // the words taken from it open in the evening's queue.
-            15 => read_the_market(&pool, &mut dice, &mut now).await,
+            15 => read_the_market(&pool, &library, &mut dice, &mut now).await,
+            // A book from a file, read on the train after the days that
+            // went missing.
+            22 => open_the_book(&pool, &library, &mut now).await,
             21 => {
                 own_word(&pool, OwnKind::Noun, "сад", "a garden", now).await;
                 let episode = reading::Addition {
@@ -377,7 +425,7 @@ async fn three_weeks() -> Model {
                     body: EPISODE.to_string(),
                     format: None,
                 };
-                reading::add(&pool, &episode, now).await.unwrap();
+                reading::add(&pool, &library, &episode, now).await.unwrap();
             }
             _ => {}
         }
@@ -741,8 +789,12 @@ fn broken() -> Vec<(&'static str, Json)> {
     case("a card of no kind", &|d| d["cards"][0]["kind"] = "sentence".into());
     case("a word in capitals", &|d| d["inventory"][0]["word"] = "en:House".into());
     case("an own word of a third kind", &|d| d["own_words"][0]["kind"] = "adjective".into());
-    case("a text of no format", &|d| d["texts"][0]["format"] = "epub".into());
-    case("a text with nothing to read", &|d| d["texts"][0]["paragraphs"] = Json::Array(Vec::new()));
+    case("a text of no format", &|d| d["texts"][0]["format"] = "pdf".into());
+    case("a text with nothing to read", &|d| d["texts"][0]["chapters"] = Json::Array(Vec::new()));
+    case("a chapter with nothing to read", &|d| {
+        d["texts"][0]["chapters"][0]["paragraphs"] = Json::Array(Vec::new());
+    });
+    case("a text by no one", &|d| d["texts"][0]["author"] = "".into());
     case("a word taken from nowhere", &|d| d["picks"][0]["start"] = (-1).into());
     case("a taken word in capitals", &|d| d["picks"][0]["word"] = "en:Bridge".into());
     case("a file without its texts", &|d| {
@@ -813,7 +865,8 @@ fn import_refuses_what_a_schema_cannot_say() {
     assert!(holding.check().is_err(), "a break holding an answer");
 
     let mut past_the_end = demo();
-    past_the_end.texts[0].paragraph = i64::try_from(past_the_end.texts[0].paragraphs.len()).unwrap();
+    let paragraphs: usize = past_the_end.texts[0].chapters.iter().map(|chapter| chapter.paragraphs.len()).sum();
+    past_the_end.texts[0].paragraph = i64::try_from(paragraphs).unwrap();
     assert!(past_the_end.check().is_err(), "a place past the end of a text");
 
     let mut taken_twice = demo();
@@ -825,8 +878,17 @@ fn import_refuses_what_a_schema_cannot_say() {
     assert!(elsewhere.check().is_err(), "a word taken from a sentence of another language");
 
     let mut hollow = demo();
-    hollow.texts[0].paragraphs[1].clear();
+    hollow.texts[0].chapters[0].paragraphs[1].clear();
     assert!(hollow.check().is_err(), "a text with an empty paragraph");
+
+    let mut chapterless = demo();
+    let book = chapterless
+        .texts
+        .iter_mut()
+        .find(|text| text.chapters.len() > 1)
+        .expect("the demo reads a book");
+    book.chapters[1].paragraphs.clear();
+    assert!(chapterless.check().is_err(), "a chapter with nothing to read");
 }
 
 #[test]

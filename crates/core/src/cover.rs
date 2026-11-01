@@ -31,7 +31,7 @@ pub enum Hold {
 }
 
 /// One running word of a text, as the lexicon read it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Piece {
     /// The words it is made of - one for most, two for *don't* - each the
     /// lemmas it can be, as indices into the text's list of lemmas. Empty
@@ -166,6 +166,43 @@ pub fn cover(pieces: &[Piece], holds: &[Option<Hold>]) -> (Coverage, Vec<Standin
     (coverage, standings)
 }
 
+/// The count of a text kept as its distinct running words and how often
+/// each stands in it: a novel of a hundred thousand words is a few thousand
+/// pieces. `tally` holds `(piece, times)`, the piece an index into `pieces`;
+/// an index past the end counts nothing.
+///
+/// The same arithmetic as [`cover`] - each piece stands as [`standing`]
+/// says - weighed by how often it is met.
+#[must_use]
+pub fn weigh(pieces: &[Piece], tally: &[(u32, u32)], holds: &[Option<Hold>]) -> Coverage {
+    let mut coverage = Coverage::default();
+    for &(index, times) in tally {
+        let Some(piece) = usize::try_from(index).ok().and_then(|index| pieces.get(index)) else {
+            continue;
+        };
+        let mut one = Coverage::default();
+        one.add(standing(piece, holds));
+        coverage.merge(&one.times(times));
+    }
+    coverage
+}
+
+impl Coverage {
+    /// This count, `times` over.
+    #[must_use]
+    pub const fn times(&self, times: u32) -> Self {
+        Self {
+            words: self.words.saturating_mul(times),
+            sewn: self.sewn.saturating_mul(times),
+            basted: self.basted.saturating_mul(times),
+            deck: self.deck.saturating_mul(times),
+            unknown: self.unknown.saturating_mul(times),
+            beyond: self.beyond.saturating_mul(times),
+            names: self.names.saturating_mul(times),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +268,32 @@ mod tests {
             }
         );
         assert_eq!(coverage.yours(), 1, "a word in the deck is not in hand yet");
+    }
+
+    #[test]
+    fn a_tally_of_distinct_pieces_counts_as_the_running_words_do() {
+        let pieces = [
+            piece(&[&[0]]),
+            piece(&[&[1]]),
+            Piece { parts: vec![], name: true },
+            piece(&[]),
+            piece(&[&[0], &[2]]),
+        ];
+        let holds = [Some(Hold::Sewn), Some(Hold::Deck), Some(Hold::Basted)];
+        // The text the tally stands for, word by word.
+        let running: Vec<Piece> = [0, 0, 0, 1, 2, 3, 3, 4, 1, 0].iter().map(|&at: &usize| pieces[at].clone()).collect();
+        let (whole, _) = cover(&running, &holds);
+        let tally = [(0, 4), (1, 2), (2, 1), (3, 2), (4, 1)];
+        assert_eq!(weigh(&pieces, &tally, &holds), whole);
+        assert_eq!(
+            weigh(&pieces, &[(0, 4), (9, 7)], &holds),
+            Coverage {
+                words: 4,
+                sewn: 4,
+                ..Coverage::default()
+            },
+            "a piece nobody listed counts nothing"
+        );
     }
 
     #[test]

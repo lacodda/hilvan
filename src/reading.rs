@@ -1,19 +1,26 @@
 //! The reader: texts the learner brings, read as theirs.
 //!
-//! A text is pasted or imported - plain text, markdown, subtitles - and kept
-//! as sentences in paragraphs. Its sentences live in the same table as the
-//! pack's, so a word taken from one is a word met in a sentence like any
-//! other, asked in it, and heard in it.
+//! A text comes in pasted, as a file or by a link ([`crate::import`]) and is
+//! kept as chapters of paragraphs of sentences. Its sentences live in the
+//! same table as the pack's, so a word taken from one is a word met in a
+//! sentence like any other, asked in it, and heard in it. A book has the
+//! chapters its source gives; every other text is one chapter.
 //!
 //! Every running word is read through the lexicon of the language into the
 //! lemmas it can be (*went* is *go*, *don't* is *do* and *not*), and the text
-//! says how much of it the learner holds: the coverage, counted by the same
-//! arithmetic the phone counts it with after every tap
-//! ([`hilvan_core::cover`]). Nothing derived is stored - the analysis is done
-//! again on every read, so a text read after hilvan's lexicon grew is read
-//! with the lexicon it has now.
+//! says how much of it the learner holds: the coverage, of the whole and of
+//! each chapter, counted by the same arithmetic the phone counts it with
+//! after every tap ([`hilvan_core::cover`]).
+//!
+//! Nothing derived is stored. The reading of a text is kept in memory while
+//! the server runs ([`Library`]): a text never changes once added and the
+//! lexicon is built into the binary, so the process is the reading's
+//! version. A book of a hundred thousand words is read in a fraction of a
+//! second on a desktop and in most of one on a Pi - once, not on every list.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
@@ -21,304 +28,10 @@ use hilvan_core::cover::{self, Coverage, Hold, Piece};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 
-use crate::lexicon::{self, LEVELS, Lexicon};
+use crate::import::{self, Chapter, Document, Format};
+use crate::lexicon::{self, LEVELS};
 use crate::pack::{self, word_id};
 use crate::scheduling::Stitch;
-
-/// How a text came in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Format {
-    /// Paragraphs apart by blank lines - or, with no blank line anywhere, one
-    /// paragraph a line.
-    Plain,
-    /// Markdown: the text of its paragraphs, headings and list items, its
-    /// marks and links taken off, its code left out.
-    Markdown,
-    /// `SubRip` or `WebVTT` subtitles: the lines of the cues, run together,
-    /// a new paragraph where the speech pauses.
-    Subtitles,
-}
-
-impl Format {
-    /// The word stored in the database.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Plain => "plain",
-            Self::Markdown => "markdown",
-            Self::Subtitles => "subtitles",
-        }
-    }
-
-    /// Reads a format back from the database.
-    ///
-    /// # Errors
-    ///
-    /// Fails on a word that names no format.
-    pub fn parse(word: &str) -> Result<Self> {
-        match word {
-            "plain" => Ok(Self::Plain),
-            "markdown" => Ok(Self::Markdown),
-            "subtitles" => Ok(Self::Subtitles),
-            other => anyhow::bail!("{other:?} is not a text format"),
-        }
-    }
-
-    /// What a text pasted without saying looks like: subtitles when a line
-    /// times a cue, markdown when a line is a heading or a mark of markdown
-    /// stands in it, plain otherwise.
-    #[must_use]
-    pub fn guess(body: &str) -> Self {
-        if body.lines().any(|line| cue_times(line).is_some()) {
-            return Self::Subtitles;
-        }
-        let markdown = body.lines().any(|line| {
-            let line = line.trim_start();
-            let hashes = line.chars().take_while(|ch| *ch == '#').count();
-            ((1..=6).contains(&hashes) && line[hashes..].starts_with(' ')) || line.starts_with("```")
-        }) || body.contains("](")
-            || body.contains("**");
-        if markdown { Self::Markdown } else { Self::Plain }
-    }
-}
-
-/// A text as it was taken apart: a title when it carries one, and its
-/// paragraphs, each the sentences in it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Parsed {
-    pub title: Option<String>,
-    pub paragraphs: Vec<Vec<String>>,
-}
-
-/// Takes a text apart into paragraphs of sentences.
-#[must_use]
-pub fn parse(format: Format, body: &str, lexicon: Option<&Lexicon>) -> Parsed {
-    let body = body.replace("\r\n", "\n").replace('\r', "\n");
-    let (title, paragraphs) = match format {
-        Format::Plain => (None, plain(&body)),
-        Format::Markdown => markdown(&body),
-        Format::Subtitles => (None, subtitles(&body)),
-    };
-    Parsed {
-        title,
-        paragraphs: paragraphs
-            .iter()
-            .map(|paragraph| sentences(paragraph, lexicon))
-            .filter(|sentences| !sentences.is_empty())
-            .collect(),
-    }
-}
-
-/// Runs of whitespace as one space, the ends trimmed.
-fn squeeze(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn plain(body: &str) -> Vec<String> {
-    // A text with blank lines between its paragraphs wraps them across
-    // lines; one without a blank line anywhere is a paragraph a line - what
-    // a paste from a chat or a page usually is.
-    if body.lines().any(|line| line.trim().is_empty()) {
-        body.split("\n\n").map(squeeze).filter(|paragraph| !paragraph.is_empty()).collect()
-    } else {
-        body.lines().map(squeeze).filter(|paragraph| !paragraph.is_empty()).collect()
-    }
-}
-
-fn markdown(body: &str) -> (Option<String>, Vec<String>) {
-    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
-
-    fn flush(current: &mut String, heading_one: bool, paragraphs: &mut Vec<String>, title: &mut Option<String>) {
-        let text = squeeze(current);
-        current.clear();
-        if text.is_empty() {
-            return;
-        }
-        // The first top heading before any prose is the title, not a line
-        // of the text.
-        if heading_one && title.is_none() && paragraphs.is_empty() {
-            *title = Some(text);
-        } else {
-            paragraphs.push(text);
-        }
-    }
-
-    let mut title = None;
-    let mut paragraphs = Vec::new();
-    let mut current = String::new();
-    // Inside a block of code, an image or raw HTML: nothing in them is prose.
-    let mut skipping = 0usize;
-    let mut heading_one = false;
-    for event in Parser::new(body) {
-        match event {
-            Event::Start(Tag::CodeBlock(_) | Tag::Image { .. } | Tag::HtmlBlock) => skipping += 1,
-            Event::End(TagEnd::CodeBlock | TagEnd::Image | TagEnd::HtmlBlock) => skipping = skipping.saturating_sub(1),
-            Event::Start(Tag::Heading { level, .. }) => {
-                flush(&mut current, false, &mut paragraphs, &mut title);
-                heading_one = level == pulldown_cmark::HeadingLevel::H1;
-            }
-            Event::End(TagEnd::Heading(_)) => {
-                flush(&mut current, heading_one, &mut paragraphs, &mut title);
-                heading_one = false;
-            }
-            Event::Start(Tag::Paragraph | Tag::Item) | Event::End(TagEnd::Paragraph | TagEnd::Item) => {
-                flush(&mut current, false, &mut paragraphs, &mut title);
-            }
-            Event::Text(text) | Event::Code(text) if skipping == 0 => current.push_str(&text),
-            Event::SoftBreak | Event::HardBreak => current.push(' '),
-            _ => {}
-        }
-    }
-    flush(&mut current, false, &mut paragraphs, &mut title);
-    (title, paragraphs)
-}
-
-/// How long the speech has to stop for the subtitles to start a new
-/// paragraph: a breath is shorter, a change of scene longer.
-const PAUSE_MS: i64 = 2_000;
-
-/// The start and end of a cue, in milliseconds, when the line times one:
-/// `00:01:02,500 --> 00:01:04,000` (or with full stops, as `WebVTT` writes
-/// them, and with an hour that may be left off).
-fn cue_times(line: &str) -> Option<(i64, i64)> {
-    let (from, to) = line.split_once("-->")?;
-    let moment = |text: &str| -> Option<i64> {
-        let text = text.split_whitespace().next()?;
-        let (clock, fraction) = text.rsplit_once([',', '.'])?;
-        let mut seconds = 0i64;
-        let fields: Vec<&str> = clock.split(':').collect();
-        if !(2..=3).contains(&fields.len()) {
-            return None;
-        }
-        for field in fields {
-            seconds = seconds * 60 + field.parse::<i64>().ok()?;
-        }
-        Some(seconds * 1000 + fraction.parse::<i64>().ok()?)
-    };
-    Some((moment(from.trim())?, moment(to.trim())?))
-}
-
-/// What a cue says, without what is not speech: markup (`<i>`, `{\an8}`),
-/// sounds and speakers in brackets, the dash that opens a line of dialogue,
-/// the notes of a song.
-fn cue_text(line: &str) -> String {
-    let mut text = String::with_capacity(line.len());
-    let mut depth: Vec<char> = Vec::new();
-    for ch in line.chars() {
-        match ch {
-            '<' | '{' | '[' | '(' => depth.push(ch),
-            '>' | '}' | ']' | ')' if !depth.is_empty() => {
-                depth.pop();
-            }
-            '♪' | '♫' => {}
-            _ if depth.is_empty() => text.push(ch),
-            _ => {}
-        }
-    }
-    let text = squeeze(&text);
-    text.trim_start_matches(['-', '–', '—']).trim().to_string()
-}
-
-fn subtitles(body: &str) -> Vec<String> {
-    let mut paragraphs = Vec::new();
-    let mut current: Vec<String> = Vec::new();
-    let mut last_end: Option<i64> = None;
-    for block in body.split("\n\n") {
-        let mut lines = block.lines().map(str::trim).filter(|line| !line.is_empty());
-        // A block that times nothing is a header, a note or a style: skipped.
-        let Some((start, end)) = lines.by_ref().find_map(cue_times) else {
-            continue;
-        };
-        if last_end.is_some_and(|last| start - last >= PAUSE_MS) && !current.is_empty() {
-            paragraphs.push(current.join(" "));
-            current.clear();
-        }
-        last_end = Some(end);
-        current.extend(lines.map(cue_text).filter(|line| !line.is_empty()));
-    }
-    if !current.is_empty() {
-        paragraphs.push(current.join(" "));
-    }
-    paragraphs
-}
-
-/// What ends a sentence.
-const TERMINATORS: [char; 4] = ['.', '!', '?', '…'];
-
-/// What may close a sentence after its stop: quotes and brackets.
-const CLOSERS: [char; 7] = ['"', '\'', '”', '’', ')', ']', '»'];
-
-/// The sentences of a paragraph.
-///
-/// A sentence ends at a stop - a full stop, a question or an exclamation
-/// mark, an ellipsis, with the quotes and brackets that close after it - when
-/// what follows the space does not begin in lower case. A full stop after a
-/// single letter (an initial) or after an abbreviation the language's rules
-/// list ("Mr.") ends nothing.
-#[must_use]
-pub fn sentences(paragraph: &str, lexicon: Option<&Lexicon>) -> Vec<String> {
-    let chars: Vec<char> = paragraph.chars().collect();
-    let mut found = Vec::new();
-    let mut start = 0;
-    let mut at = 0;
-    while at < chars.len() {
-        if !TERMINATORS.contains(&chars[at]) {
-            at += 1;
-            continue;
-        }
-        let stop = at;
-        let mut end = at;
-        while end + 1 < chars.len() && TERMINATORS.contains(&chars[end + 1]) {
-            end += 1;
-        }
-        while end + 1 < chars.len() && CLOSERS.contains(&chars[end + 1]) {
-            end += 1;
-        }
-        at = end + 1;
-        if at >= chars.len() || !chars[at].is_whitespace() {
-            continue;
-        }
-        let mut next = at;
-        while next < chars.len() && chars[next].is_whitespace() {
-            next += 1;
-        }
-        if next >= chars.len() || chars[next].is_lowercase() {
-            continue;
-        }
-        if chars[stop] == '.' && end == stop && abbreviated(&chars[..stop], lexicon) {
-            continue;
-        }
-        let sentence: String = chars[start..=end].iter().collect();
-        found.push(sentence.trim().to_string());
-        start = next;
-        at = next;
-    }
-    let rest: String = chars[start.min(chars.len())..].iter().collect();
-    if !rest.trim().is_empty() {
-        found.push(rest.trim().to_string());
-    }
-    found.retain(|sentence| !lexicon::tokens(sentence).is_empty());
-    found
-}
-
-/// Whether the word before a full stop makes it no end of a sentence: an
-/// initial, or an abbreviation of the language.
-fn abbreviated(before: &[char], lexicon: Option<&Lexicon>) -> bool {
-    let word: String = before
-        .iter()
-        .rev()
-        .take_while(|ch| ch.is_alphabetic() || **ch == '.')
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    let word = word.trim_start_matches('.');
-    if word.chars().count() == 1 && word.chars().all(char::is_uppercase) {
-        return true;
-    }
-    lexicon.is_some_and(|lexicon| lexicon.is_abbreviation(&word.to_lowercase()))
-}
 
 /// One running word, where it stands and what it is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -509,17 +222,269 @@ pub async fn hold(pool: &SqlitePool, word: &str) -> Result<Option<Hold>> {
     })
 }
 
+/// A running word of a [`Reading`]: where it stands, and which of the
+/// text's distinct pieces it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Spot {
+    start: u32,
+    length: u32,
+    piece: u32,
+}
+
+/// A chapter of a [`Reading`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Part {
+    pub title: Option<String>,
+    /// The paragraph it starts at, through the whole text, from 0.
+    pub paragraph: i64,
+    /// How many paragraphs it has.
+    pub paragraphs: i64,
+    /// Its sentences, by position through the whole text.
+    sentences: Range<usize>,
+    /// Its running words as `(piece, times)`: what its coverage is counted
+    /// from.
+    tally: Vec<(u32, u32)>,
+}
+
+/// A text read through the lexicon, every chapter tallied: what the
+/// [`Library`] keeps.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reading {
+    /// Every lemma its words can be, `en:go`.
+    lemmas: Vec<String>,
+    /// Its distinct running words, the parts indexing `lemmas`.
+    pieces: Vec<Piece>,
+    /// Each sentence's running words, by position through the text.
+    sentences: Vec<Vec<Spot>>,
+    pub chapters: Vec<Part>,
+    /// How many paragraphs the whole text has.
+    pub paragraphs: i64,
+}
+
+/// A text's sentences and chapters as the database keeps them: what a
+/// [`Reading`] is made from.
+struct Rows {
+    language: String,
+    /// `(sentence id, paragraph, text)` in order.
+    sentences: Vec<(i64, i64, String)>,
+    /// `(title, first paragraph)` in order.
+    chapters: Vec<(Option<String>, i64)>,
+}
+
+impl Reading {
+    /// Reads a text's rows.
+    fn of(rows: &Rows) -> Self {
+        let texts: Vec<&str> = rows.sentences.iter().map(|(_, _, text)| text.as_str()).collect();
+        let analysis = analyse(&rows.language, &texts);
+        let mut index: HashMap<&Piece, u32> = HashMap::new();
+        let mut pieces: Vec<Piece> = Vec::new();
+        let mut sentences: Vec<Vec<Spot>> = Vec::with_capacity(analysis.tokens.len());
+        for line in &analysis.tokens {
+            sentences.push(
+                line.iter()
+                    .map(|token| {
+                        let piece = *index.entry(&token.piece).or_insert_with(|| {
+                            pieces.push(token.piece.clone());
+                            u32::try_from(pieces.len() - 1).unwrap_or(u32::MAX)
+                        });
+                        Spot {
+                            start: token.start,
+                            length: token.length,
+                            piece,
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        let paragraphs = rows.sentences.last().map_or(0, |(_, paragraph, _)| paragraph + 1);
+        let first_sentence = |paragraph: i64| rows.sentences.iter().position(|(_, at, _)| *at >= paragraph).unwrap_or(rows.sentences.len());
+        let mut chapters = Vec::with_capacity(rows.chapters.len());
+        for (at, (title, paragraph)) in rows.chapters.iter().enumerate() {
+            let next = rows.chapters.get(at + 1).map_or(paragraphs, |(_, next)| *next);
+            let range = first_sentence(*paragraph)..first_sentence(next);
+            let mut counts: HashMap<u32, u32> = HashMap::new();
+            for spot in sentences[range.clone()].iter().flatten() {
+                *counts.entry(spot.piece).or_default() += 1;
+            }
+            let mut tally: Vec<(u32, u32)> = counts.into_iter().collect();
+            tally.sort_unstable();
+            chapters.push(Part {
+                title: title.clone(),
+                paragraph: *paragraph,
+                paragraphs: next - paragraph,
+                sentences: range,
+                tally,
+            });
+        }
+        Self {
+            lemmas: analysis.lemmas,
+            pieces,
+            sentences,
+            chapters,
+            paragraphs,
+        }
+    }
+
+    /// What the learner holds of each lemma, by the reading's index.
+    fn held(&self, holds: &HashMap<String, Hold>) -> Vec<Option<Hold>> {
+        self.lemmas.iter().map(|id| holds.get(id).copied()).collect()
+    }
+
+    /// How much of one chapter the learner holds.
+    fn chapter_coverage(&self, chapter: usize, held: &[Option<Hold>]) -> Coverage {
+        self.chapters
+            .get(chapter)
+            .map(|part| cover::weigh(&self.pieces, &part.tally, held))
+            .unwrap_or_default()
+    }
+
+    /// The chapter a paragraph is in.
+    #[must_use]
+    pub fn chapter_at(&self, paragraph: i64) -> usize {
+        self.chapters.iter().rposition(|part| part.paragraph <= paragraph).unwrap_or(0)
+    }
+
+    /// Every lemma the running words of some sentences can be, and the
+    /// sentences' words numbered by that list alone: what one chapter's page
+    /// needs, without the rest of the book's ten thousand lemmas.
+    fn lines(&self, sentences: Range<usize>) -> (Vec<String>, Vec<Vec<Token>>) {
+        let mut local: HashMap<u32, u32> = HashMap::new();
+        let mut lemmas: Vec<String> = Vec::new();
+        let mut lines = Vec::with_capacity(sentences.len());
+        for spots in &self.sentences[sentences] {
+            let mut tokens = Vec::with_capacity(spots.len());
+            for spot in spots {
+                let piece = &self.pieces[spot.piece as usize];
+                let parts = piece
+                    .parts
+                    .iter()
+                    .map(|part| {
+                        part.iter()
+                            .map(|&lemma| {
+                                *local.entry(lemma).or_insert_with(|| {
+                                    lemmas.push(self.lemmas[lemma as usize].clone());
+                                    u32::try_from(lemmas.len() - 1).unwrap_or(u32::MAX)
+                                })
+                            })
+                            .collect()
+                    })
+                    .collect();
+                tokens.push(Token {
+                    start: spot.start,
+                    length: spot.length,
+                    piece: Piece { parts, name: piece.name },
+                });
+            }
+            lines.push(tokens);
+        }
+        (lemmas, lines)
+    }
+}
+
+/// The readings of the texts, kept while the server runs.
+///
+/// A text is keyed by its id, which is never given to another text: the
+/// table counts its ids up and does not reuse them. A text never changes
+/// once added, so a reading kept is a reading right until the text goes.
+#[derive(Debug, Clone, Default)]
+pub struct Library {
+    kept: Arc<Mutex<HashMap<i64, Arc<Reading>>>>,
+}
+
+impl Library {
+    /// The reading of a text: kept, or read now and kept. `None` for no such
+    /// text.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the database rejects a query.
+    pub async fn reading(&self, pool: &SqlitePool, id: i64) -> Result<Option<Arc<Reading>>> {
+        if let Some(kept) = self.kept.lock().unwrap_or_else(PoisonError::into_inner).get(&id) {
+            return Ok(Some(Arc::clone(kept)));
+        }
+        let Some(rows) = rows(pool, id).await? else {
+            return Ok(None);
+        };
+        // Reading a book is work for a processor, not for the runtime that
+        // answers requests.
+        let reading = Arc::new(
+            tokio::task::spawn_blocking(move || Reading::of(&rows))
+                .await
+                .context("the reading of a text failed")?,
+        );
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner).insert(id, Arc::clone(&reading));
+        Ok(Some(reading))
+    }
+
+    /// Lets the reading of a text go: the text has gone.
+    pub fn forget(&self, id: i64) {
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+    }
+
+    /// Reads every text not read yet, so the first list after a start does
+    /// not wait for a library of books.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the database rejects a query.
+    pub async fn read_all(&self, pool: &SqlitePool) -> Result<usize> {
+        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM text ORDER BY opened_at IS NULL, opened_at DESC")
+            .fetch_all(pool)
+            .await
+            .context("failed to list the texts")?;
+        for &id in &ids {
+            self.reading(pool, id).await?;
+        }
+        Ok(ids.len())
+    }
+}
+
+/// The rows a reading is made of; `None` for no such text.
+async fn rows(pool: &SqlitePool, id: i64) -> Result<Option<Rows>> {
+    let Some(language) = sqlx::query_scalar::<_, String>("SELECT language FROM text WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .context("failed to read a text")?
+    else {
+        return Ok(None);
+    };
+    let sentences = lines_of(pool, id).await?;
+    let chapters = sqlx::query_as("SELECT title, paragraph FROM chapter WHERE text_id = ? ORDER BY position")
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .context("failed to read the chapters of a text")?;
+    Ok(Some(Rows { language, sentences, chapters }))
+}
+
+/// A chapter as a list or the contents show it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChapterSummary {
+    /// Its place among the chapters, from 0.
+    pub position: u32,
+    pub title: Option<String>,
+    /// The paragraph it starts at, through the whole text.
+    pub paragraph: i64,
+    pub paragraphs: i64,
+    /// How much of it the learner holds, now.
+    pub coverage: Coverage,
+}
+
 /// A text as the list shows it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Summary {
     pub id: i64,
     pub title: String,
+    pub author: Option<String>,
+    /// The link it came from; `None` for a text pasted or opened from a file.
+    pub source: Option<String>,
     pub language: String,
     pub format: Format,
     pub added_at: DateTime<Utc>,
     /// When it was last opened; `None` for a text never opened.
     pub opened_at: Option<DateTime<Utc>>,
-    /// The paragraph the learner stopped at, from 0.
+    /// The paragraph the learner stopped at, through the whole text, from 0.
     pub paragraph: i64,
     /// How many paragraphs it has.
     pub paragraphs: i64,
@@ -527,6 +492,10 @@ pub struct Summary {
     pub finished_at: Option<DateTime<Utc>>,
     /// How much of it the learner holds, now.
     pub coverage: Coverage,
+    /// How many chapters it has: 1 for anything but a book.
+    pub chapters: u32,
+    /// The chapter the learner stopped in.
+    pub chapter: ChapterSummary,
 }
 
 /// One sentence of a text, read.
@@ -538,21 +507,25 @@ pub struct Line {
     pub tokens: Vec<Token>,
 }
 
-/// A text as the reader shows it.
+/// A chapter of a text as the reader shows it.
 #[derive(Debug, Clone, Serialize)]
 pub struct Text {
     #[serde(flatten)]
     pub summary: Summary,
-    /// Its paragraphs, each the sentences in it. Not `paragraphs`: the
-    /// summary beside it counts them under that name.
+    /// Every chapter, with how much of each is the learner's.
+    pub contents: Vec<ChapterSummary>,
+    /// The chapter shown: its position among `contents`.
+    pub shown: u32,
+    /// The shown chapter's paragraphs, each the sentences in it.
     pub lines: Vec<Vec<Line>>,
-    /// Every lemma its words can be, `en:go`: what the tokens' parts index.
+    /// Every lemma the shown chapter's words can be, `en:go`: what the
+    /// tokens' parts index.
     pub lemmas: Vec<String>,
     /// What the learner holds of each, by the same index.
     pub holds: Vec<Option<Hold>>,
 }
 
-/// A text the learner brings.
+/// A text the learner pastes.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Addition {
     /// Its title; taken from the text when it carries one, or from its first
@@ -565,6 +538,19 @@ pub struct Addition {
     pub format: Option<Format>,
 }
 
+/// A text taken apart, ready to keep.
+#[derive(Debug, Clone)]
+pub struct Arrival {
+    pub format: Format,
+    pub document: Document,
+    /// The link it came from.
+    pub source: Option<String>,
+    /// A title that wins over what the document says.
+    pub title: Option<String>,
+    /// An author that wins over what the document says.
+    pub author: Option<String>,
+}
+
 /// Why a text was not taken or changed: the client's to fix.
 #[derive(Debug, thiserror::Error)]
 pub enum Refused {
@@ -574,6 +560,8 @@ pub enum Refused {
     Empty,
     #[error("there is no text {0}")]
     NotFound(i64),
+    #[error("text {0} has no chapter {1}")]
+    NoChapter(i64, u32),
     #[error(transparent)]
     Database(#[from] anyhow::Error),
 }
@@ -592,55 +580,138 @@ fn title_from(sentence: &str) -> String {
     format!("{}…", cut.trim_end_matches([',', ';', ':', ' ']))
 }
 
-/// Keeps a text: taken apart into sentences, each kept once among the
-/// sentences of its language.
+/// Keeps a pasted text.
+///
+/// # Errors
+///
+/// As [`keep`].
+pub async fn add(pool: &SqlitePool, library: &Library, addition: &Addition, now: DateTime<Utc>) -> Result<Summary, Refused> {
+    let language = pack::language_being_learnt(pool).await?.ok_or(Refused::NoLanguage)?;
+    let format = addition.format.unwrap_or_else(|| Format::guess(&addition.body));
+    let document = import::written(format, &addition.body, lexicon::of(&language));
+    let arrival = Arrival {
+        format,
+        document,
+        source: None,
+        title: addition.title.clone(),
+        author: None,
+    };
+    keep(pool, library, arrival, now).await
+}
+
+/// The language being learnt: what every text is read in.
+///
+/// # Errors
+///
+/// [`Refused::NoLanguage`] before a pack is loaded.
+pub async fn language(pool: &SqlitePool) -> Result<String, Refused> {
+    pack::language_being_learnt(pool).await?.ok_or(Refused::NoLanguage)
+}
+
+/// The columns of a text's row, as it is written.
+pub(crate) struct Written<'a> {
+    pub language: &'a str,
+    pub title: &'a str,
+    pub author: Option<&'a str>,
+    pub source: Option<&'a str>,
+    pub format: Format,
+    pub added_at: DateTime<Utc>,
+    pub opened_at: Option<DateTime<Utc>>,
+    pub paragraph: i64,
+    pub finished_at: Option<DateTime<Utc>>,
+}
+
+/// Writes a text: its row, its chapters, and its sentences, each kept once
+/// among the sentences of its language. The one way a text is written - by
+/// the reader and by the import of a learner model alike.
+///
+/// # Errors
+///
+/// Fails when the database rejects a statement.
+pub(crate) async fn write(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, text: &Written<'_>, chapters: &[Chapter]) -> Result<i64> {
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO text (language, title, author, source, format, added_at, opened_at, paragraph, finished_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+    )
+    .bind(text.language)
+    .bind(text.title)
+    .bind(text.author)
+    .bind(text.source)
+    .bind(text.format.as_str())
+    .bind(text.added_at.to_rfc3339())
+    .bind(text.opened_at.map(|at| at.to_rfc3339()))
+    .bind(text.paragraph)
+    .bind(text.finished_at.map(|at| at.to_rfc3339()))
+    .fetch_one(&mut **tx)
+    .await
+    .with_context(|| format!("failed to keep the text {:?}", text.title))?;
+    let mut position = 0i64;
+    let mut paragraph = 0i64;
+    for (number, chapter) in chapters.iter().enumerate() {
+        sqlx::query("INSERT INTO chapter (text_id, position, title, paragraph) VALUES (?, ?, ?, ?)")
+            .bind(id)
+            .bind(i64::try_from(number).unwrap_or(i64::MAX))
+            .bind(chapter.title.as_deref())
+            .bind(paragraph)
+            .execute(&mut **tx)
+            .await
+            .context("failed to keep a chapter of a text")?;
+        for sentences in &chapter.paragraphs {
+            for sentence in sentences {
+                let sentence_id = keep_sentence(tx, text.language, sentence).await?;
+                sqlx::query("INSERT INTO text_sentence (text_id, position, paragraph, sentence_id) VALUES (?, ?, ?, ?)")
+                    .bind(id)
+                    .bind(position)
+                    .bind(paragraph)
+                    .bind(sentence_id)
+                    .execute(&mut **tx)
+                    .await
+                    .context("failed to keep a sentence of a text")?;
+                position += 1;
+            }
+            paragraph += 1;
+        }
+    }
+    Ok(id)
+}
+
+/// Keeps a text taken apart: pasted, from a file, by a link.
 ///
 /// # Errors
 ///
 /// [`Refused::NoLanguage`] before a pack is loaded, [`Refused::Empty`] for a
 /// text with no sentence in it, and [`Refused::Database`] when the database
 /// rejects a statement.
-pub async fn add(pool: &SqlitePool, addition: &Addition, now: DateTime<Utc>) -> Result<Summary, Refused> {
-    let language = pack::language_being_learnt(pool).await?.ok_or(Refused::NoLanguage)?;
-    let format = addition.format.unwrap_or_else(|| Format::guess(&addition.body));
-    let parsed = parse(format, &addition.body, lexicon::of(&language));
-    let first = parsed.paragraphs.first().and_then(|paragraph| paragraph.first()).ok_or(Refused::Empty)?;
-    let title = addition
-        .title
-        .as_deref()
-        .map(squeeze)
-        .filter(|title| !title.is_empty())
-        .or_else(|| parsed.title.clone())
+pub async fn keep(pool: &SqlitePool, library: &Library, arrival: Arrival, now: DateTime<Utc>) -> Result<Summary, Refused> {
+    let language = language(pool).await?;
+    let first = arrival.document.first_sentence().ok_or(Refused::Empty)?;
+    let given = |text: Option<&String>| text.map(|text| import::squeeze(text)).filter(|text| !text.is_empty());
+    let title = given(arrival.title.as_ref())
+        .or_else(|| given(arrival.document.title.as_ref()))
         .unwrap_or_else(|| title_from(first));
+    let author = given(arrival.author.as_ref()).or_else(|| given(arrival.document.author.as_ref()));
 
     let mut tx = pool.begin().await.context("failed to open a transaction")?;
-    let id: i64 = sqlx::query_scalar("INSERT INTO text (language, title, format, added_at) VALUES (?, ?, ?, ?) RETURNING id")
-        .bind(&language)
-        .bind(&title)
-        .bind(format.as_str())
-        .bind(now.to_rfc3339())
-        .fetch_one(&mut *tx)
-        .await
-        .context("failed to keep a text")?;
-    let mut position = 0i64;
-    for (paragraph, sentences) in parsed.paragraphs.iter().enumerate() {
-        for sentence in sentences {
-            let sentence_id = keep_sentence(&mut tx, &language, sentence).await?;
-            sqlx::query("INSERT INTO text_sentence (text_id, position, paragraph, sentence_id) VALUES (?, ?, ?, ?)")
-                .bind(id)
-                .bind(position)
-                .bind(i64::try_from(paragraph).unwrap_or(i64::MAX))
-                .bind(sentence_id)
-                .execute(&mut *tx)
-                .await
-                .context("failed to keep a sentence of a text")?;
-            position += 1;
-        }
-    }
+    let id = write(
+        &mut tx,
+        &Written {
+            language: &language,
+            title: &title,
+            author: author.as_deref(),
+            source: arrival.source.as_deref(),
+            format: arrival.format,
+            added_at: now,
+            opened_at: None,
+            paragraph: 0,
+            finished_at: None,
+        },
+        &arrival.document.chapters,
+    )
+    .await?;
     tx.commit().await.context("failed to commit a text")?;
 
     let holds = holds(pool).await?;
-    summary(pool, id, &holds).await?.ok_or(Refused::NotFound(id))
+    summary(pool, library, id, &holds).await?.ok_or(Refused::NotFound(id))
 }
 
 /// The id of a sentence, kept once by what it says.
@@ -694,14 +765,6 @@ async fn lines_of(pool: &SqlitePool, id: i64) -> Result<Vec<(i64, i64, String)>>
     .context("failed to read the sentences of a text")
 }
 
-/// How much of a text the learner holds, its words read and counted.
-fn count(analysis: &Analysis, holds: &HashMap<String, Hold>) -> (Vec<Option<Hold>>, Coverage) {
-    let held: Vec<Option<Hold>> = analysis.lemmas.iter().map(|id| holds.get(id).copied()).collect();
-    let pieces: Vec<Piece> = analysis.pieces().cloned().collect();
-    let (coverage, _) = cover::cover(&pieces, &held);
-    (held, coverage)
-}
-
 fn moment(text: Option<String>) -> Result<Option<DateTime<Utc>>> {
     text.map(|text| {
         DateTime::parse_from_rfc3339(&text)
@@ -711,13 +774,31 @@ fn moment(text: Option<String>) -> Result<Option<DateTime<Utc>>> {
     .transpose()
 }
 
-/// One text's row and the sentences in it.
-async fn summary_and_lines(
+/// Every chapter of a reading, counted for the learner.
+fn contents(reading: &Reading, held: &[Option<Hold>]) -> Vec<ChapterSummary> {
+    reading
+        .chapters
+        .iter()
+        .enumerate()
+        .map(|(at, part)| ChapterSummary {
+            position: u32::try_from(at).unwrap_or(u32::MAX),
+            title: part.title.clone(),
+            paragraph: part.paragraph,
+            paragraphs: part.paragraphs,
+            coverage: reading.chapter_coverage(at, held),
+        })
+        .collect()
+}
+
+/// One text's summary, and the reading and every chapter it was counted
+/// from.
+async fn summary_and_contents(
     pool: &SqlitePool,
+    library: &Library,
     id: i64,
     holds: &HashMap<String, Hold>,
-) -> Result<Option<(Summary, Vec<(i64, i64, String)>, Analysis, Vec<Option<Hold>>)>> {
-    let Some(row) = sqlx::query("SELECT id, language, title, format, added_at, opened_at, paragraph, finished_at FROM text WHERE id = ?")
+) -> Result<Option<(Summary, Arc<Reading>, Vec<ChapterSummary>, Vec<Option<Hold>>)>> {
+    let Some(row) = sqlx::query("SELECT id, language, title, author, source, format, added_at, opened_at, paragraph, finished_at FROM text WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -725,28 +806,38 @@ async fn summary_and_lines(
     else {
         return Ok(None);
     };
-    let lines = lines_of(pool, id).await?;
-    let language: String = row.get("language");
-    let analysis = analyse(&language, &lines.iter().map(|(_, _, text)| text.as_str()).collect::<Vec<_>>());
-    let (held, coverage) = count(&analysis, holds);
-    let paragraphs = lines.last().map_or(0, |(_, paragraph, _)| paragraph + 1);
+    let Some(reading) = library.reading(pool, id).await? else {
+        return Ok(None);
+    };
+    let held = reading.held(holds);
+    let contents = contents(&reading, &held);
+    let mut coverage = Coverage::default();
+    for chapter in &contents {
+        coverage.merge(&chapter.coverage);
+    }
+    let paragraph = row.get::<i64, _>("paragraph").min((reading.paragraphs - 1).max(0));
+    let chapter = contents.get(reading.chapter_at(paragraph)).cloned().context("a text without a chapter")?;
     let summary = Summary {
         id: row.get("id"),
         title: row.get("title"),
+        author: row.get("author"),
+        source: row.get("source"),
         format: Format::parse(row.get::<String, _>("format").as_str())?,
         added_at: moment(Some(row.get("added_at")))?.context("a text without the moment it was added")?,
         opened_at: moment(row.get("opened_at"))?,
-        paragraph: row.get::<i64, _>("paragraph").min((paragraphs - 1).max(0)),
-        paragraphs,
+        paragraph,
+        paragraphs: reading.paragraphs,
         finished_at: moment(row.get("finished_at"))?,
-        language,
+        language: row.get("language"),
         coverage,
+        chapters: u32::try_from(contents.len()).unwrap_or(u32::MAX),
+        chapter,
     };
-    Ok(Some((summary, lines, analysis, held)))
+    Ok(Some((summary, reading, contents, held)))
 }
 
-async fn summary(pool: &SqlitePool, id: i64, holds: &HashMap<String, Hold>) -> Result<Option<Summary>> {
-    Ok(summary_and_lines(pool, id, holds).await?.map(|(summary, ..)| summary))
+async fn summary(pool: &SqlitePool, library: &Library, id: i64, holds: &HashMap<String, Hold>) -> Result<Option<Summary>> {
+    Ok(summary_and_contents(pool, library, id, holds).await?.map(|(summary, ..)| summary))
 }
 
 /// Every text, the one opened last first and those never opened after them,
@@ -755,7 +846,7 @@ async fn summary(pool: &SqlitePool, id: i64, holds: &HashMap<String, Hold>) -> R
 /// # Errors
 ///
 /// Fails when the database rejects a query.
-pub async fn list(pool: &SqlitePool) -> Result<Vec<Summary>> {
+pub async fn list(pool: &SqlitePool, library: &Library) -> Result<Vec<Summary>> {
     let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM text ORDER BY opened_at IS NULL, opened_at DESC, added_at DESC, id DESC")
         .fetch_all(pool)
         .await
@@ -763,34 +854,52 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Summary>> {
     let holds = holds(pool).await?;
     let mut texts = Vec::with_capacity(ids.len());
     for id in ids {
-        if let Some(summary) = summary(pool, id, &holds).await? {
+        if let Some(summary) = summary(pool, library, id, &holds).await? {
             texts.push(summary);
         }
     }
     Ok(texts)
 }
 
-/// One text, every word read.
+/// One chapter of a text, every word read: the chapter asked for, or the
+/// one the learner stopped in.
 ///
 /// # Errors
 ///
-/// [`Refused::NotFound`] for no such text, [`Refused::Database`] when the
-/// database rejects a query.
-pub async fn read(pool: &SqlitePool, id: i64) -> Result<Text, Refused> {
+/// [`Refused::NotFound`] for no such text, [`Refused::NoChapter`] for a
+/// chapter past its last, [`Refused::Database`] when the database rejects a
+/// query.
+pub async fn read(pool: &SqlitePool, library: &Library, id: i64, chapter: Option<u32>) -> Result<Text, Refused> {
     let holds = holds(pool).await?;
-    let (summary, lines, analysis, held) = summary_and_lines(pool, id, &holds).await?.ok_or(Refused::NotFound(id))?;
+    let (summary, reading, contents, _) = summary_and_contents(pool, library, id, &holds).await?.ok_or(Refused::NotFound(id))?;
+    let shown = chapter.unwrap_or(summary.chapter.position);
+    let part = reading.chapters.get(shown as usize).ok_or(Refused::NoChapter(id, shown))?;
+    let (lemmas, tokens) = reading.lines(part.sentences.clone());
+    let texts = sqlx::query_as::<_, (i64, i64, String)>(
+        "SELECT s.id, ts.paragraph, s.text FROM text_sentence ts JOIN sentence s ON s.id = ts.sentence_id
+         WHERE ts.text_id = ? AND ts.position >= ? AND ts.position < ? ORDER BY ts.position",
+    )
+    .bind(id)
+    .bind(i64::try_from(part.sentences.start).unwrap_or(i64::MAX))
+    .bind(i64::try_from(part.sentences.end).unwrap_or(i64::MAX))
+    .fetch_all(pool)
+    .await
+    .context("failed to read the sentences of a chapter")?;
     let mut paragraphs: Vec<Vec<Line>> = Vec::new();
-    for ((sentence, paragraph, text), tokens) in lines.into_iter().zip(analysis.tokens) {
-        let paragraph = usize::try_from(paragraph).unwrap_or(0);
+    for ((sentence, paragraph, text), tokens) in texts.into_iter().zip(tokens) {
+        let paragraph = usize::try_from(paragraph - part.paragraph).unwrap_or(0);
         if paragraphs.len() <= paragraph {
             paragraphs.resize_with(paragraph + 1, Vec::new);
         }
         paragraphs[paragraph].push(Line { sentence, text, tokens });
     }
+    let held = lemmas.iter().map(|id| holds.get(id).copied()).collect();
     Ok(Text {
         summary,
+        contents,
+        shown,
         lines: paragraphs,
-        lemmas: analysis.lemmas,
+        lemmas,
         holds: held,
     })
 }
@@ -798,7 +907,7 @@ pub async fn read(pool: &SqlitePool, id: i64) -> Result<Text, Refused> {
 /// Where the learner is in a text, as the reader reports it.
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 pub struct Place {
-    /// The paragraph being read, from 0.
+    /// The paragraph being read, through the whole text, from 0.
     #[serde(default)]
     pub paragraph: Option<i64>,
     /// Whether the learner has read it all.
@@ -816,7 +925,7 @@ pub struct Place {
 ///
 /// [`Refused::NotFound`] for no such text, [`Refused::Database`] when the
 /// database rejects a statement.
-pub async fn place(pool: &SqlitePool, id: i64, place: Place, now: DateTime<Utc>) -> Result<Summary, Refused> {
+pub async fn place(pool: &SqlitePool, library: &Library, id: i64, place: Place, now: DateTime<Utc>) -> Result<Summary, Refused> {
     let updated = sqlx::query(
         "UPDATE text SET opened_at = ?1,
              paragraph = COALESCE(max(0, ?2), paragraph),
@@ -834,7 +943,7 @@ pub async fn place(pool: &SqlitePool, id: i64, place: Place, now: DateTime<Utc>)
         return Err(Refused::NotFound(id));
     }
     let holds = holds(pool).await?;
-    summary(pool, id, &holds).await?.ok_or(Refused::NotFound(id))
+    summary(pool, library, id, &holds).await?.ok_or(Refused::NotFound(id))
 }
 
 /// Lets a text go. The words taken from it stay in the deck with the
@@ -844,7 +953,7 @@ pub async fn place(pool: &SqlitePool, id: i64, place: Place, now: DateTime<Utc>)
 ///
 /// [`Refused::NotFound`] for no such text, [`Refused::Database`] when the
 /// database rejects a statement.
-pub async fn remove(pool: &SqlitePool, id: i64) -> Result<(), Refused> {
+pub async fn remove(pool: &SqlitePool, library: &Library, id: i64) -> Result<(), Refused> {
     let mut tx = pool.begin().await.context("failed to open a transaction")?;
     let removed = sqlx::query("DELETE FROM text WHERE id = ?")
         .bind(id)
@@ -856,98 +965,13 @@ pub async fn remove(pool: &SqlitePool, id: i64) -> Result<(), Refused> {
     }
     drop_unshown_sentences(&mut tx).await?;
     tx.commit().await.context("failed to commit letting a text go")?;
+    library.forget(id);
     Ok(())
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-
-    fn english() -> Option<&'static Lexicon> {
-        lexicon::of("en")
-    }
-
-    #[test]
-    fn a_paragraph_breaks_into_sentences_at_their_stops() {
-        assert_eq!(
-            sentences("She went home. Was it late? \"Yes!\" he said. It was... Then it rained.", english()),
-            vec!["She went home.", "Was it late?", "\"Yes!\" he said.", "It was...", "Then it rained."]
-        );
-    }
-
-    #[test]
-    fn a_stop_before_lower_case_or_inside_a_word_ends_nothing() {
-        assert_eq!(
-            sentences("It costs 3.50 now, e.g. on Mondays.", english()),
-            vec!["It costs 3.50 now, e.g. on Mondays."]
-        );
-    }
-
-    #[test]
-    fn an_initial_and_an_abbreviation_end_no_sentence() {
-        assert_eq!(
-            sentences("Mr. Brown met J. R. Smith. Dr. Lee was late.", english()),
-            vec!["Mr. Brown met J. R. Smith.", "Dr. Lee was late."]
-        );
-        // Without the rules of the language, "Mr." is the end of a sentence.
-        assert_eq!(sentences("Mr. Brown came.", None), vec!["Mr.", "Brown came."]);
-    }
-
-    #[test]
-    fn a_piece_with_no_word_in_it_is_no_sentence() {
-        assert_eq!(sentences("Go. 42. Now.", english()), vec!["Go.", "Now."]);
-    }
-
-    #[test]
-    fn plain_text_is_paragraphs_by_blank_lines_or_by_lines() {
-        let wrapped = parse(Format::Plain, "One line\nwrapped here.\n\nTwo.", english());
-        assert_eq!(wrapped.paragraphs, vec![vec!["One line wrapped here.".to_string()], vec!["Two.".to_string()]]);
-        let lines = parse(Format::Plain, "First line.\r\nSecond line.", english());
-        assert_eq!(lines.paragraphs.len(), 2, "with no blank line anywhere, a line is a paragraph");
-    }
-
-    #[test]
-    fn markdown_keeps_its_prose_and_leaves_its_marks() {
-        let parsed = parse(
-            Format::Markdown,
-            "# The trip\n\nWe *went* to [the sea](http://x). It was **cold**.\n\n```\ncode is not prose\n```\n\n- A list item.\n\n## Later\n\n![a picture](p.png) Home `again`.",
-            english(),
-        );
-        assert_eq!(parsed.title.as_deref(), Some("The trip"));
-        assert_eq!(
-            parsed.paragraphs,
-            vec![
-                vec!["We went to the sea.".to_string(), "It was cold.".to_string()],
-                vec!["A list item.".to_string()],
-                vec!["Later".to_string()],
-                vec!["Home again.".to_string()],
-            ]
-        );
-    }
-
-    const SRT: &str = "1\n00:00:01,000 --> 00:00:02,500\n<i>Where are you</i>\ngoing?\n\n2\n00:00:02,700 --> 00:00:04,000\n- Home. [door slams]\n\n3\n00:00:09,000 --> 00:00:10,000\n♪ Later that night ♪\n";
-
-    #[test]
-    fn subtitles_run_their_cues_together_and_pause_into_paragraphs() {
-        let parsed = parse(Format::Subtitles, SRT, english());
-        assert_eq!(
-            parsed.paragraphs,
-            vec![
-                vec!["Where are you going?".to_string(), "Home.".to_string()],
-                vec!["Later that night".to_string()]
-            ]
-        );
-        let vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\nHello there.\n";
-        assert_eq!(parse(Format::Subtitles, vtt, english()).paragraphs, vec![vec!["Hello there.".to_string()]]);
-    }
-
-    #[test]
-    fn a_pasted_text_says_what_it_is() {
-        assert_eq!(Format::guess(SRT), Format::Subtitles);
-        assert_eq!(Format::guess("# Title\n\nText."), Format::Markdown);
-        assert_eq!(Format::guess("See [this](x)."), Format::Markdown);
-        assert_eq!(Format::guess("Just a #hashtag and a line.\nAnother."), Format::Plain);
-    }
 
     #[test]
     fn a_long_first_sentence_is_cut_into_a_title_at_a_word() {
@@ -1067,15 +1091,51 @@ order = 1
         }
     }
 
+    /// A book of three chapters, the last two in one paragraph each; "Harry"
+    /// is a name only the first chapter shows to be one.
+    pub(crate) fn book() -> Arrival {
+        let chapter = |title: &str, paragraphs: &[&[&str]]| Chapter {
+            title: Some(title.to_string()),
+            paragraphs: paragraphs
+                .iter()
+                .map(|sentences| sentences.iter().map(|sentence| (*sentence).to_string()).collect())
+                .collect(),
+        };
+        Arrival {
+            format: Format::Epub,
+            document: Document {
+                title: Some("The Book".to_string()),
+                author: Some("Ann Writer".to_string()),
+                chapters: vec![
+                    chapter("One", &[&["Then Harry went to the house."], &["He is a doctor."]]),
+                    chapter("Two", &[&["Harry went home.", "It was late."]]),
+                    chapter("Three", &[&["Suddenly it rained."]]),
+                ],
+            },
+            source: Some("https://example.org/book".to_string()),
+            title: None,
+            author: None,
+        }
+    }
+
     #[tokio::test]
     async fn a_text_is_kept_as_its_sentences_and_shares_them_with_the_pack() {
         let pool = tutor().await;
-        let added = add(&pool, &plain("Visit", "She went to the house.\n\nHe is a doctor. It was late."), at(0))
-            .await
-            .unwrap();
-        assert_eq!((added.title.as_str(), added.paragraphs, added.format), ("Visit", 2, Format::Plain));
+        let library = Library::default();
+        let added = add(
+            &pool,
+            &library,
+            &plain("Visit", "She went to the house.\n\nHe is a doctor. It was late."),
+            at(0),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (added.title.as_str(), added.paragraphs, added.format, added.chapters),
+            ("Visit", 2, Format::Plain, 1)
+        );
 
-        let text = read(&pool, added.id).await.unwrap();
+        let text = read(&pool, &library, added.id, None).await.unwrap();
         let said: Vec<Vec<&str>> = text.lines.iter().map(|lines| lines.iter().map(|line| line.text.as_str()).collect()).collect();
         assert_eq!(said, vec![vec!["She went to the house."], vec!["He is a doctor.", "It was late."]]);
         let shared: i64 = sqlx::query_scalar("SELECT count(*) FROM sentence WHERE text = 'He is a doctor.'")
@@ -1089,7 +1149,8 @@ order = 1
     #[tokio::test]
     async fn the_coverage_moves_with_what_the_learner_holds() {
         let pool = tutor().await;
-        let added = add(&pool, &plain("t", "She went to the house, Harry."), at(0)).await.unwrap();
+        let library = Library::default();
+        let added = add(&pool, &library, &plain("t", "She went to the house, Harry."), at(0)).await.unwrap();
         assert_eq!(
             added.coverage,
             Coverage {
@@ -1101,10 +1162,10 @@ order = 1
         );
 
         crate::words::declare(&pool, &["en:she".to_string(), "en:go".to_string()], at(1)).await.unwrap();
-        let sentence = read(&pool, added.id).await.unwrap().lines[0][0].sentence;
+        let sentence = read(&pool, &library, added.id, None).await.unwrap().lines[0][0].sentence;
         crate::words::pick(&pool, "en:house", sentence, 16, at(2)).await.unwrap();
 
-        let text = read(&pool, added.id).await.unwrap();
+        let text = read(&pool, &library, added.id, None).await.unwrap();
         assert_eq!(
             (text.summary.coverage.sewn, text.summary.coverage.deck, text.summary.coverage.unknown),
             (2, 1, 2)
@@ -1113,28 +1174,120 @@ order = 1
         let go = text.lemmas.iter().position(|id| id == "en:go").unwrap();
         assert_eq!(text.holds[go], Some(Hold::Sewn));
         assert_eq!(
-            list(&pool).await.unwrap()[0].coverage,
+            list(&pool, &library).await.unwrap()[0].coverage,
             text.summary.coverage,
             "the list counts as the reader does"
         );
     }
 
     #[tokio::test]
+    async fn a_book_is_kept_in_chapters_and_each_is_counted_and_read_alone() {
+        let pool = tutor().await;
+        let library = Library::default();
+        let added = keep(&pool, &library, book(), at(0)).await.unwrap();
+        assert_eq!(
+            (
+                added.title.as_str(),
+                added.author.as_deref(),
+                added.source.as_deref(),
+                added.chapters,
+                added.paragraphs
+            ),
+            ("The Book", Some("Ann Writer"), Some("https://example.org/book"), 3, 4)
+        );
+        crate::words::declare(&pool, &["en:go".to_string(), "en:home".to_string()], at(1))
+            .await
+            .unwrap();
+
+        let text = read(&pool, &library, added.id, Some(1)).await.unwrap();
+        assert_eq!(text.shown, 1);
+        assert_eq!(text.contents.iter().map(|chapter| chapter.paragraph).collect::<Vec<_>>(), vec![0, 2, 3]);
+        assert_eq!(text.contents.iter().map(|chapter| chapter.paragraphs).collect::<Vec<_>>(), vec![2, 1, 1]);
+        let said: Vec<Vec<&str>> = text.lines.iter().map(|lines| lines.iter().map(|line| line.text.as_str()).collect()).collect();
+        assert_eq!(
+            said,
+            vec![vec!["Harry went home.", "It was late."]],
+            "a chapter's paragraphs from its own first"
+        );
+        // "Harry" opens the sentence here; the first chapter shows it is a
+        // name, and the reading is of the whole book.
+        assert!(text.lines[0][0].tokens[0].piece.name, "a name is a name through the whole book");
+        let two = &text.contents[1].coverage;
+        assert_eq!((two.words, two.names, two.sewn), (5, 1, 2), "went and home are held");
+        // Every lemma the shown chapter's words can be, and no other.
+        let mut lemmas = text.lemmas.clone();
+        lemmas.sort();
+        assert_eq!(lemmas, vec!["en:be", "en:go", "en:home", "en:it", "en:late"]);
+        assert!(
+            text.lines
+                .iter()
+                .flatten()
+                .flat_map(|line| &line.tokens)
+                .flat_map(|token| token.piece.parts.iter().flatten())
+                .all(|&index| (index as usize) < text.lemmas.len())
+        );
+
+        let mut whole = Coverage::default();
+        for chapter in &text.contents {
+            whole.merge(&chapter.coverage);
+        }
+        assert_eq!(text.summary.coverage, whole, "the book is its chapters");
+        assert!(matches!(read(&pool, &library, added.id, Some(3)).await, Err(Refused::NoChapter(_, 3))));
+    }
+
+    #[tokio::test]
+    async fn every_running_word_counts_however_often_it_repeats() {
+        let pool = tutor().await;
+        let library = Library::default();
+        let added = add(&pool, &library, &plain("t", "It was late. It was late, so late."), at(0)).await.unwrap();
+        assert_eq!(added.coverage.words, 8, "a word met three times is three running words");
+        crate::words::declare(&pool, &["en:late".to_string()], at(1)).await.unwrap();
+        let text = read(&pool, &library, added.id, None).await.unwrap();
+        assert_eq!((text.summary.coverage.sewn, text.contents[0].coverage.sewn), (3, 3));
+    }
+
+    #[tokio::test]
+    async fn the_place_names_the_chapter_it_is_in_and_the_reader_opens_there() {
+        let pool = tutor().await;
+        let library = Library::default();
+        let added = keep(&pool, &library, book(), at(0)).await.unwrap();
+        assert_eq!(added.chapter.position, 0);
+        let placed = place(
+            &pool,
+            &library,
+            added.id,
+            Place {
+                paragraph: Some(3),
+                finished: None,
+            },
+            at(1),
+        )
+        .await
+        .unwrap();
+        assert_eq!((placed.chapter.position, placed.chapter.title.as_deref()), (2, Some("Three")));
+        let text = read(&pool, &library, added.id, None).await.unwrap();
+        assert_eq!(text.shown, 2, "the reader opens on the chapter the learner stopped in");
+        assert_eq!(text.lines[0][0].text, "Suddenly it rained.");
+    }
+
+    #[tokio::test]
     async fn a_reload_of_the_pack_keeps_the_sentences_of_texts() {
         let pool = tutor().await;
-        let added = add(&pool, &plain("t", "It was late."), at(0)).await.unwrap();
+        let library = Library::default();
+        let added = add(&pool, &library, &plain("t", "It was late."), at(0)).await.unwrap();
         crate::pack::load(&pool, &pack(2)).await.unwrap();
-        assert_eq!(read(&pool, added.id).await.unwrap().lines[0][0].text, "It was late.");
+        assert_eq!(read(&pool, &Library::default(), added.id, None).await.unwrap().lines[0][0].text, "It was late.");
     }
 
     #[tokio::test]
     async fn letting_a_text_go_keeps_the_sentence_a_word_was_taken_from() {
         let pool = tutor().await;
-        let added = add(&pool, &plain("t", "Suddenly it rained. It was late."), at(0)).await.unwrap();
-        let sentence = read(&pool, added.id).await.unwrap().lines[0][0].sentence;
+        let library = Library::default();
+        let added = add(&pool, &library, &plain("t", "Suddenly it rained. It was late."), at(0)).await.unwrap();
+        let sentence = read(&pool, &library, added.id, None).await.unwrap().lines[0][0].sentence;
         crate::words::pick(&pool, "en:suddenly", sentence, 0, at(1)).await.unwrap();
 
-        remove(&pool, added.id).await.unwrap();
+        remove(&pool, &library, added.id).await.unwrap();
         crate::pack::load(&pool, &pack(2)).await.unwrap();
         let kept: Vec<String> = sqlx::query_scalar("SELECT text FROM sentence ORDER BY id").fetch_all(&pool).await.unwrap();
         assert!(kept.contains(&"Suddenly it rained.".to_string()), "the word's sentence stays: {kept:?}");
@@ -1142,94 +1295,135 @@ order = 1
         let word = crate::words::word(&pool, "en:suddenly").await.unwrap();
         assert_eq!(word.contexts[0].text, "Suddenly it rained.");
         assert_eq!(word.contexts[0].source, crate::words::Source::Text { id: None, title: None });
-        assert!(matches!(read(&pool, added.id).await, Err(Refused::NotFound(_))));
+        assert!(matches!(read(&pool, &library, added.id, None).await, Err(Refused::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn a_text_let_go_never_lends_its_number_to_the_next() {
+        let pool = tutor().await;
+        let library = Library::default();
+        let first = add(&pool, &library, &plain("first", "It was late."), at(0)).await.unwrap();
+        // Kept while it stands; the reading has to go with it.
+        library.reading(&pool, first.id).await.unwrap();
+        remove(&pool, &library, first.id).await.unwrap();
+        let second = add(&pool, &library, &plain("second", "Suddenly it rained."), at(1)).await.unwrap();
+        assert!(second.id > first.id, "the table counts on past a text let go");
+        assert_eq!(read(&pool, &library, second.id, None).await.unwrap().lines[0][0].text, "Suddenly it rained.");
+    }
+
+    #[tokio::test]
+    async fn the_migration_to_chapters_keeps_every_text_and_its_sentences_where_they_were() {
+        // A tutor as v0.9 left it: two texts, a word taken from one, the
+        // second text the last one added.
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let migrator = sqlx::migrate!();
+        let (before, books): (Vec<_>, Vec<_>) = migrator.iter().partition(|migration| migration.version < 12);
+        for migration in before {
+            sqlx::raw_sql(migration.sql.clone()).execute(&pool).await.unwrap();
+        }
+        sqlx::raw_sql(
+            "INSERT INTO language (code, name, is_native) VALUES ('en', 'en', 0);
+             INSERT INTO sentence (id, language, text) VALUES (1, 'en', 'It was late.'), (2, 'en', 'Suddenly it rained.');
+             INSERT INTO text (id, language, title, format, added_at, opened_at, paragraph, finished_at)
+             VALUES (4, 'en', 'First', 'plain', '2026-10-20T18:00:00+00:00', '2026-10-20T18:05:00+00:00', 1, NULL),
+                    (7, 'en', 'Second', 'subtitles', '2026-10-21T18:00:00+00:00', NULL, 0, NULL);
+             INSERT INTO text_sentence (text_id, position, paragraph, sentence_id) VALUES (4, 0, 0, 1), (4, 1, 1, 2), (7, 0, 0, 2);
+             INSERT INTO pick (word_id, sentence_id, form, start, picked_at) VALUES ('en:suddenly', 2, 'Suddenly', 0, '2026-10-20T18:06:00+00:00');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut tx = pool.begin().await.unwrap();
+        for migration in books {
+            sqlx::raw_sql(migration.sql.clone()).execute(&mut *tx).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+
+        let texts: Vec<(i64, String, i64, Option<String>)> = sqlx::query_as("SELECT id, title, paragraph, author FROM text ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(texts, vec![(4, "First".to_string(), 1, None), (7, "Second".to_string(), 0, None)]);
+        let sentences: Vec<(i64, i64, i64)> = sqlx::query_as("SELECT text_id, paragraph, sentence_id FROM text_sentence ORDER BY text_id, position")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(sentences, vec![(4, 0, 1), (4, 1, 2), (7, 0, 2)], "the sentences survive the table under them");
+        let chapters: Vec<(i64, i64, Option<String>, i64)> = sqlx::query_as("SELECT text_id, position, title, paragraph FROM chapter ORDER BY text_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(chapters, vec![(4, 0, None, 0), (7, 0, None, 0)], "every text is one chapter");
+
+        // The last text let go: its number is not given again.
+        sqlx::query("DELETE FROM text WHERE id = 7").execute(&pool).await.unwrap();
+        let next: i64 =
+            sqlx::query_scalar("INSERT INTO text (language, title, format, added_at) VALUES ('en', 'Third', 'epub', '2026-11-01T00:00:00+00:00') RETURNING id")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(next, 8);
+        let left: i64 = sqlx::query_scalar("SELECT count(*) FROM text_sentence WHERE text_id = 7")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(left, 0, "a text let go takes its sentences with it, as before");
+        let bad = sqlx::query("INSERT INTO chapter (text_id, position, title, paragraph) VALUES (4, 0, NULL, 3)")
+            .execute(&pool)
+            .await;
+        assert!(bad.is_err(), "the first chapter starts at the first paragraph");
     }
 
     #[tokio::test]
     async fn the_place_is_kept_and_finishing_is_the_learners_to_say() {
         let pool = tutor().await;
-        let first = add(&pool, &plain("first", "One.\n\nTwo."), at(0)).await.unwrap();
-        let second = add(&pool, &plain("second", "Three."), at(1)).await.unwrap();
-        assert_eq!(list(&pool).await.unwrap()[0].id, second.id, "never opened: the newest first");
+        let library = Library::default();
+        let first = add(&pool, &library, &plain("first", "One.\n\nTwo."), at(0)).await.unwrap();
+        let second = add(&pool, &library, &plain("second", "Three."), at(1)).await.unwrap();
+        assert_eq!(list(&pool, &library).await.unwrap()[0].id, second.id, "never opened: the newest first");
 
-        let placed = place(
-            &pool,
-            first.id,
-            Place {
-                paragraph: Some(9),
-                finished: None,
-            },
-            at(2),
-        )
-        .await
-        .unwrap();
+        let to = |paragraph, finished| Place { paragraph, finished };
+        let placed = place(&pool, &library, first.id, to(Some(9), None), at(2)).await.unwrap();
         assert_eq!(placed.paragraph, 1, "a paragraph past the end is the last");
         assert_eq!(placed.opened_at, Some(at(2)));
-        assert_eq!(list(&pool).await.unwrap()[0].id, first.id, "the one opened last first");
+        assert_eq!(list(&pool, &library).await.unwrap()[0].id, first.id, "the one opened last first");
 
-        let finished = place(
-            &pool,
-            first.id,
-            Place {
-                paragraph: None,
-                finished: Some(true),
-            },
-            at(3),
-        )
-        .await
-        .unwrap();
+        let finished = place(&pool, &library, first.id, to(None, Some(true)), at(3)).await.unwrap();
         assert_eq!((finished.paragraph, finished.finished_at), (1, Some(at(3))));
-        let again = place(
-            &pool,
-            first.id,
-            Place {
-                paragraph: Some(0),
-                finished: Some(true),
-            },
-            at(4),
-        )
-        .await
-        .unwrap();
+        let again = place(&pool, &library, first.id, to(Some(0), Some(true)), at(4)).await.unwrap();
         assert_eq!(again.finished_at, Some(at(3)), "finished once is finished when it was");
-        let unfinished = place(
-            &pool,
-            first.id,
-            Place {
-                paragraph: None,
-                finished: Some(false),
-            },
-            at(5),
-        )
-        .await
-        .unwrap();
+        let unfinished = place(&pool, &library, first.id, to(None, Some(false)), at(5)).await.unwrap();
         assert_eq!(unfinished.finished_at, None);
-        assert!(matches!(place(&pool, 99, Place::default(), at(6)).await, Err(Refused::NotFound(99))));
+        assert!(matches!(place(&pool, &library, 99, Place::default(), at(6)).await, Err(Refused::NotFound(99))));
     }
 
     #[tokio::test]
     async fn an_empty_text_and_a_tutor_without_a_language_are_refused() {
         let pool = tutor().await;
-        assert!(matches!(add(&pool, &plain("t", " 42 \n\n -- "), at(0)).await, Err(Refused::Empty)));
+        let library = Library::default();
+        assert!(matches!(add(&pool, &library, &plain("t", " 42 \n\n -- "), at(0)).await, Err(Refused::Empty)));
         let bare = SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::migrate!().run(&bare).await.unwrap();
-        assert!(matches!(add(&bare, &plain("t", "Hello."), at(0)).await, Err(Refused::NoLanguage)));
+        assert!(matches!(add(&bare, &library, &plain("t", "Hello."), at(0)).await, Err(Refused::NoLanguage)));
     }
 
     #[tokio::test]
     async fn a_text_without_a_title_is_named_by_what_it_carries() {
         let pool = tutor().await;
+        let library = Library::default();
         let markdown = Addition {
             title: None,
             body: "# A day out\n\nWe went home.".to_string(),
             format: None,
         };
-        assert_eq!(add(&pool, &markdown, at(0)).await.unwrap().title, "A day out");
+        assert_eq!(add(&pool, &library, &markdown, at(0)).await.unwrap().title, "A day out");
         let pasted = Addition {
             title: Some("  ".to_string()),
             body: "We went home. Then we slept.".to_string(),
             format: None,
         };
-        let pasted = add(&pool, &pasted, at(1)).await.unwrap();
+        let pasted = add(&pool, &library, &pasted, at(1)).await.unwrap();
         assert_eq!((pasted.title.as_str(), pasted.format), ("We went home.", Format::Plain));
     }
 }

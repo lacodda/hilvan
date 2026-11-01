@@ -29,8 +29,9 @@ use sqlx::{Row, SqlitePool};
 
 use crate::answer::Failure;
 use crate::breaks;
+use crate::import::{Chapter, Format};
 use crate::pack::{self, OwnKind};
-use crate::reading::{self, Format};
+use crate::reading::{self, Written};
 use crate::scheduling::{Break, Direction, Kind, Rating, Scheduler, Source, Stitch};
 use crate::study::{self, Counts, Progress};
 use crate::voice::Engine;
@@ -38,11 +39,11 @@ use crate::words::{Held, Standing};
 
 /// The version of the file's shape. Read files of this one; a file of
 /// another is refused rather than guessed at.
-pub const FORMAT: u32 = 3;
+pub const FORMAT: u32 = 4;
 
 /// Where the JSON Schema of [`FORMAT`] is published, and what a file says
 /// it follows.
-pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-3.json";
+pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-4.json";
 
 /// A fictional learner, three weeks into English from Russian on the shipped
 /// pack: what `hilvan load-demo` loads, what the docs are shown with. Made by
@@ -214,14 +215,33 @@ pub struct Inventoried {
 pub struct TextRecord {
     pub language: String,
     pub title: String,
+    pub author: Option<String>,
+    /// The link it came from.
+    pub source: Option<String>,
     pub format: Format,
     pub added_at: DateTime<Utc>,
     pub opened_at: Option<DateTime<Utc>>,
-    /// The paragraph the learner stopped at, from 0.
+    /// The paragraph the learner stopped at, through the whole text, from 0.
     pub paragraph: i64,
     pub finished_at: Option<DateTime<Utc>>,
-    /// Its paragraphs, each the sentences in it.
+    /// Its chapters: one for anything but a book.
+    pub chapters: Vec<ChapterRecord>,
+}
+
+/// A chapter of a text: its title where the source names one, and its
+/// paragraphs, each the sentences in it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChapterRecord {
+    pub title: Option<String>,
     pub paragraphs: Vec<Vec<String>>,
+}
+
+impl TextRecord {
+    /// How many paragraphs it has, through every chapter.
+    fn paragraphs(&self) -> usize {
+        self.chapters.iter().map(|chapter| chapter.paragraphs.len()).sum()
+    }
 }
 
 /// A word taken into the deck from a sentence the learner read.
@@ -351,15 +371,29 @@ impl Model {
             let what = format!("the text {:?}", text.title);
             listed(languages, &text.language, &what)?;
             ensure!(!text.title.trim().is_empty(), "a text has no title");
-            ensure!(!text.paragraphs.is_empty(), "{what} has nothing to read");
+            let named = |name: Option<&String>| name.is_none_or(|name| !name.trim().is_empty());
             ensure!(
-                text.paragraphs
+                named(text.author.as_ref()) && named(text.source.as_ref()),
+                "{what} names an author or a source that is empty"
+            );
+            ensure!(
+                text.chapters.iter().all(|chapter| named(chapter.title.as_ref())),
+                "{what} has a chapter whose title is empty"
+            );
+            ensure!(!text.chapters.is_empty(), "{what} has nothing to read");
+            ensure!(
+                text.chapters.iter().all(|chapter| !chapter.paragraphs.is_empty()),
+                "{what} has a chapter with nothing to read"
+            );
+            ensure!(
+                text.chapters
                     .iter()
+                    .flat_map(|chapter| &chapter.paragraphs)
                     .all(|paragraph| !paragraph.is_empty() && paragraph.iter().all(|sentence| !sentence.trim().is_empty())),
                 "{what} has an empty paragraph or sentence"
             );
             ensure!(
-                usize::try_from(text.paragraph).is_ok_and(|at| at < text.paragraphs.len()),
+                usize::try_from(text.paragraph).is_ok_and(|at| at < text.paragraphs()),
                 "{what} is read at paragraph {}, which it does not have",
                 text.paragraph
             );
@@ -605,7 +639,7 @@ async fn read(pool: &SqlitePool, at: Option<DateTime<Utc>>, now: DateTime<Utc>) 
 async fn read_texts(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Vec<TextRecord>> {
     let by_then = |moment: &DateTime<Utc>| at.is_none_or(|at| *moment <= at);
     let mut texts = Vec::new();
-    for row in sqlx::query("SELECT id, language, title, format, added_at, opened_at, paragraph, finished_at FROM text ORDER BY added_at, id")
+    for row in sqlx::query("SELECT id, language, title, author, source, format, added_at, opened_at, paragraph, finished_at FROM text ORDER BY added_at, id")
         .fetch_all(pool)
         .await
         .context("failed to read the texts")?
@@ -621,32 +655,53 @@ async fn read_texts(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Vec<
                 .transpose()?
                 .filter(|moment| by_then(moment)))
         };
-        let mut paragraphs: Vec<Vec<String>> = Vec::new();
+        let id: i64 = row.get("id");
+        let starts: Vec<(Option<String>, i64)> = sqlx::query_as("SELECT title, paragraph FROM chapter WHERE text_id = ? ORDER BY position")
+            .bind(id)
+            .fetch_all(pool)
+            .await
+            .context("failed to read the chapters of a text")?;
+        let mut chapters: Vec<ChapterRecord> = starts
+            .iter()
+            .map(|(title, _)| ChapterRecord {
+                title: title.clone(),
+                paragraphs: Vec::new(),
+            })
+            .collect();
+        let mut last: Option<i64> = None;
         for (paragraph, sentence) in sqlx::query_as::<_, (i64, String)>(
             "SELECT ts.paragraph, s.text FROM text_sentence ts JOIN sentence s ON s.id = ts.sentence_id
              WHERE ts.text_id = ? ORDER BY ts.position",
         )
-        .bind(row.get::<i64, _>("id"))
+        .bind(id)
         .fetch_all(pool)
         .await
         .context("failed to read the sentences of a text")?
         {
-            let paragraph = usize::try_from(paragraph).unwrap_or(0);
-            if paragraphs.len() <= paragraph {
-                paragraphs.resize_with(paragraph + 1, Vec::new);
+            let chapter = starts.iter().rposition(|(_, first)| *first <= paragraph).unwrap_or(0);
+            let Some(record) = chapters.get_mut(chapter) else { continue };
+            if last != Some(paragraph) || record.paragraphs.is_empty() {
+                record.paragraphs.push(Vec::new());
             }
-            paragraphs[paragraph].push(sentence);
+            last = Some(paragraph);
+            if let Some(sentences) = record.paragraphs.last_mut() {
+                sentences.push(sentence);
+            }
         }
-        let last = i64::try_from(paragraphs.len()).unwrap_or(i64::MAX) - 1;
+        chapters.retain(|chapter| !chapter.paragraphs.is_empty());
+        let paragraphs: usize = chapters.iter().map(|chapter| chapter.paragraphs.len()).sum();
+        let last = i64::try_from(paragraphs).unwrap_or(i64::MAX) - 1;
         texts.push(TextRecord {
             language: row.get("language"),
             title: row.get("title"),
+            author: row.get("author"),
+            source: row.get("source"),
             format: Format::parse(&row.get::<String, _>("format"))?,
             added_at,
             opened_at: moment("opened_at")?,
             paragraph: row.get::<i64, _>("paragraph").clamp(0, last.max(0)),
             finished_at: moment("finished_at")?,
-            paragraphs,
+            chapters,
         });
     }
     Ok(texts)
@@ -1075,35 +1130,30 @@ async fn write_cards(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, cards: &[Card
 /// words taken from them.
 async fn write_reading(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, model: &Model) -> Result<()> {
     for text in &model.texts {
-        let id: i64 = sqlx::query_scalar(
-            "INSERT INTO text (language, title, format, added_at, opened_at, paragraph, finished_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+        let chapters: Vec<Chapter> = text
+            .chapters
+            .iter()
+            .map(|chapter| Chapter {
+                title: chapter.title.clone(),
+                paragraphs: chapter.paragraphs.clone(),
+            })
+            .collect();
+        reading::write(
+            tx,
+            &Written {
+                language: &text.language,
+                title: &text.title,
+                author: text.author.as_deref(),
+                source: text.source.as_deref(),
+                format: text.format,
+                added_at: text.added_at,
+                opened_at: text.opened_at,
+                paragraph: text.paragraph,
+                finished_at: text.finished_at,
+            },
+            &chapters,
         )
-        .bind(&text.language)
-        .bind(&text.title)
-        .bind(text.format.as_str())
-        .bind(stamp(text.added_at))
-        .bind(text.opened_at.map(stamp))
-        .bind(text.paragraph)
-        .bind(text.finished_at.map(stamp))
-        .fetch_one(&mut **tx)
-        .await
-        .with_context(|| format!("failed to write the text {:?}", text.title))?;
-        let mut position = 0i64;
-        for (paragraph, sentences) in text.paragraphs.iter().enumerate() {
-            for sentence in sentences {
-                let sentence_id = reading::keep_sentence(tx, &text.language, sentence).await?;
-                sqlx::query("INSERT INTO text_sentence (text_id, position, paragraph, sentence_id) VALUES (?, ?, ?, ?)")
-                    .bind(id)
-                    .bind(position)
-                    .bind(i64::try_from(paragraph).unwrap_or(i64::MAX))
-                    .bind(sentence_id)
-                    .execute(&mut **tx)
-                    .await
-                    .with_context(|| format!("failed to write a sentence of the text {:?}", text.title))?;
-                position += 1;
-            }
-        }
+        .await?;
     }
     for pick in &model.picks {
         let sentence_id = reading::keep_sentence(tx, &pick.sentence.language, &pick.sentence.text).await?;

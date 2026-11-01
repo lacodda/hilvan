@@ -132,7 +132,22 @@ async fn serve(config: &config::Config) -> Result<()> {
     );
 
     let voices = voices(config)?;
-    axum::serve(listener, app::router(pool, config.password_hash.clone(), &config.web_dir, voices))
+    let state = app::AppState::new(pool, config.password_hash.clone(), voices);
+    // The texts are read once while the server already answers: a library
+    // of books is seconds of work on a Pi, and the first list should not
+    // wait for it.
+    let (library, pool) = (state.library.clone(), state.pool.clone());
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        match library.read_all(&pool).await {
+            Ok(texts) => tracing::info!(texts, elapsed_ms = started.elapsed().as_millis(), "the library is read"),
+            Err(error) => tracing::warn!(
+                error = format!("{error:#}"),
+                "the library could not be read ahead; texts are read when asked for"
+            ),
+        }
+    });
+    axum::serve(listener, app::routes(state, &config.web_dir))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("server error")?;

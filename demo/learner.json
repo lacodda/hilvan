@@ -1,9 +1,9 @@
 {
-  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-3.json",
-  "format": 3,
+  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-4.json",
+  "format": 4,
   "exported_at": "2026-01-29T08:40:00Z",
   "as_of": "2026-01-29T08:40:00Z",
-  "app": {"name":"hilvan","version":"0.8.0"},
+  "app": {"name":"hilvan","version":"0.10.0"},
   "languages": [
     {"code":"ru","native":true},
     {"code":"en","native":false}
@@ -2324,8 +2324,9 @@
     {"from":"2026-01-21T19:04:09.628Z","until":"2026-01-25T20:19:00Z"}
   ],
   "texts": [
-    {"language":"en","title":"A morning at the market","format":"markdown","added_at":"2026-01-20T18:41:00Z","opened_at":"2026-01-20T18:45:55Z","paragraph":2,"finished_at":null,"paragraphs":[["Every Saturday my sister and I walk to the market near the river.","It opens early, and the best bread is gone by nine."],["The man who sells apples knows us.","He always asks about our mother, and he always gives us one more apple than we pay for."],["Last week it rained, but the market was full anyway.","People stood under the old bridge with their bags and talked about the weather."],["My sister bought flowers for the kitchen table.","I bought cheese, a few tomatoes and a small jar of honey."],["On the way home we stopped at a cafe.","The coffee was strong, and the window was warm from the sun that suddenly came out."]]},
-    {"language":"en","title":"Episode 1","format":"subtitles","added_at":"2026-01-26T20:10:00Z","opened_at":null,"paragraph":0,"finished_at":null,"paragraphs":[["Are you coming to the party tonight?","I can't.","I have to work late."],["That's a shame.","Maybe next time."]]}
+    {"language":"en","title":"A morning at the market","author":null,"source":null,"format":"markdown","added_at":"2026-01-20T18:41:00Z","opened_at":"2026-01-20T18:45:55Z","paragraph":2,"finished_at":null,"chapters":[{"title":null,"paragraphs":[["Every Saturday my sister and I walk to the market near the river.","It opens early, and the best bread is gone by nine."],["The man who sells apples knows us.","He always asks about our mother, and he always gives us one more apple than we pay for."],["Last week it rained, but the market was full anyway.","People stood under the old bridge with their bags and talked about the weather."],["My sister bought flowers for the kitchen table.","I bought cheese, a few tomatoes and a small jar of honey."],["On the way home we stopped at a cafe.","The coffee was strong, and the window was warm from the sun that suddenly came out."]]}]},
+    {"language":"en","title":"Episode 1","author":null,"source":null,"format":"subtitles","added_at":"2026-01-26T20:10:00Z","opened_at":null,"paragraph":0,"finished_at":null,"chapters":[{"title":null,"paragraphs":[["Are you coming to the party tonight?","I can't.","I have to work late."],["That's a shame.","Maybe next time."]]}]},
+    {"language":"en","title":"The Lighthouse","author":"Hilvan Demo","source":null,"format":"fb2","added_at":"2026-01-27T19:24:00Z","opened_at":"2026-01-27T19:30:00Z","paragraph":2,"finished_at":null,"chapters":[{"title":"Chapter 1. The Keeper","paragraphs":[["There was a lighthouse at the end of the road, and an old man lived in it.","Every evening he climbed the stairs and lit the lamp."],["The ships saw the light from far away.","They knew where the rocks were, and they went home safely."]]},{"title":"Chapter 2. The Storm","paragraphs":[["One night a storm came from the sea.","The wind was loud, the rain was cold, and the lamp went out."],["The old man found a candle in the kitchen.","He carried it up the stairs, slowly, with both hands."]]},{"title":"Chapter 3. The Morning","paragraphs":[["In the morning the sea was quiet again.","A small boat came to the rocks, and a girl jumped out."],["\"We saw your candle,\" she said.","\"My father is a fisherman.","He is home because of you.\""]]}]}
   ],
   "picks": [
     {"word":"en:bridge","sentence":{"language":"en","text":"People stood under the old bridge with their bags and talked about the weather."},"form":"bridge","start":27,"at":"2026-01-20T18:42:05Z"},
