@@ -8,6 +8,24 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.10.0] - 2026-11-01
+
+### Breaking Changes
+- The learner model file is format 4, described by learner-model-4.json: a text carries its `chapters`, `author` and `source`; files of format 3 are refused. `GET /api/texts` answers `{ texts, next }` rather than a list. The text table is built again so its ids are never given twice. The demo learner is made again with a book opened from a file.
+
+### Dependencies
+- Update the toolchain and dependencies
+
+### Documentation
+- Explain books, the shelf and format 4, and bump to 0.10.0
+
+### Features
+- Read books in chapters, take texts by a link or from the shelf, and pick the next one
+- Read a book by chapters, take from the shelf, and see what to read next
+
+### Refactoring
+- Tell the reader's place against the chapter it is in
+
 ## [0.9.0] - 2026-10-26
 
 ### Breaking Changes
