@@ -1,6 +1,6 @@
 [package]
 name = "hilvan"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.94"
 description = "A self-hosted language tutor: grammar formulas, spaced repetition and audio lessons compiled from what you already know"
@@ -42,9 +42,9 @@ axum-extra = { version = "0.12.6", features = ["cookie"] }
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock", "std"] }
 clap = { version = "4.6.7", features = ["derive"] }
 dotenvy = "0.15.7"
-encoding_rs = "0.8"
+encoding_rs = "0.8.44"
 hilvan-core = { path = "crates/core" }
-html5gum = "0.9"
+html5gum = "0.9.0"
 pulldown-cmark = { version = "0.13.6", default-features = false }
 rand = "0.10.3"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query"] }
@@ -62,7 +62,7 @@ toml = "1.1.8"
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.2.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"

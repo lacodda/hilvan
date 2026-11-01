@@ -24,7 +24,7 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 - **Typed, checked, mended by cause.** You type the sentence; the tutor checks it, tells a slipped shape from a missed word or the wrong order, grades the formula itself, and sends a missed word back to its own card. Nouns and verbs of your own life go into the drill beside the pack's.
 - **Words from the sentences you meet.** Each worked example marks the words it teaches; a word opens once you have met its sentence, is asked in that sentence by ear, and counts toward the commonest 1,000, 2,000 and 5,000 words of English.
 - **Every sentence heard.** The language you learn is spoken by a native ElevenLabs voice, your own by Piper running beside the tutor - slowly while a formula is new, at speaking speed once it holds. Each sound is made once and kept, and the paid budget shows how long it will last.
-- **Any text, measured.** Paste an article or import subtitles: the reader says how much of it is already yours, glosses any word you tap, and puts the ones you do not know into the deck with the sentence you met them in. A swipe says you know the rest of a paragraph.
+- **Any text, measured.** A book, an article, a link or subtitles: the reader says how much of it and of each chapter is already yours, glosses any word you tap, and puts the ones you do not know into the deck with the sentence you met them in. A shelf of open books and articles, and the tutor picks the next one at your level.
 - **A start from what you know.** On the first evening the commonest words go by one at a time; the ones you know start sewn and are checked when a sentence brings them, so the levels begin where you are, not at zero.
 - **Your learner model, yours.** Every answer, own word, inventory answer and text downloads as one JSON file with a [published schema](https://lacodda.github.io/hilvan/reference/learner-model/), imports on another stand, and shows any past day beside today.
 - **Spaced repetition that decides for you.** FSRS scheduling with three states - new, basted, sewn - picks one new formula a day and brings back what is due.
@@ -68,7 +68,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.9.0**, early, built for one learner: thirty formulas for a Russian speaker, a schedule that stops for a break, sittings that run out of the tutor's reach, and a reader that measures any text against what you know. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
+**v0.10.0**, early, built for one learner: thirty formulas for a Russian speaker, a schedule that stops for a break, sittings that run out of the tutor's reach, and a reader that measures any book or text against what you know and picks the next one. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
 
 ## Documentation
 

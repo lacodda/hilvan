@@ -29,6 +29,16 @@ cargo test --test demo -- --ignored    # writes demo/learner.json
 
 Run it when the pack renames what the demo learnt or the learner model changes shape; the gate fails until it is run. The same output comes out every time - the generator has a fixed seed of its own.
 
+## The shelf
+
+`shelves/en/profiles.tsv` is measured from the texts of the shelf's catalogue, fetched through the reader's own import. It needs the internet, so the gate does not run it; the gate fails when the profiles were measured with another lexicon or other bands.
+
+```sh
+cargo test --test shelf -- --ignored --nocapture    # writes shelves/en/profiles.tsv
+```
+
+Run it after changing `shelves/en/catalogue.toml`, the lexicon, its rules of reading, or the bands.
+
 ## The learner model format
 
-The schema of the learner model file is `docs/site/public/schema/learner-model-3.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.
+The schema of the learner model file is `docs/site/public/schema/learner-model-4.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.

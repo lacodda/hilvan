@@ -687,35 +687,50 @@ Takes declarations back, as the inventory's `DELETE` does: each card is what its
 
 ## Texts
 
-What the learner reads. A text is kept as sentences in paragraphs; every running word is read through the lexicon into the lemmas it can be, and the text says how much of it the learner holds. See [Reading](/hilvan/guides/reading/).
+What the learner reads: pastes, files, books, pages. A text is kept as chapters of paragraphs of sentences - a book has the chapters its source gives, anything else has one. Every running word is read through the lexicon into the lemmas it can be, and the text says how much of it the learner holds, as a whole and chapter by chapter. See [Reading](/hilvan/guides/reading/).
 
 ### `GET /api/texts`
 
-Every text, the one opened last first and those never opened after them, newest first.
+Every text, the one opened last first and those never opened after them, newest first - and what to read next.
 
 **Response** `200`:
 
 ```json
-[
-  {
-    "id": 3,
-    "title": "A morning at the market",
-    "language": "en",
-    "format": "markdown",
-    "added_at": "2026-10-20T18:41:00Z",
-    "opened_at": "2026-10-20T18:45:55Z",
-    "paragraph": 2,
-    "paragraphs": 5,
-    "finished_at": null,
-    "coverage": { "words": 120, "sewn": 101, "basted": 4, "deck": 3, "unknown": 11, "beyond": 1, "names": 0 }
-  }
-]
+{
+  "texts": [
+    {
+      "id": 3,
+      "title": "The Lighthouse",
+      "author": "Hilvan Demo",
+      "source": null,
+      "language": "en",
+      "format": "fb2",
+      "added_at": "2026-01-27T19:24:00Z",
+      "opened_at": "2026-01-27T19:30:00Z",
+      "paragraph": 2,
+      "paragraphs": 6,
+      "finished_at": null,
+      "coverage": { "words": 123, "sewn": 99, "basted": 1, "deck": 0, "unknown": 23, "beyond": 0, "names": 0 },
+      "chapters": 3,
+      "chapter": {
+        "position": 1,
+        "title": "Chapter 2. The Storm",
+        "paragraph": 2,
+        "paragraphs": 2,
+        "coverage": { "words": 40, "sewn": 30, "basted": 0, "deck": 0, "unknown": 10, "beyond": 0, "names": 0 }
+      }
+    }
+  ],
+  "next": { "kind": "text", "id": 2, "title": "Episode 1", "chapter": null, "chapter_title": null, "yours": 90, "started": false }
+}
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `format` | `plain` \| `markdown` \| `subtitles` | How it came in. |
-| `paragraph` | integer | The paragraph the learner stopped at, from 0. |
+| `author` | string \| null | Who wrote it, as the book or the page names them. |
+| `source` | string \| null | The link it came from; `null` for a text pasted or opened from a file. |
+| `format` | `plain` \| `markdown` \| `subtitles` \| `html` \| `wiki` \| `epub` \| `fb2` | How it came in: written out, a web page, a Wikipedia article, a book. |
+| `paragraph` | integer | The paragraph the learner stopped at, through the whole text, from 0. |
 | `finished_at` | string \| null | When the learner said they had read it. |
 | `coverage.words` | integer | Running words counted: every word but names. |
 | `coverage.sewn`, `.basted` | integer | Running words the learner holds - what "yours" counts. |
@@ -723,28 +738,65 @@ Every text, the one opened last first and those never opened after them, newest 
 | `coverage.unknown` | integer | Words of the lexicon not in hand. |
 | `coverage.beyond` | integer | Spellings the lexicon does not have: counted, and never the learner's. |
 | `coverage.names` | integer | Names, left out of `words`. |
+| `chapters` | integer | How many chapters it has: 1 for anything but a book. |
+| `chapter` | object | The chapter the learner stopped in: its `position` from 0, its `title` (`null` where the source names none), the `paragraph` it starts at through the whole text, how many `paragraphs` it has, and its own `coverage`. |
+| `next` | object \| null | What to read next - see below. |
 
-A running word is held when every word it is made of is - "don't" is *do* and *not* - and a word is held when any lemma its spelling can be is: "left" is *leave* or *left*.
+A running word is held when every word it is made of is - "don't" is *do* and *not* - and a word is held when any lemma its spelling can be is: "left" is *leave* or *left*. The text's coverage is the sum of its chapters'.
+
+`next` is the unfinished text - at the chapter the learner is in - or the [shelf](#get-apishelf) item not taken yet whose share of the learner's words stands nearest the window of 95 to 98 percent: `{ "kind": "text", "id", "title", "chapter", "chapter_title", "yours", "started" }`, `chapter` `null` for anything but a book, or `{ "kind": "shelf", "id", "title", "author", "estimate" }`. Below the window counts twice as far as above it: a text a little too easy reads, one a little too hard is work. Between equals, a text being read comes first, then a text of the learner's, then the one nearest the middle of the window. `null` when there is nothing to read.
 
 ### `POST /api/texts`
+
+A text pasted.
 
 ```json
 { "title": "Episode 1", "body": "1\n00:00:01,000 --> 00:00:03,200\nAre you coming tonight?\n", "format": "subtitles" }
 ```
 
-`title` and `format` may be left out: the title is then taken from a markdown text's first heading, or from its first sentence; the format is told from the text - subtitles when a line times a cue, markdown when a line is a heading or a link or bold stands in it, plain otherwise.
+`title` and `format` may be left out: the title is then taken from a markdown text's first heading, or from its first sentence; the format is told from the text - subtitles when a line times a cue, a web page when it opens as one, markdown when a line is a heading or a link or bold stands in it, plain otherwise.
 
 **Response** `201`: the text as the list shows it. **Response** `422` for a text with no sentence in it; `409` before a pack is loaded - the reader reads the language a pack teaches.
 
+### `POST /api/texts/file?name={name}`
+
+A file as it is: the body is its bytes, at most 64 MB. Its name says what it is - `.epub`, `.fb2` or `.fb2.zip`, `.html`, `.md`, `.srt`, `.vtt`, `.txt` - and without one its first bytes do. Text is read in the encoding it carries a mark of or declares - an XML declaration, an HTML `meta` - and otherwise as UTF-8, or Windows-1252 when it is not.
+
+An `EPUB` is read into the chapters its table of contents names, starting a chapter where an entry points; a book without a usable table of contents is a chapter a file. An `FB2` is read into its sections; the bodies of notes are not the book. In both, headings name chapters rather than stand as paragraphs, and notes, tables, pictures and page numbers are left out - as is a library's boilerplate, such as Project Gutenberg's licence. A title the book does not carry is taken from the file's name.
+
+**Response** `201`: the text as the list shows it. **Response** `422` for a file no format reads, a damaged book, or one with nothing to read.
+
+### `POST /api/texts/link`
+
+A text by its link.
+
+```json
+{ "url": "https://www.gutenberg.org/ebooks/11" }
+```
+
+| A link to | Is read as |
+| --- | --- |
+| A book of Project Gutenberg - its page, or any of its files | Its `EPUB`, in chapters. The source is the book's page. |
+| An article of any Wikipedia (`https://simple.wikipedia.org/wiki/Cat`) | The plain text the encyclopedia gives of it: no tables, references or boxes. The source is the article's page. |
+| A file of a book or a text | As [a file](#post-apitextsfilenamename), by what the server says it is and by its name. |
+| Any other page | The prose of its `article` - or of its `main`, or of its body when it has neither - without navigation, headers, footers and asides, and without lines too short to be prose. The title is what the page says it is when shared, or its first top heading. |
+
+**Response** `201`: the text as the list shows it. **Response** `422` for something that is not an `http` or `https` link, an article that does not exist, more than 64 MB, or nothing to read; `502` when the link cannot be reached or answers with an error.
+
 ### `GET /api/texts/{id}`
 
-The text as the reader shows it: the list's fields, and every sentence with its running words.
+One chapter of the text as the reader shows it - the one the learner stopped in, or the one asked for with `?chapter=` - with the list's fields, every chapter with its coverage, and every sentence of the chapter with its running words.
 
 ```json
 {
   "id": 3,
-  "title": "A morning at the market",
-  "paragraphs": 5,
+  "title": "The Lighthouse",
+  "chapters": 3,
+  "contents": [
+    { "position": 0, "title": "Chapter 1. The Keeper", "paragraph": 0, "paragraphs": 2, "coverage": { "words": 42, "sewn": 34, "...": 0 } },
+    { "position": 1, "title": "Chapter 2. The Storm", "paragraph": 2, "paragraphs": 2, "coverage": { "words": 40, "sewn": 30, "...": 0 } }
+  ],
+  "shown": 1,
   "lines": [[{ "sentence": 41, "text": "Harry went home.", "tokens": [
     { "start": 0, "length": 5, "parts": [], "name": true },
     { "start": 6, "length": 4, "parts": [[0]], "name": false },
@@ -757,16 +809,18 @@ The text as the reader shows it: the list's fields, and every sentence with its 
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `lines` | array of arrays | Each paragraph, the sentences in it. |
+| `contents` | array | Every chapter, as `chapter` in the list. |
+| `shown` | integer | The chapter shown: its position among `contents`. |
+| `lines` | array of arrays | The shown chapter's paragraphs, each the sentences in it; the first is the chapter's own first, `contents[shown].paragraph` through the whole text. |
 | `tokens[].start`, `.length` | integer | Where the running word stands, in characters. |
 | `tokens[].parts` | array of arrays | The words it is made of, each the lemmas it can be, as indices into `lemmas`. Empty for a name and for a spelling the lexicon does not have. |
-| `tokens[].name` | boolean | A capitalised word the lexicon does not have, or one inside a sentence it has only as a rare word - and that spelling capitalised anywhere else in the text. |
-| `lemmas` | array | Every lemma the text's words can be. |
+| `tokens[].name` | boolean | A capitalised word the lexicon does not have, or one inside a sentence it has only as a rare word - and that spelling capitalised anywhere else in the whole text, other chapters included. |
+| `lemmas` | array | Every lemma the shown chapter's words can be. |
 | `holds` | array | What the learner holds of each, by the same index: `"deck"`, `"basted"`, `"sewn"` or `null`. |
 
-The app counts the coverage again from `tokens` and `holds` after every change, with the code the server counts it with.
+The app counts the chapter's coverage again from `tokens` and `holds` after every change, with the code the server counts it with.
 
-**Response** `404` for no such text.
+**Response** `404` for no such text, or a chapter it does not have.
 
 ### `PATCH /api/texts/{id}`
 
@@ -776,13 +830,67 @@ Where the learner is, and whether they have read it all. Either field may be lef
 { "paragraph": 2, "finished": true }
 ```
 
-**Response** `200`: the text as the list shows it. A paragraph past the end is the last. `finished: true` keeps the moment it was first said; `false` takes it back.
+**Response** `200`: the text as the list shows it. The paragraph counts through the whole text, every chapter before it included; one past the end is the last. `finished: true` keeps the moment it was first said; `false` takes it back.
 
 ### `DELETE /api/texts/{id}`
 
-Lets a text go. The words taken from it stay in the deck with their sentences.
+Lets a text go. The words taken from it stay in the deck with their sentences. A text's id is never given to another one.
 
 **Response** `204`. **Response** `404` for no such text.
+
+### `GET /api/shelf`
+
+Open texts to read next - books of Project Gutenberg and articles of the Simple English Wikipedia - for the language being learnt, each with about how much of it is the learner's before it is fetched.
+
+```json
+{
+  "items": [
+    {
+      "id": "gutenberg-11",
+      "kind": "book",
+      "title": "Alice's Adventures in Wonderland",
+      "author": "Lewis Carroll",
+      "source": "https://www.gutenberg.org/ebooks/11",
+      "words": 25515,
+      "level": 5000,
+      "estimate": 81,
+      "taken": null
+    }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | `book` \| `article` | A book, in chapters, or an article. |
+| `words` | integer | Running words, names left out. |
+| `level` | integer \| null | The size of lexicon - 1000, 2000, 3000, 5000, 8000 or 10,000 commonest lemmas - that reads 95% of its running words; `null` past the whole lexicon. |
+| `estimate` | integer | About how much of it is the learner's, in percent: each band of the frequency list weighed by how many of its running words fall in the band and how many of the band's lemmas the learner holds. Measured on the demo learner, within a point of the exact count, a little under it. |
+| `taken` | integer \| null | The id of the learner's text it became, once taken. |
+
+The shelf is built into the server: a catalogue and the profile of every item, measured from its text - see [The shelf](/hilvan/reference/shelf/).
+
+### `POST /api/shelf/{id}`
+
+Takes an item of the shelf: fetched from its source and kept as a text, under the title and author the shelf gives it.
+
+**Response** `201`: the text as the list shows it. **Response** `404` for no such item; otherwise as [a link](#post-apitextslink).
+
+### `GET /api/picks/anki`
+
+The words taken from texts, as a file Anki imports (`text/tab-separated-values`, `hilvan-words.txt`): a note a word, the sentence it was taken from on the front with the word in bold, and on the back the word, its sound, its meaning and the text - and chapter - it was read in.
+
+```text
+#separator:tab
+#html:true
+#notetype:Basic
+#deck:hilvan
+#guid column:1
+#tags column:4
+hilvan:en:suddenly:5b1c0e2a9f13	<b>Suddenly</b> it rained.	<b>suddenly</b> /ˈsʌdənli/ - вдруг<br><i>Rain</i>	hilvan
+```
+
+The first column is the note's id, made of the word and the sentence, so a file imported again - into Anki 2.1.55 and later, or `AnkiDroid` 2.17 - updates the notes it made rather than adding them twice.
 
 ## Learner model
 

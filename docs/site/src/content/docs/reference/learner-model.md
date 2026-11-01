@@ -11,21 +11,21 @@ The material is not in it. Packs are files of their own and the lexicon is built
 
 The format is published as a JSON Schema (draft 2020-12):
 
-**[`https://lacodda.github.io/hilvan/schema/learner-model-3.json`](/hilvan/schema/learner-model-3.json)**
+**[`https://lacodda.github.io/hilvan/schema/learner-model-4.json`](/hilvan/schema/learner-model-4.json)**
 
 Every file names it in `$schema`, and every file hilvan writes follows it - the test suite checks each export against it. What the schema refuses, `hilvan import` refuses too; import also checks what a schema cannot say: nothing listed twice, and every language the file names is one it lists. A change that would make a reader of this format misread a file is a new format, with a schema of its own.
 
-Format 3 (from v0.9.0) adds `texts` and `picks`; format 2 (from v0.7.0) added `breaks`. hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
+Format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and a `source`; format 3 (from v0.9.0) added `texts` and `picks`; format 2 (from v0.7.0) added `breaks`. hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-3.json`](/hilvan/schema/learner-model-3.json), [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
 
 ## What is in it
 
 ```json
 {
-  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-3.json",
-  "format": 3,
+  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-4.json",
+  "format": 4,
   "exported_at": "2026-10-12T15:00:00Z",
   "as_of": "2026-10-12T15:00:00Z",
-  "app": { "name": "hilvan", "version": "0.9.0" },
+  "app": { "name": "hilvan", "version": "0.10.0" },
   "languages": [{ "code": "ru", "native": true }, { "code": "en", "native": false }],
   "packs": [{ "id": "en-from-ru", "version": 6 }],
   "cards": [
@@ -52,9 +52,20 @@ Format 3 (from v0.9.0) adds `texts` and `picks`; format 2 (from v0.7.0) added `b
   "breaks": [{ "from": "2026-09-25T19:30:00Z", "until": "2026-09-29T07:00:00Z" }],
   "texts": [
     {
-      "language": "en", "title": "A morning at the market", "format": "markdown",
+      "language": "en", "title": "A morning at the market", "author": null, "source": null, "format": "markdown",
       "added_at": "2026-10-20T18:41:00Z", "opened_at": "2026-10-20T18:45:55Z", "paragraph": 2, "finished_at": null,
-      "paragraphs": [["Every Saturday my sister and I walk to the market near the river.", "It opens early."], ["Last week it rained."]]
+      "chapters": [
+        { "title": null, "paragraphs": [["Every Saturday my sister and I walk to the market near the river.", "It opens early."], ["Last week it rained."]] }
+      ]
+    },
+    {
+      "language": "en", "title": "Alice's Adventures in Wonderland", "author": "Lewis Carroll",
+      "source": "https://www.gutenberg.org/ebooks/11", "format": "epub",
+      "added_at": "2026-10-28T19:00:00Z", "opened_at": "2026-10-28T19:02:00Z", "paragraph": 40, "finished_at": null,
+      "chapters": [
+        { "title": "CHAPTER I. Down the Rabbit-Hole", "paragraphs": [["Alice was beginning to get very tired of sitting by her sister on the bank."]] },
+        { "title": "CHAPTER II. The Pool of Tears", "paragraphs": [["“Curiouser and curiouser!” cried Alice."]] }
+      ]
     }
   ],
   "picks": [
@@ -72,7 +83,7 @@ Format 3 (from v0.9.0) adds `texts` and `picks`; format 2 (from v0.7.0) added `b
 | `attempts` | The turns typed for a said formula: what was asked, the answer it was read against, what was typed and what failed - `formula`, `order` or `word`. |
 | `anchors` | The sentence each word is heard in, by its text. |
 | `inventory` | Every answer of the inventory, yes and no. |
-| `texts` | The texts the learner reads, whole: paragraphs of sentences, how each came in, where the learner stopped and whether they said they had read it. |
+| `texts` | The texts the learner reads, whole: chapters of paragraphs of sentences - a book's chapters as its source names them, one chapter for anything else - who wrote it and the link it came from where known, how it came in, where the learner stopped (the paragraph through the whole text) and whether they said they had read it. |
 | `picks` | The words taken into the deck from a sentence of a text, by the sentence's text: the sentence is one the word was met in, and it outlives the text. |
 | `breaks` | The breaks taken, earliest first: the stretches the schedule's clock stood still. `until` is `null` for one still going on. They do not overlap, only the last may lack an end, and none holds an asked answer - one may start at the moment of the last answer, which is how an absence is counted afterwards. |
 
