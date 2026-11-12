@@ -1,0 +1,48 @@
+# How hilvan is released, read by furca's release engine: `furca release
+# plan` says what the next release is and what stands in its way, `furca
+# release run` carries it out - bump, changelog, gate, commit, push, green CI,
+# tag, publish - and checks what went out. `lyrn check` reads it too.
+# Reference: https://lacodda.github.io/furca/reference/release/
+
+[project]
+name = "hilvan"
+changelog = "CHANGELOG.md"
+# The server, the app and the docs site carry the same version.
+manifests = [
+    "Cargo.toml",
+    "web/package.json",
+    "docs/site/package.json",
+]
+# ADRs record what happened: the versions they name are history. So do the
+# learner model's published schemas, one per format.
+as_written = ["docs/adr/"]
+
+[gate]
+# Formatting only: it takes seconds and compiles nothing. The rest of the gate
+# is CI, which the run waits for before the tag.
+commands = [
+    "cargo fmt --check",
+]
+
+[ci]
+provider = "github"
+workflow = "ci.yml"
+# The tag also starts publish.yml, which publishes the two container images.
+publish = "release.yml"
+
+# No crate is published to a registry: the tutor ships as the container
+# images and the archives of the release page.
+
+# The files the tag's release page has to carry, checked after the publish.
+[page]
+assets = [
+    "hilvan-{tag}-x86_64-pc-windows-msvc.zip",
+    "hilvan-{tag}-x86_64-unknown-linux-gnu.tar.gz",
+    "hilvan-{tag}-aarch64-unknown-linux-gnu.tar.gz",
+]
+
+# No [post.deploy]: the stand is updated by hand after the release is out -
+# the database copied aside with sqlite3 .backup before the migration, the
+# version pinned in the stand's .env, the pack reloaded when it changed, and
+# the new data looked for in the database. A deploy that only uploads and
+# restarts would skip the copy and the reload.
