@@ -125,7 +125,8 @@ describe('nextPrompt', () => {
     }
     expect(nextPrompt(topical, 0, first, render, 'work').target).toBe('He is a doctor.')
     expect(nextPrompt(topical, 3, first, render, 'work').target).toBe('He is a doctor.')
-    expect(nextPrompt(topical, 0, first, render, 'food').target).toBe('I am at home.', 'a topic it has no sentence of asks them all')
+    // A topic it has no sentence of asks them all.
+    expect(nextPrompt(topical, 0, first, render, 'food').target).toBe('I am at home.')
     expect(nextPrompt(topical, 0, first, render).target).toBe('I am at home.')
   })
 
