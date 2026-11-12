@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress'
 import { useDelivery } from '@/delivery'
 import { useKeys } from '@/keys'
 import { awayLine, breakLine, roomLine } from '@/schedule'
-import { fitting, minutesOf, ofTopic, topicsOf } from '@/sitting'
+import { fitting, minutesOf, topicsOf } from '@/sitting'
 import { asOfLine, describeQueue, nextLine, waitingLine } from '@/today'
 import { levelLine, levelName } from '@/words'
 
@@ -31,6 +31,7 @@ const stitches = [
 export function TodayScreen({
   day,
   onStart,
+  onTopic,
   onListen,
   onRead,
   onVoices,
@@ -46,6 +47,8 @@ export function TodayScreen({
   day: Day
   /** Starts a sitting over these cards: the whole queue, or what fits a few minutes. */
   onStart: (items: Due[]) => void
+  /** Starts a sitting of one topic: its cards, and the formulas' sentences of it. */
+  onTopic: (topic: string) => void
   onListen: () => void
   /** Your texts, and reading one. */
   onRead: () => void
@@ -128,25 +131,6 @@ export function TodayScreen({
         {sending && <p className="text-base text-faint">{sending}</p>}
       </section>
 
-      {topical.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h3 className="text-base font-medium tracking-caption text-dim uppercase">One topic at a time</h3>
-          <div className="flex flex-wrap gap-2">
-            {topical.map(({ topic, count }) => (
-              <Button
-                key={topic.id}
-                onClick={() => onStart(ofTopic(queue, topic.id))}
-                variant="ghost"
-                size={null}
-                className="px-3 py-2 text-base text-text"
-              >
-                {topic.name} <span className="text-faint">· {count}</span>
-              </Button>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* An absence nobody declared: one tap makes it a break, and what came
           due in it stops being owed. Offered until the first answer. */}
       {today.away_since && (
@@ -173,6 +157,27 @@ export function TodayScreen({
         <span className="block text-xl font-medium">Read</span>
         <span className="block text-base text-faint">A book, an article, a text of your own: see how much of it is yours, tap a word you do not know.</span>
       </Button>
+
+      {/* Another way into the same day: its cards about one thing, the
+          formulas asking their sentences of it. */}
+      {topical.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-base font-medium tracking-caption text-dim uppercase">One topic at a time</h3>
+          <div className="flex flex-wrap gap-2">
+            {topical.map(({ topic, count }) => (
+              <Button
+                key={topic.id}
+                onClick={() => onTopic(topic.id)}
+                variant="ghost"
+                size={null}
+                className="px-3 py-2 text-base text-text"
+              >
+                {topic.name} <span className="text-faint">· {count}</span>
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Starting from what is known: the commonest words, one question
           each. Offered here for the start; once a word is declared known,

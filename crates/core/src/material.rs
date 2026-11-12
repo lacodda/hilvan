@@ -25,6 +25,10 @@ pub struct Sample {
     /// Other spellings of `target` just as right: "I am not hungry." for
     /// "I'm not hungry.".
     pub accept: Vec<String>,
+    /// The topics the sentence is about, by id: a sitting of one topic asks
+    /// the formula's sentences of that topic.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<String>,
 }
 
 /// A word marked in a sentence.

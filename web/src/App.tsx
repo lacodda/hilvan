@@ -31,7 +31,7 @@ import { PairCard } from '@/PairCard'
 import { ReaderScreen } from '@/ReaderScreen'
 import { ShelfScreen } from '@/ShelfScreen'
 import { SignIn } from '@/SignIn'
-import { badgeCount, cardOf, fitting, plan, soundsOf, unanswered, type Plan } from '@/sitting'
+import { badgeCount, cardOf, fitting, ofTopic, plan, planOfTopic, soundsOf, unanswered, type Plan } from '@/sitting'
 import { opening as thenOpening } from '@/then'
 import { ThenAndNowScreen } from '@/ThenAndNowScreen'
 import { TextsScreen } from '@/TextsScreen'
@@ -119,7 +119,7 @@ function minutesAsked(): number | null {
  */
 type View =
   | { kind: 'today' }
-  | { kind: 'drilling'; items: Due[]; index: number }
+  | { kind: 'drilling'; items: Due[]; index: number; plan?: Plan }
   | { kind: 'listening'; sentences: Promise<Heard[]> }
   | { kind: 'voices'; screen: Promise<Voices> }
   | { kind: 'own-words'; words: Promise<OwnWord[]> }
@@ -395,7 +395,7 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
     if (due.kind === 'pair') return <PairCard key={cardOf(due)} due={due} {...turn} />
     return due.kind === 'formula' ? (
       <Suspense fallback={<Shell>Opening the checker…</Shell>}>
-        <Drill key={cardOf(due)} due={due} prompts={day.plan[cardOf(due)] ?? []} {...turn} />
+        <Drill key={cardOf(due)} due={due} prompts={(view.plan ?? day.plan)[cardOf(due)] ?? []} {...turn} />
       </Suspense>
     ) : (
       <WordCard key={cardOf(due)} due={due} {...turn} />
@@ -406,6 +406,17 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
     <TodayScreen
       day={day}
       onStart={(items) => setView({ kind: 'drilling', items, index: 0 })}
+      onTopic={(topic) => {
+        // The topic's own sentences, asked by the core; without it the
+        // formulas fall back to their samples.
+        const items = ofTopic(queue, topic)
+        void checker()
+          .then(
+            (loaded) => loaded.render,
+            () => unrendered,
+          )
+          .then((render) => setView({ kind: 'drilling', items, index: 0, plan: planOfTopic(items, topic, Math.random, render) }))
+      }}
       onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
       onRead={toTexts}
       onVoices={() => setView({ kind: 'voices', screen: api.voices() })}

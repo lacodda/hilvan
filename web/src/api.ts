@@ -27,6 +27,8 @@ export interface Sample extends Pair {
   words: Mark[]
   /** Other spellings just as right: "I am not hungry." for "I'm not hungry.". */
   accept: string[]
+  /** The topics the sentence is about, by id; absent when it is in none. */
+  topics?: string[]
 }
 
 /** One filling for a slot, with the forms that agree with it. */

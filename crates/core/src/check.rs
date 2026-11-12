@@ -320,6 +320,7 @@ mod tests {
                 parts: vec![],
             }],
             accept: vec![],
+            topics: vec!["home".to_string()],
         };
         let json = serde_json::to_string(&sample).unwrap();
         assert_eq!(serde_json::from_str::<Sample>(&json).unwrap(), sample);

@@ -1727,6 +1727,21 @@ async fn samples(pool: &SqlitePool, formula_id: &str, native: &str) -> Result<Ve
         });
     }
 
+    let mut topics: BTreeMap<i64, Vec<String>> = BTreeMap::new();
+    for (sentence, topic) in sqlx::query_as::<_, (i64, String)>(
+        "SELECT st.sentence_id, st.topic_id FROM sentence_topic st
+         JOIN topic t ON t.pack_id = st.pack_id AND t.id = st.topic_id
+         WHERE st.sentence_id IN (SELECT sentence_id FROM formula_sentence WHERE formula_id = ?)
+         ORDER BY st.sentence_id, t.position",
+    )
+    .bind(formula_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to read the topics of a formula's samples")?
+    {
+        topics.entry(sentence).or_default().push(topic);
+    }
+
     rows.iter()
         .map(|row| {
             let sentence: i64 = row.get("id");
@@ -1735,6 +1750,7 @@ async fn samples(pool: &SqlitePool, formula_id: &str, native: &str) -> Result<Ve
                 sentence,
                 native: row.get("translation"),
                 target: row.get("text"),
+                topics: topics.remove(&sentence).unwrap_or_default(),
                 words: by_sentence.get(&sentence).cloned().unwrap_or_default(),
                 accept: serde_json::from_str(&accept).with_context(|| format!("the spellings sentence {sentence} accepts are not JSON: {accept}"))?,
             })

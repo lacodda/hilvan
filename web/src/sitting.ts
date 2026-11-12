@@ -129,6 +129,19 @@ export function plan(queue: readonly Due[], kept: Plan, random: Random, render: 
   return planned
 }
 
+/**
+ * The questions of a sitting of one topic: drawn afresh, each formula's
+ * sentences taken from those of the topic.
+ */
+export function planOfTopic(queue: readonly Due[], topic: string, random: Random, render: Render): Plan {
+  const planned: Plan = {}
+  for (const due of queue) {
+    if (due.kind !== 'formula') continue
+    planned[cardOf(due)] = Array.from({ length: TURNS }, (_, turn) => nextPrompt(due.formula, turn, random, render, topic))
+  }
+  return planned
+}
+
 /** Whether a question kept from an earlier read is one the formula still asks. */
 export function stillAsks(formula: Formula, prompt: Prompt): boolean {
   const { asked } = prompt

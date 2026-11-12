@@ -95,9 +95,13 @@ export function substitute(formula: Formula, random: Random, render: Render): Pr
  * are natural sentences an adult actually says, and a drill that is only
  * assembled fragments drifts away from the language.
  */
-export function nextPrompt(formula: Formula, turn: number, random: Random, render: Render): Prompt {
+export function nextPrompt(formula: Formula, turn: number, random: Random, render: Render, topic?: string): Prompt {
   const wantsSample = turn % 3 === 0
-  const sample = formula.samples.length > 0 ? formula.samples[turn % formula.samples.length] : undefined
+  // A sitting of one topic asks the formula's sentences of that topic, while
+  // it has any.
+  const about = topic === undefined ? [] : formula.samples.filter((sample) => sample.topics?.includes(topic))
+  const samples = about.length > 0 ? about : formula.samples
+  const sample = samples.length > 0 ? samples[turn % samples.length] : undefined
 
   if (wantsSample && sample) {
     return { native: sample.native, target: sample.target, source: 'sample', asked: { sample: sample.sentence } }

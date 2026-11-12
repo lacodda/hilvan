@@ -157,7 +157,7 @@ export function PairCard({
           {question.translation && <p className="text-lg text-dim">{question.translation}</p>}
           {chosen && chosen.chosen !== question.answer && (
             <p className="text-base text-bad">
-              Not {lemmaOf(pair.words, chosen.chosen)} here: {lemmaOf(pair.words, question.answer)}.
+              Here it is &ldquo;{lemmaOf(pair.words, question.answer)}&rdquo;, not &ldquo;{lemmaOf(pair.words, chosen.chosen)}&rdquo;.
             </p>
           )}
         </section>

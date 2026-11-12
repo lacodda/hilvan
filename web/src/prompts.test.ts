@@ -118,6 +118,17 @@ describe('render', () => {
 })
 
 describe('nextPrompt', () => {
+  it('asks the sentences of the topic a sitting is of, while the formula has any', () => {
+    const topical: Formula = {
+      ...formula,
+      samples: [formula.samples[0]!, { ...formula.samples[1]!, topics: ['work'] }],
+    }
+    expect(nextPrompt(topical, 0, first, render, 'work').target).toBe('He is a doctor.')
+    expect(nextPrompt(topical, 3, first, render, 'work').target).toBe('He is a doctor.')
+    expect(nextPrompt(topical, 0, first, render, 'food').target).toBe('I am at home.', 'a topic it has no sentence of asks them all')
+    expect(nextPrompt(topical, 0, first, render).target).toBe('I am at home.')
+  })
+
   it('opens on a worked sample, so the shape is shown before it is asked for', () => {
     expect(nextPrompt(formula, 0, first, render)).toEqual({
       native: 'prompt one',
