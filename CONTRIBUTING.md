@@ -41,4 +41,4 @@ Run it after changing `shelves/en/catalogue.toml`, the lexicon, its rules of rea
 
 ## The learner model format
 
-The schema of the learner model file is `docs/site/public/schema/learner-model-4.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.
+The schema of the learner model file is `docs/site/public/schema/learner-model-5.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.

@@ -87,6 +87,8 @@ pub fn routes(state: AppState, web_dir: &Path) -> Router {
         .route("/formulas/{id}/review", post(review))
         .route("/own-words", get(own_words).post(add_own_word))
         .route("/own-words/{id}", delete(remove_own_word))
+        .route("/pairs/{id}", get(pair))
+        .route("/pairs/{id}/review", post(review_pair))
         .route("/words/{id}", get(word))
         .route("/words/{id}/review", post(review_word))
         .route("/words/{id}/examples", get(word_examples))
@@ -406,6 +408,21 @@ async fn word(State(state): State<AppState>, UrlPath(id): UrlPath<String>) -> Re
 
 async fn review_word(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(sent): Json<Sent<Graded>>) -> Response {
     match study::review_word(&state.pool, &id, sent, Utc::now()).await {
+        Ok(reviewed) => Json(reviewed).into_response(),
+        Err(error) => answer_failed(error),
+    }
+}
+
+async fn pair(State(state): State<AppState>, UrlPath(id): UrlPath<String>) -> Response {
+    match crate::pairs::pair(&state.pool, &id).await {
+        Ok(pair) => Json(pair).into_response(),
+        // A pair that is not there is a client asking for the wrong id.
+        Err(error) => (StatusCode::NOT_FOUND, Json(json!({ "error": error.to_string() }))).into_response(),
+    }
+}
+
+async fn review_pair(State(state): State<AppState>, UrlPath(id): UrlPath<String>, Json(sent): Json<Sent<crate::pairs::Chosen>>) -> Response {
+    match study::review_pair(&state.pool, &id, sent, Utc::now()).await {
         Ok(reviewed) => Json(reviewed).into_response(),
         Err(error) => answer_failed(error),
     }

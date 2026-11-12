@@ -17,6 +17,7 @@ pub mod lexicon;
 pub mod model;
 pub mod own;
 pub mod pack;
+pub mod pairs;
 pub mod reading;
 pub mod scheduling;
 pub mod shelf;

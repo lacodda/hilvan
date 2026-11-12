@@ -33,10 +33,24 @@ pub struct Mark {
     /// The word's id, `en:doctor`.
     pub word: String,
     pub lemma: String,
-    /// How it is spelt here: "went" for go.
+    /// How it is spelt here: "went" for go, and for a phrase the stretch
+    /// from its first word to its last - "turned the light off" for turn off.
     pub form: String,
     /// The character it starts at.
     pub start: i64,
+    /// A phrase's own words as they stand here - "turned" and "off" - which
+    /// are what a typed answer has to bring; empty for a word of one, whose
+    /// `form` is its only word.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<String>,
+}
+
+impl Mark {
+    /// The words of the sentence that are this mark's own.
+    pub fn spellings(&self) -> impl Iterator<Item = &str> {
+        let whole = self.parts.is_empty().then_some(self.form.as_str());
+        whole.into_iter().chain(self.parts.iter().map(String::as_str))
+    }
 }
 
 /// A hole in the pattern, with what can go in it.

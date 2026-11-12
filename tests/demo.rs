@@ -26,6 +26,7 @@ use hilvan::lexicon;
 use hilvan::model::{self, Model};
 use hilvan::own::{self, NewWord};
 use hilvan::pack::{self, OwnKind, Pack};
+use hilvan::pairs;
 use hilvan::reading;
 use hilvan::say::Template;
 use hilvan::scheduling::{Rating, Scheduler, Source};
@@ -53,7 +54,7 @@ async fn tutor() -> (SqlitePool, tempfile::TempDir) {
 }
 
 fn schema() -> jsonschema::Validator {
-    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-4.json")).expect("the schema should be in the docs");
+    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-5.json")).expect("the schema should be in the docs");
     let schema: Json = serde_json::from_str(&text).expect("the schema should be JSON");
     jsonschema::options()
         .should_validate_formats(true)
@@ -241,6 +242,29 @@ async fn sitting(pool: &SqlitePool, dice: &mut Dice, now: &mut DateTime<Utc>) {
                         duration_ms: Some(duration_ms),
                     };
                     study::review_word(pool, &word.id, sent(graded, *now), *now).await.unwrap();
+                }
+                Subject::Pair { pair } => {
+                    // Mostly right, now and then the other word again.
+                    let choices = pair
+                        .questions
+                        .iter()
+                        .map(|question| {
+                            let other = pair
+                                .words
+                                .iter()
+                                .find(|side| side.id != question.answer)
+                                .map_or(&question.answer, |side| &side.id);
+                            pairs::Choice {
+                                text: question.text.clone(),
+                                chosen: if dice.chance(0.8) { question.answer.clone() } else { other.clone() },
+                            }
+                        })
+                        .collect();
+                    let chosen = pairs::Chosen {
+                        choices,
+                        duration_ms: Some(duration_ms),
+                    };
+                    study::review_pair(pool, &pair.id, sent(chosen, *now), *now).await.unwrap();
                 }
             }
             *now += Duration::milliseconds(duration_ms + 3_000);

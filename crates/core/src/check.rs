@@ -102,7 +102,7 @@ pub fn judge(formula: &Asking<'_>, turn: &Turn) -> Result<(String, Checked), Una
                 .iter()
                 .find(|sample| sample.sentence == *sentence)
                 .ok_or_else(|| unanswerable(format!("shows no sentence {sentence}")))?;
-            let marks: Vec<&str> = sample.words.iter().map(|mark| mark.form.as_str()).collect();
+            let marks: Vec<&str> = sample.words.iter().flat_map(crate::material::Mark::spellings).collect();
             let variants: Vec<Variant> = std::iter::once(&sample.target)
                 .chain(&sample.accept)
                 .map(|text| Variant::from_sentence(text, &marks))
@@ -317,6 +317,7 @@ mod tests {
                 lemma: "home".to_string(),
                 form: "home".to_string(),
                 start: 8,
+                parts: vec![],
             }],
             accept: vec![],
         };

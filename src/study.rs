@@ -19,6 +19,7 @@ use crate::drift::{self, Note};
 use crate::lexicon;
 use crate::own;
 use crate::pack::{Form, OwnKind};
+use crate::pairs::{self, Chosen, Pair};
 use crate::scheduling::{self, Break, Card, Direction, Kind, Rating, Scheduler, Source, Stitch};
 use crate::words::{self, Standing, Word};
 
@@ -145,6 +146,9 @@ pub enum Subject {
     },
     /// A word, asked in its sentence.
     Word { word: Word },
+    /// Two words the learner confuses, asked in sentences with the word
+    /// left out.
+    Pair { pair: Pair },
 }
 
 /// One item in today's queue: a formula in a direction, or a word, and the
@@ -165,6 +169,67 @@ pub struct Due {
     /// predicted to fall to 90%. 0 for a card never answered. The card draws
     /// it as a bar, not as the number.
     pub stability: f64,
+    /// What it is about: the topics of the sentences it is asked in, by id.
+    /// A sitting of one topic is the items that name it.
+    pub topics: Vec<String>,
+}
+
+/// A topic the pack's sentences are about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Topic {
+    pub id: String,
+    /// As the app shows it: "Food".
+    pub name: String,
+}
+
+/// Every topic of the packs loaded, in the order each pack lists them.
+async fn topics(pool: &SqlitePool) -> Result<Vec<Topic>> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT t.id, t.name FROM topic t JOIN pack p ON p.id = t.pack_id
+         ORDER BY p.loaded_at, p.id, t.position",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to read the topics")?;
+    let mut seen = BTreeSet::new();
+    Ok(rows
+        .into_iter()
+        .filter(|(id, _)| seen.insert(id.clone()))
+        .map(|(id, name)| Topic { id, name })
+        .collect())
+}
+
+/// The topics some sentences are in, each once, in the order the packs
+/// list them.
+async fn topics_of(pool: &SqlitePool, sentences: &[i64]) -> Result<Vec<String>> {
+    if sentences.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids = serde_json::to_string(sentences).context("failed to write sentence ids")?;
+    let rows: Vec<String> = sqlx::query_scalar(
+        "SELECT st.topic_id FROM sentence_topic st JOIN topic t ON t.pack_id = st.pack_id AND t.id = st.topic_id
+         WHERE st.sentence_id IN (SELECT value FROM json_each(?))
+         GROUP BY st.topic_id ORDER BY min(t.position), st.topic_id",
+    )
+    .bind(ids)
+    .fetch_all(pool)
+    .await
+    .context("failed to read the topics of some sentences")?;
+    Ok(rows)
+}
+
+/// The sentences of the language that say one of some texts.
+async fn sentences_saying(pool: &SqlitePool, language: &str, texts: &[&str]) -> Result<Vec<i64>> {
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let texts = serde_json::to_string(texts).context("failed to write sentence texts")?;
+    sqlx::query_scalar("SELECT id FROM sentence WHERE language = ? AND text IN (SELECT value FROM json_each(?))")
+        .bind(language)
+        .bind(texts)
+        .fetch_all(pool)
+        .await
+        .context("failed to look up sentences by what they say")
 }
 
 /// How quickly a card is answered, as the second dimension of knowing it.
@@ -261,6 +326,9 @@ pub struct Today {
     /// The moment this was read. A copy the device keeps for a sitting out
     /// of reach says how old it is.
     pub as_of: DateTime<Utc>,
+    /// The topics the packs' sentences are about: what a sitting of one
+    /// topic is chosen from. Each item of the queue names its own.
+    pub topics: Vec<Topic>,
     /// How long an answer usually takes, by what it is about: what a sitting
     /// of a few minutes is measured with for a card that has no pace of its
     /// own yet.
@@ -286,6 +354,8 @@ pub struct Usual {
     /// A formula understood: heard and graded.
     pub recognise: Option<i64>,
     pub word: Option<i64>,
+    /// A pair: a few sentences, a choice in each.
+    pub pair: Option<i64>,
 }
 
 /// How many of the latest answers [`Usual`] is the median of.
@@ -423,6 +493,7 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
     } else {
         let room = room(pool, now, &stops).await?;
         let mut queue = formulas_today(pool, now, &stops, room).await?;
+        queue.extend(pairs_today(pool, now, &stops).await?);
         queue.extend(words_today(pool, now, &stops, room).await?);
         (room, queue)
     };
@@ -447,6 +518,7 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
         .into_iter()
         .map(|(_, _, back)| back)
         .chain(words::coming(pool, horizon, &stops).await?.into_iter().map(|(_, back)| back))
+        .chain(pairs_coming(pool, horizon, &stops).await?.into_iter().map(|(_, back)| back))
         .filter(|back| *back > now)
         .collect();
     coming.sort_unstable();
@@ -465,6 +537,7 @@ pub async fn today(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Today> {
         as_of: now,
         usual: usual(pool).await?,
         coming,
+        topics: topics(pool).await?,
     })
 }
 
@@ -474,6 +547,7 @@ async fn usual(pool: &SqlitePool) -> Result<Usual> {
         produce: usual_for(pool, Kind::Formula(Direction::Produce)).await?,
         recognise: usual_for(pool, Kind::Formula(Direction::Recognise)).await?,
         word: usual_for(pool, Kind::Word).await?,
+        pair: usual_for(pool, Kind::Pair).await?,
     })
 }
 
@@ -526,7 +600,7 @@ async fn debt(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result
 
     let rows = sqlx::query(
         "SELECT c.id, c.kind, c.due, c.last_reviewed, NULL AS met_at FROM card c
-         WHERE c.kind IN ('formula', 'formula-recognise') AND c.state != 'new'
+         WHERE c.kind IN ('formula', 'formula-recognise', 'pair') AND c.state != 'new'
          UNION ALL
          SELECT c.id, c.kind, c.due, c.last_reviewed,
                 (SELECT min(m.met_at) FROM met m WHERE m.word_id = c.subject_id) AS met_at
@@ -684,6 +758,99 @@ async fn formulas_coming(pool: &SqlitePool, until: DateTime<Utc>, breaks: &[Brea
     Ok(coming)
 }
 
+/// How many pairs open a day. A pair comes from the learner's own mistakes
+/// and is asked soon after them, but two new pairs in a day are as many
+/// differences as a sitting takes in.
+pub const NEW_PAIRS_PER_DAY: usize = 2;
+
+/// The pairs of today's queue: those due, then the new ones, at most
+/// [`NEW_PAIRS_PER_DAY`] a day. They take no room from new words: a pair is
+/// opened by mistakes already made, not by material the day brings.
+async fn pairs_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break]) -> Result<Vec<Due>> {
+    let mut queue = Vec::new();
+    for (id, _) in pairs_coming(pool, now, breaks).await? {
+        queue.push(pair_due(pool, &id, false, now).await?);
+    }
+    let started_today = introduced_since(pool, Kind::Pair, start_of_day(now)).await?;
+    let room = i64::try_from(NEW_PAIRS_PER_DAY).unwrap_or(i64::MAX) - started_today;
+    let mut left = usize::try_from(room.max(0)).unwrap_or(0);
+    let new: Vec<String> = sqlx::query_scalar("SELECT subject_id FROM card WHERE kind = 'pair' AND state = 'new' ORDER BY due, subject_id")
+        .fetch_all(pool)
+        .await
+        .context("failed to read the pairs not started")?;
+    for id in new {
+        if left == 0 {
+            break;
+        }
+        let due = pair_due(pool, &id, true, now).await?;
+        // A pair with no sentence to ask waits until one is met.
+        if matches!(&due.subject, Subject::Pair { pair } if !pair.questions.is_empty()) {
+            queue.push(due);
+            left -= 1;
+        }
+    }
+    Ok(queue)
+}
+
+/// The pairs that have come back by `until`, with the moment each does.
+async fn pairs_coming(pool: &SqlitePool, until: DateTime<Utc>, breaks: &[Break]) -> Result<Vec<(String, DateTime<Utc>)>> {
+    let rows = sqlx::query(
+        "SELECT subject_id, due, last_reviewed FROM card
+         WHERE kind = 'pair' AND state != 'new' AND due <= ?
+         ORDER BY due, subject_id",
+    )
+    .bind(until.to_rfc3339())
+    .fetch_all(pool)
+    .await
+    .context("failed to read the pairs coming back")?;
+    let mut coming = Vec::with_capacity(rows.len());
+    for row in rows {
+        let Some(back) = back_at(&row.get::<String, _>("due"), row.get("last_reviewed"), breaks)? else {
+            continue;
+        };
+        if back <= until {
+            coming.push((row.get("subject_id"), back));
+        }
+    }
+    Ok(coming)
+}
+
+/// One queue entry for a pair, with its sentences and its pace.
+async fn pair_due(pool: &SqlitePool, id: &str, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
+    let card = card(pool, Kind::Pair, id).await?;
+    let pair = pairs::pair(pool, id).await?;
+    let texts: Vec<&str> = pair.questions.iter().map(|question| question.text.as_str()).collect();
+    let sentences = sentences_saying(pool, &pair.languages.target, &texts).await?;
+    Ok(Due {
+        topics: topics_of(pool, &sentences).await?,
+        subject: Subject::Pair { pair },
+        stitch: card.as_ref().map_or(Stitch::New, |card| card.stitch),
+        stability: card.map_or(0.0, |card| card.stability),
+        is_new,
+        due: now,
+        pace: pace(pool, Kind::Pair, id).await?,
+    })
+}
+
+/// Records an answer to a pair: each choice checked by the sentence it was
+/// made for, the round graded as a typed one is.
+///
+/// # Errors
+///
+/// `NotFound` when there is no such pair, `Unanswerable` for an answer
+/// without an identity or a choice that cannot be checked, `Database` when
+/// the database rejects a statement.
+pub async fn review_pair(pool: &SqlitePool, pair_id: &str, sent: Sent<Chosen>, now: DateTime<Utc>) -> Result<Reviewed, AnswerError> {
+    let arrival = Arrival::of(&sent, now)?;
+    if let Some(reply) = receipt(pool, arrival.id).await? {
+        return Ok(reply);
+    }
+    let (rating, _) = pairs::grade(pair_id, &sent.answer.choices).map_err(|refused| AnswerError::Unanswerable(refused.to_string()))?;
+    take(pool, &arrival, Kind::Pair, pair_id, Given::asked(rating, sent.answer.duration_ms, &[]), &[])
+        .await?
+        .ok_or_else(|| AnswerError::NotFound(format!("pair called {pair_id}")))
+}
+
 /// The words of today's queue: those due, then as many met words as the
 /// day's room for new ones holds.
 async fn words_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break], room: Room) -> Result<Vec<Due>> {
@@ -703,11 +870,11 @@ async fn words_today(pool: &SqlitePool, now: DateTime<Utc>, breaks: &[Break], ro
 async fn due(pool: &SqlitePool, id: &str, direction: Direction, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
     let kind = Kind::Formula(direction);
     let card = card(pool, kind, id).await?;
+    let formula = formula(pool, id).await?;
+    let sentences: Vec<i64> = formula.samples.iter().map(|sample| sample.sentence).collect();
     Ok(Due {
-        subject: Subject::Formula {
-            formula: formula(pool, id).await?,
-            direction,
-        },
+        topics: topics_of(pool, &sentences).await?,
+        subject: Subject::Formula { formula, direction },
         stitch: card.as_ref().map_or(Stitch::New, |card| card.stitch),
         stability: card.map_or(0.0, |card| card.stability),
         is_new,
@@ -719,10 +886,11 @@ async fn due(pool: &SqlitePool, id: &str, direction: Direction, is_new: bool, no
 /// One queue entry for a word, with its contexts and its pace.
 async fn word_due(pool: &SqlitePool, id: &str, is_new: bool, now: DateTime<Utc>) -> Result<Due> {
     let card = card(pool, Kind::Word, id).await?;
+    let word = words::word(pool, id).await?;
+    let sentences: Vec<i64> = word.contexts.iter().map(|context| context.sentence).collect();
     Ok(Due {
-        subject: Subject::Word {
-            word: words::word(pool, id).await?,
-        },
+        topics: topics_of(pool, &sentences).await?,
+        subject: Subject::Word { word },
         stitch: card.as_ref().map_or(Stitch::New, |card| card.stitch),
         stability: card.map_or(0.0, |card| card.stability),
         is_new,
@@ -785,17 +953,49 @@ pub async fn review(pool: &SqlitePool, formula_id: &str, sent: Sent<Answer>, now
                     typed: typed.clone(),
                     failure: checked.failure,
                     missed: checked.missed.clone(),
+                    swapped: crate::pairs::read(&formula.languages.target, &checked.swapped),
                 })
                 .collect();
             // The failure goes to the deck that owns it: a word the shape
             // carried and the learner did not have comes back on its own
             // card, and the formula is not marked down for it.
-            let missed: Vec<&str> = judged
-                .iter()
-                .filter(|(_, checked, _)| checked.failure == Some(Failure::Word))
-                .flat_map(|(_, checked, _)| checked.missed.iter().map(String::as_str))
-                .collect();
-            let words = cards_for(pool, &formula.languages.target, &missed).await?;
+            //
+            // A word missed in one of the formula's own sentences is the
+            // word marked there - a phrase's "off" is turn off's, not a word
+            // of its own; one missed in a substitution is read by the lexicon.
+            let mut marked: Vec<String> = Vec::new();
+            let mut missed: Vec<&str> = Vec::new();
+            for ((_, checked, _), turn) in judged.iter().zip(turns) {
+                if checked.failure != Some(Failure::Word) {
+                    continue;
+                }
+                let sample = match &turn.asked {
+                    Asked::Sample(sentence) => formula.samples.iter().find(|sample| sample.sentence == *sentence),
+                    Asked::Values(_) => None,
+                };
+                for spelling in &checked.missed {
+                    let key = spelling.to_lowercase();
+                    let marks = sample.map(|sample| &sample.words).into_iter().flatten();
+                    let owners: Vec<&str> = marks
+                        .filter(|mark| mark.spellings().any(|part| part.to_lowercase() == key))
+                        .map(|mark| mark.word.as_str())
+                        .collect();
+                    if owners.is_empty() {
+                        missed.push(spelling);
+                    }
+                    for owner in owners {
+                        if !marked.iter().any(|word| word == owner) {
+                            marked.push(owner.to_string());
+                        }
+                    }
+                }
+            }
+            let mut words = cards_for(pool, &formula.languages.target, &missed).await?;
+            for word in marked {
+                if !words.contains(&word) && card(pool, Kind::Word, &word).await?.is_some() {
+                    words.push(word);
+                }
+            }
 
             let reviewed = take(
                 pool,
@@ -1133,6 +1333,8 @@ pub(crate) async fn replay(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: K
         let taught: bool = match kind {
             Kind::Word => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM word WHERE id = ?1) OR EXISTS (SELECT 1 FROM pick WHERE word_id = ?1)"),
             Kind::Formula(_) => sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM formula WHERE id = ?)"),
+            // A pair is the turns' to say, and they stay: its card is kept.
+            Kind::Pair => sqlx::query_scalar("SELECT ? IS NOT NULL"),
         }
         .bind(subject)
         .fetch_one(&mut **tx)
@@ -1206,6 +1408,9 @@ struct Attempt {
     typed: String,
     failure: Option<Failure>,
     missed: Vec<String>,
+    /// The words typed in the place of others, read into lemmas: what the
+    /// confusion pairs are found from ([`crate::pairs`]).
+    swapped: Vec<(String, String)>,
 }
 
 /// Adds an answer to a card's history at the moment it was given, with the
@@ -1244,8 +1449,8 @@ async fn record(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subjec
     // mistakes, which later versions pair into confusions and explain.
     for (position, attempt) in attempts.iter().enumerate() {
         sqlx::query(
-            "INSERT INTO attempt (review_id, position, prompt, expected, typed, correct, failure, missed)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO attempt (review_id, position, prompt, expected, typed, correct, failure, missed, swapped)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(review)
         .bind(i64::try_from(position).unwrap_or(i64::MAX))
@@ -1255,9 +1460,13 @@ async fn record(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subjec
         .bind(i64::from(attempt.failure.is_none()))
         .bind(attempt.failure.map(Failure::as_str))
         .bind(serde_json::to_string(&attempt.missed).context("failed to write the missed words of a turn")?)
+        .bind(serde_json::to_string(&attempt.swapped).context("failed to write the swaps of a turn")?)
         .execute(&mut **tx)
         .await
         .context("failed to record a typed turn")?;
+    }
+    if attempts.iter().any(|attempt| !attempt.swapped.is_empty()) {
+        crate::pairs::open(tx, at).await?;
     }
     replay(tx, kind, subject, at).await
 }
@@ -1490,13 +1699,31 @@ async fn samples(pool: &SqlitePool, formula_id: &str, native: &str) -> Result<Ve
     .fetch_all(pool)
     .await
     .context("failed to read the words of a formula's samples")?;
+    let texts: HashMap<i64, String> = rows.iter().map(|row| (row.get("id"), row.get("text"))).collect();
     let mut by_sentence: BTreeMap<i64, Vec<Mark>> = BTreeMap::new();
     for row in marks {
-        by_sentence.entry(row.get("sentence_id")).or_default().push(Mark {
-            word: row.get("word_id"),
-            lemma: row.get("lemma"),
+        let sentence: i64 = row.get("sentence_id");
+        let word: String = row.get("word_id");
+        let lemma: String = row.get("lemma");
+        // A phrase's own words, found in its sentence again: they are a
+        // reading of the lemma and the text, which the database has, so they
+        // are not kept a second time.
+        let parts = if lemma.contains(' ') {
+            let language = word.split_once(':').map_or("", |(language, _)| language);
+            texts
+                .get(&sentence)
+                .and_then(|text| lexicon::locate(lexicon::of(language), text, &lemma))
+                .map(|found| found.parts.iter().map(|part| part.text.to_string()).collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        by_sentence.entry(sentence).or_default().push(Mark {
+            word,
+            lemma,
             form: row.get("form"),
             start: row.get("start"),
+            parts,
         });
     }
 
@@ -1677,21 +1904,21 @@ mod tests {
             static NONE: String = String::new();
             match &self.subject {
                 Subject::Formula { formula, .. } => &formula.id,
-                Subject::Word { .. } => &NONE,
+                Subject::Word { .. } | Subject::Pair { .. } => &NONE,
             }
         }
 
         fn direction(&self) -> Option<Direction> {
             match &self.subject {
                 Subject::Formula { direction, .. } => Some(*direction),
-                Subject::Word { .. } => None,
+                Subject::Word { .. } | Subject::Pair { .. } => None,
             }
         }
 
         fn word_id(&self) -> Option<&str> {
             match &self.subject {
                 Subject::Word { word } => Some(&word.id),
-                Subject::Formula { .. } => None,
+                Subject::Formula { .. } | Subject::Pair { .. } => None,
             }
         }
     }
@@ -2824,6 +3051,7 @@ gloss = "занятой"
                     };
                     review(&pool, &formula.id, said, at(2)).await.map(|_| ())
                 }
+                Subject::Pair { .. } => unreachable!("no word was swapped for another here"),
             }
             .unwrap();
         }
@@ -3162,7 +3390,8 @@ gloss = "занятой"
             Usual {
                 produce: Some(4_000),
                 recognise: None,
-                word: None
+                word: None,
+                pair: None
             },
             "the median of the timed answers, once there are enough of them"
         );

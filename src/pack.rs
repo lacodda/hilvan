@@ -57,6 +57,10 @@ pub struct Pack {
     /// The words the formulas' sentences teach.
     #[serde(default, rename = "word")]
     pub words: Vec<Word>,
+    /// What the sentences are about - food, the road, work - in the order a
+    /// sitting of one topic offers them.
+    #[serde(default, rename = "topic")]
+    pub topics: Vec<Topic>,
     /// The file of the glossary, next to the pack's own: `glossary.tsv`.
     #[serde(default)]
     pub glossary: Option<String>,
@@ -73,11 +77,22 @@ pub struct Pack {
 /// language, and its lexicon says them.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Word {
-    /// As written: "doctor", "I", "Monday". One word - a phrase is a
-    /// collocation, and those are a later version's.
+    /// As written: "doctor", "I", "Monday" - or a phrase the deck learns as
+    /// one word: a collocation, "make a decision", or a phrasal verb, "turn
+    /// off". Each of its words is found in a sentence by its forms, in order,
+    /// a few others allowed between them ([`lexicon::locate`]).
     pub lemma: String,
     /// What it means, in the pack's native language.
     pub gloss: String,
+}
+
+/// What some of a pack's sentences are about: a sitting can be of one topic.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Topic {
+    /// Stable across versions, as the sentences name it: "food".
+    pub id: String,
+    /// As the app shows it, in the language of the interface: "Food".
+    pub name: String,
 }
 
 /// The id a word's card keys on: the language and the lowercase lemma.
@@ -210,6 +225,9 @@ pub struct Sample {
     /// hungry.".
     #[serde(default)]
     pub accept: Vec<String>,
+    /// The topics the sentence is about, each one the pack declares.
+    #[serde(default)]
+    pub topics: Vec<String>,
 }
 
 /// A hole in the pattern the drill substitutes into.
@@ -337,7 +355,60 @@ impl Pack {
         self.validate_parents()?;
         self.validate_families()?;
         self.validate_words()?;
+        self.validate_topics()?;
         self.validate_glossary()
+    }
+
+    /// The rules that make a topic a sitting worth starting.
+    ///
+    /// A topic has an id and a name, once; every topic a sentence names is
+    /// declared, once per sentence; every declared topic is in some
+    /// sentence, or its sitting would hold nothing; and a sentence two
+    /// formulas share is about the same things in both.
+    fn validate_topics(&self) -> Result<()> {
+        let mut declared = HashSet::new();
+        for topic in &self.topics {
+            if topic.id.trim().is_empty() || topic.name.trim().is_empty() {
+                bail!("a topic has no id or no name");
+            }
+            if !declared.insert(topic.id.as_str()) {
+                bail!("two topics share the id {:?}", topic.id);
+            }
+        }
+        let mut used = HashSet::new();
+        let mut sentences: HashMap<&str, BTreeSet<&str>> = HashMap::new();
+        for formula in &self.formulas {
+            for sample in &formula.samples {
+                let mut named = BTreeSet::new();
+                for topic in &sample.topics {
+                    if !declared.contains(topic.as_str()) {
+                        bail!(
+                            "formula {:?} puts {:?} in the topic {topic:?}, which the pack does not declare",
+                            formula.id,
+                            sample.target
+                        );
+                    }
+                    if !named.insert(topic.as_str()) {
+                        bail!("formula {:?} puts {:?} in {topic:?} twice", formula.id, sample.target);
+                    }
+                    used.insert(topic.as_str());
+                }
+                match sentences.entry(sample.target.as_str()) {
+                    Entry::Vacant(vacant) => {
+                        vacant.insert(named);
+                    }
+                    Entry::Occupied(occupied) => {
+                        if *occupied.get() != named {
+                            bail!("{:?} is in different topics in two formulas", sample.target);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(topic) = self.topics.iter().find(|topic| !used.contains(topic.id.as_str())) {
+            bail!("topic {:?} holds no sentence: a sitting of it would be empty", topic.id);
+        }
+        Ok(())
     }
 
     /// The rules a glossary keeps: every line a lemma of the language's
@@ -418,11 +489,8 @@ impl Pack {
             if word.lemma.trim().is_empty() {
                 bail!("a word has no lemma");
             }
-            if word.lemma.contains(char::is_whitespace) {
-                bail!(
-                    "word {:?} is not one word: a lemma is a single word, and phrases arrive with collocations",
-                    word.lemma
-                );
+            if word.lemma.split_whitespace().collect::<Vec<_>>().join(" ") != word.lemma {
+                bail!("word {:?} is spaced oddly: a phrase is its words with one space between them", word.lemma);
             }
             if word.gloss.trim().is_empty() {
                 bail!("word {:?} has no gloss", word.lemma);
@@ -447,7 +515,7 @@ impl Pack {
                             sample.target
                         );
                     }
-                    if lexicon::find(lexicon, &sample.target, lemma).is_none() {
+                    if lexicon::locate(lexicon, &sample.target, lemma).is_none() {
                         bail!(
                             "formula {:?} marks {lemma:?} in {:?}, which holds neither it nor any form of it",
                             formula.id,
@@ -738,6 +806,8 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
 
     insert_parents(&mut tx, pack).await?;
 
+    insert_topics(&mut tx, pack).await?;
+
     insert_glossary(&mut tx, pack).await?;
 
     // A sentence nothing shows any more is gone, and an anchor in it with
@@ -778,6 +848,44 @@ pub async fn load(pool: &SqlitePool, pack: &Pack) -> Result<Loaded> {
         new_cards,
         changed: true,
     })
+}
+
+/// Replaces the pack's topics, and puts each sentence in the topics it
+/// names.
+async fn insert_topics(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack) -> Result<()> {
+    sqlx::query("DELETE FROM topic WHERE pack_id = ?")
+        .bind(&pack.id)
+        .execute(&mut **tx)
+        .await
+        .context("failed to clear the previous topics of the pack")?;
+    for (position, topic) in pack.topics.iter().enumerate() {
+        sqlx::query("INSERT INTO topic (pack_id, id, name, position) VALUES (?, ?, ?, ?)")
+            .bind(&pack.id)
+            .bind(&topic.id)
+            .bind(&topic.name)
+            .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("failed to insert topic {}", topic.id))?;
+    }
+    for sample in pack.formulas.iter().flat_map(|formula| &formula.samples) {
+        for topic in &sample.topics {
+            // `OR IGNORE`: a sentence two formulas share is put in its
+            // topics once, and the validator has made sure the two agree.
+            sqlx::query(
+                "INSERT OR IGNORE INTO sentence_topic (sentence_id, pack_id, topic_id)
+                 SELECT id, ?, ? FROM sentence WHERE language = ? AND text = ?",
+            )
+            .bind(&pack.id)
+            .bind(topic)
+            .bind(&pack.target)
+            .bind(&sample.target)
+            .execute(&mut **tx)
+            .await
+            .with_context(|| format!("failed to put {:?} in the topic {topic}", sample.target))?;
+        }
+    }
+    Ok(())
 }
 
 /// Replaces the pack's glossary with the one it carries now.
@@ -908,14 +1016,14 @@ async fn insert_sample(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, pack: &Pack
     for lemma in &sample.words {
         // The validator has found every mark already; a miss here is a pack
         // loaded without being read through `Pack::read`.
-        let token = lexicon::find(lexicon, &sample.target, lemma).with_context(|| format!("{lemma:?} is not in {:?}", sample.target))?;
+        let found = lexicon::locate(lexicon, &sample.target, lemma).with_context(|| format!("{lemma:?} is not in {:?}", sample.target))?;
         // `OR IGNORE`: a sentence two formulas share is marked once, and the
         // validator has made sure the two marks agree.
         sqlx::query("INSERT OR IGNORE INTO sentence_word (sentence_id, word_id, form, start) VALUES (?, ?, ?, ?)")
             .bind(sentence)
             .bind(word_id(&pack.target, lemma))
-            .bind(token.text)
-            .bind(i64::try_from(token.start).unwrap_or(i64::MAX))
+            .bind(found.text)
+            .bind(i64::try_from(found.start).unwrap_or(i64::MAX))
             .execute(&mut **tx)
             .await
             .with_context(|| format!("failed to mark {lemma:?} in {:?}", sample.target))?;
@@ -1716,19 +1824,103 @@ order = 10
     }
 
     #[test]
-    fn a_word_without_a_gloss_or_of_two_words_is_rejected() {
+    fn a_word_without_a_gloss_or_spaced_oddly_is_rejected() {
         let error = with_words("[[word]]\nlemma = \"doctor\"\ngloss = \" \"\n", "\"doctor\"")
             .validate()
             .unwrap_err();
         assert!(format!("{error:#}").contains("no gloss"), "{error:#}");
-        let error = with_words("[[word]]\nlemma = \"a doctor\"\ngloss = \"врач\"\n", "\"a doctor\"")
+        let error = with_words("[[word]]\nlemma = \"a  doctor\"\ngloss = \"врач\"\n", "\"a  doctor\"")
             .validate()
             .unwrap_err();
-        assert!(format!("{error:#}").contains("not one word"), "{error:#}");
+        assert!(format!("{error:#}").contains("spaced oddly"), "{error:#}");
         let error = with_words(&format!("{DOCTOR}[[word]]\nlemma = \"Doctor\"\ngloss = \"доктор\"\n"), "\"doctor\"")
             .validate()
             .unwrap_err();
         assert!(format!("{error:#}").contains("share the lemma"), "{error:#}");
+    }
+
+    #[test]
+    fn a_phrase_is_a_word_found_by_its_own_words() {
+        // "is a doctor": be in its form, a, doctor - a collocation of three.
+        let pack = with_words("[[word]]\nlemma = \"be a doctor\"\ngloss = \"быть врачом\"\n", "\"be a doctor\"");
+        pack.validate().expect("a phrase found in its sentence is a word like any other");
+        let error = with_words("[[word]]\nlemma = \"be a nurse\"\ngloss = \"быть медсестрой\"\n", "\"be a nurse\"")
+            .validate()
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("holds neither it nor any form of it"), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn a_phrase_is_marked_from_its_first_word_to_its_last() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let pack = with_words("[[word]]\nlemma = \"be a doctor\"\ngloss = \"быть врачом\"\n", "\"be a doctor\"");
+        load(&pool, &pack).await.unwrap();
+        let (form, start): (String, i64) = sqlx::query_as("SELECT form, start FROM sentence_word WHERE word_id = 'en:be a doctor'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!((form.as_str(), start), ("is a doctor", 3));
+    }
+
+    fn topical(topics: &str, named: &str) -> Pack {
+        parse(&format!(
+            r#"
+id = "w"
+version = 1
+native = "ru"
+target = "en"
+{topics}
+
+[[formula]]
+id = "be"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 10
+
+  [[formula.sample]]
+  native = "Он врач."
+  target = "He is a doctor."
+  topics = [{named}]
+"#
+        ))
+    }
+
+    #[tokio::test]
+    async fn a_sentence_is_put_in_the_topics_it_names() {
+        let food = "[[topic]]\nid = \"work\"\nname = \"Work\"\n\n[[topic]]\nid = \"people\"\nname = \"People\"\n";
+        let pack = topical(food, "\"work\", \"people\"");
+        pack.validate().unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        load(&pool, &pack).await.unwrap();
+        let topics: Vec<String> = sqlx::query_scalar("SELECT topic_id FROM sentence_topic ORDER BY topic_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert_eq!(topics, ["people", "work"]);
+
+        let mut fewer = topical("[[topic]]\nid = \"work\"\nname = \"Work\"\n", "\"work\"");
+        fewer.version = 2;
+        load(&pool, &fewer).await.unwrap();
+        let topics: Vec<String> = sqlx::query_scalar("SELECT topic_id FROM sentence_topic").fetch_all(&pool).await.unwrap();
+        assert_eq!(topics, ["work"], "a reload puts the sentence in the topics it names now");
+    }
+
+    #[test]
+    fn a_topic_undeclared_doubled_or_empty_is_rejected() {
+        let work = "[[topic]]\nid = \"work\"\nname = \"Work\"\n";
+        let error = topical(work, "\"food\"").validate().unwrap_err();
+        assert!(format!("{error:#}").contains("does not declare"), "{error:#}");
+        let error = topical(work, "\"work\", \"work\"").validate().unwrap_err();
+        assert!(format!("{error:#}").contains("twice"), "{error:#}");
+        let error = topical(&format!("{work}\n[[topic]]\nid = \"food\"\nname = \"Food\"\n"), "\"work\"")
+            .validate()
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("holds no sentence"), "{error:#}");
+        let error = topical(&format!("{work}\n{work}"), "\"work\"").validate().unwrap_err();
+        assert!(format!("{error:#}").contains("share the id"), "{error:#}");
     }
 
     #[test]
@@ -1821,6 +2013,7 @@ order = 10
             target: "They are busy.".to_string(),
             words: Vec::new(),
             accept: Vec::new(),
+            topics: Vec::new(),
         };
         load(&pool, &shrunk).await.unwrap();
 

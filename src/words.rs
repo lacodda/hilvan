@@ -49,7 +49,22 @@ pub struct Word {
     /// The sentences it has been met in, its anchor first. Before the word
     /// has been met anywhere, every sentence of a pack that holds it.
     pub contexts: Vec<Context>,
+    /// The other words of its family - *decision* and *decisive* for
+    /// *decide* - commonest first; empty for a word made from no other.
+    pub family: Vec<Kin>,
     pub languages: Languages,
+}
+
+/// A word of the same family, shown with the word it is kin to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Kin {
+    /// `en:decision`.
+    pub id: String,
+    pub lemma: String,
+    /// What it means, by the glossary; `None` when it has no line there.
+    pub gloss: Option<String>,
+    /// What the learner holds of it; `None` when it is not in hand.
+    pub hold: Option<Hold>,
 }
 
 /// One sentence a word stands in.
@@ -209,8 +224,23 @@ pub async fn word(pool: &SqlitePool, id: &str) -> Result<Word> {
         None => glossed(pool, id, &native).await?,
     };
 
+    let mut family = Vec::new();
+    for kin in lexicon::of(language).map(|lexicon| lexicon.family(key)).unwrap_or_default() {
+        let kin_id = word_id(language, &kin.lemma);
+        if kin_id == id {
+            continue;
+        }
+        family.push(Kin {
+            gloss: glossed(pool, &kin_id, &native).await?,
+            hold: reading::hold(pool, &kin_id).await?,
+            lemma: kin.lemma.clone(),
+            id: kin_id,
+        });
+    }
+
     Ok(Word {
         contexts: contexts(pool, id, &native).await?,
+        family,
         id: id.to_string(),
         gloss,
         ipa: entry.and_then(|entry| entry.ipa.clone()),
@@ -881,7 +911,7 @@ mod tests {
             .iter()
             .filter_map(|due| match &due.subject {
                 Subject::Word { word } => Some((word.id.as_str(), due.is_new)),
-                Subject::Formula { .. } => None,
+                Subject::Formula { .. } | Subject::Pair { .. } => None,
             })
             .collect()
     }
@@ -931,6 +961,34 @@ mod tests {
         assert_eq!(word(&pool, "en:doctor").await.unwrap().gloss.as_deref(), Some("врач"));
         assert_eq!(word(&pool, "en:the").await.unwrap().gloss, None, "a word the glossary does not have");
         assert!(word(&pool, "en:zxqv").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_word_shows_its_family_with_what_each_means_and_how_it_is_held() {
+        let pool = tutor().await;
+        let housing = word(&pool, "en:housing").await.unwrap();
+        assert_eq!(
+            housing.family,
+            vec![Kin {
+                id: "en:house".to_string(),
+                lemma: "house".to_string(),
+                gloss: Some("дом".to_string()),
+                hold: None,
+            }],
+            "the kin, glossed, and not in hand"
+        );
+
+        let taken = sentence(&pool, "She went to the house.").await;
+        pick(&pool, "en:house", taken, 16, at(1)).await.unwrap();
+        let housing = word(&pool, "en:housing").await.unwrap();
+        assert_eq!(housing.family[0].hold, Some(Hold::Deck), "taken into the deck, the kin says so");
+        let house = word(&pool, "en:house").await.unwrap();
+        assert_eq!(
+            house.family.iter().map(|kin| kin.lemma.as_str()).collect::<Vec<_>>(),
+            ["housing"],
+            "never itself"
+        );
+        assert!(word(&pool, "en:go").await.unwrap().family.is_empty());
     }
 
     #[tokio::test]

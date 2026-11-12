@@ -339,7 +339,7 @@ order = 1
             .iter()
             .filter_map(|due| match &due.subject {
                 Subject::Word { word } => Some(word.id.as_str()),
-                Subject::Formula { .. } => None,
+                Subject::Formula { .. } | Subject::Pair { .. } => None,
             })
             .collect()
     }

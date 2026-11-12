@@ -172,16 +172,19 @@ impl Direction {
 #[error("{0:?} is not a direction: expected formula or formula-recognise")]
 pub struct UnknownDirection(String);
 
-/// What a card schedules: one direction of a formula, or a word.
+/// What a card schedules: one direction of a formula, a word, or a pair of
+/// words the learner confuses.
 ///
 /// A word has one card, not two: it is met inside a sentence and asked
 /// there, heard and understood. Producing words is what the formulas drill -
 /// a word is said every time a formula is - so a second, producing card per
-/// word would schedule the same skill twice.
+/// word would schedule the same skill twice. A pair is the difference
+/// between two words, which neither word's card asks (see [`crate::pairs`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Formula(Direction),
     Word,
+    Pair,
 }
 
 impl Kind {
@@ -191,6 +194,18 @@ impl Kind {
         match self {
             Self::Formula(direction) => direction.kind(),
             Self::Word => "word",
+            Self::Pair => "pair",
+        }
+    }
+
+    /// What the card is about, as the app names it: a formula either way
+    /// round is a formula.
+    #[must_use]
+    pub const fn as_str_for_people(self) -> &'static str {
+        match self {
+            Self::Formula(_) => "formula",
+            Self::Word => "word",
+            Self::Pair => "pair",
         }
     }
 
@@ -202,6 +217,7 @@ impl Kind {
     pub fn parse(kind: &str) -> Result<Self, UnknownDirection> {
         match kind {
             "word" => Ok(Self::Word),
+            "pair" => Ok(Self::Pair),
             other => Direction::parse(other).map(Self::Formula),
         }
     }

@@ -39,11 +39,11 @@ use crate::words::{Held, Standing};
 
 /// The version of the file's shape. Read files of this one; a file of
 /// another is refused rather than guessed at.
-pub const FORMAT: u32 = 4;
+pub const FORMAT: u32 = 5;
 
 /// Where the JSON Schema of [`FORMAT`] is published, and what a file says
 /// it follows.
-pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-4.json";
+pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-5.json";
 
 /// A fictional learner, three weeks into English from Russian on the shipped
 /// pack: what `hilvan load-demo` loads, what the docs are shown with. Made by
@@ -162,6 +162,9 @@ pub struct AttemptRecord {
     pub correct: bool,
     pub failure: Option<Failure>,
     pub missed: Vec<String>,
+    /// The words typed in the place of others, as word ids: the one that
+    /// stood there, the one typed. What the pairs are found from.
+    pub swapped: Vec<(String, String)>,
 }
 
 /// The sentence a word is heard in, by what it says.
@@ -515,6 +518,16 @@ impl CardRecord {
             ensure!(is_lemma(lemma), "word {:?} is not language:lemma, lowercase", self.subject);
             listed(languages, language, &format!("word {}", self.subject))?;
         }
+        if kind == Kind::Pair {
+            let (a, b) = crate::pairs::words_of(&self.subject).with_context(|| format!("pair {:?} is not language:lemma|lemma", self.subject))?;
+            ensure!(
+                crate::pairs::id(&a, &b) == self.subject && is_lemma(&self.subject),
+                "pair {:?} is not language:lemma|lemma, lowercase, the two in order",
+                self.subject
+            );
+            let language = a.split_once(':').map_or("", |(language, _)| language);
+            listed(languages, language, &format!("pair {}", self.subject))?;
+        }
         ensure!(self.state != Stitch::New, "{what} has answers and still says it is new");
         ensure!(!self.reviews.is_empty(), "{what} has no answers");
         ensure!(self.reps >= 0 && self.lapses >= 0, "{what} counts below zero");
@@ -754,13 +767,14 @@ async fn read_breaks(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Vec
 async fn read_answers(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<HashMap<i64, Vec<ReviewRecord>>> {
     let by_then = |moment: DateTime<Utc>| at.is_none_or(|at| moment <= at);
     let mut attempts: HashMap<i64, Vec<AttemptRecord>> = HashMap::new();
-    for row in sqlx::query("SELECT review_id, prompt, expected, typed, correct, failure, missed FROM attempt ORDER BY review_id, position")
+    for row in sqlx::query("SELECT review_id, prompt, expected, typed, correct, failure, missed, swapped FROM attempt ORDER BY review_id, position")
         .fetch_all(pool)
         .await
         .context("failed to read the typed turns")?
     {
         let failure = row.get::<Option<String>, _>("failure").map(|word| failure(&word)).transpose()?;
         let missed: String = row.get("missed");
+        let swapped: String = row.get("swapped");
         attempts.entry(row.get("review_id")).or_default().push(AttemptRecord {
             prompt: row.get("prompt"),
             expected: row.get("expected"),
@@ -768,6 +782,7 @@ async fn read_answers(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Ha
             correct: row.get::<i64, _>("correct") == 1,
             failure,
             missed: serde_json::from_str(&missed).with_context(|| format!("the missed words of a turn are not JSON: {missed}"))?,
+            swapped: serde_json::from_str(&swapped).with_context(|| format!("the swaps of a turn are not JSON: {swapped}"))?,
         });
     }
 
@@ -1105,8 +1120,8 @@ async fn write_cards(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, cards: &[Card
 
             for (position, attempt) in review.attempts.iter().enumerate() {
                 sqlx::query(
-                    "INSERT INTO attempt (review_id, position, prompt, expected, typed, correct, failure, missed)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO attempt (review_id, position, prompt, expected, typed, correct, failure, missed, swapped)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(review_id)
                 .bind(i64::try_from(position).unwrap_or(i64::MAX))
@@ -1116,6 +1131,7 @@ async fn write_cards(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, cards: &[Card
                 .bind(i64::from(attempt.correct))
                 .bind(attempt.failure.map(Failure::as_str))
                 .bind(serde_json::to_string(&attempt.missed).context("failed to write the missed words of a turn")?)
+                .bind(serde_json::to_string(&attempt.swapped).context("failed to write the swaps of a turn")?)
                 .execute(&mut **tx)
                 .await
                 .with_context(|| format!("failed to write a typed turn of {}", card.subject))?;

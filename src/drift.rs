@@ -188,9 +188,21 @@ async fn week(pool: &SqlitePool, from: DateTime<Utc>, to: DateTime<Utc>) -> Resu
                 None,
                 row.get::<Option<String>, _>("gloss"),
             ),
+            // A pair is named by its two words: "say / tell".
+            Kind::Pair => (
+                crate::pairs::words_of(&id).map_or_else(
+                    || id.clone(),
+                    |(a, b)| {
+                        let lemma = |word: &str| word.split_once(':').map_or(word, |(_, lemma)| lemma).to_string();
+                        format!("{} / {}", lemma(&a), lemma(&b))
+                    },
+                ),
+                None,
+                None,
+            ),
         };
         slips.push(Slip {
-            kind: if kind == Kind::Word { "word" } else { "formula" },
+            kind: kind.as_str_for_people(),
             name,
             direction,
             gloss,

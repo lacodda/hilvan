@@ -122,6 +122,20 @@ pub struct Checked {
     /// The words the shape carries that did not come, as they stand in
     /// `closest`: what goes to the deck of words.
     pub missed: Vec<String>,
+    /// One word typed in the place of another - "say" where "tell" stood -
+    /// each the only word missing between two that came and the only word
+    /// typed there. What the confusion pairs are found from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub swapped: Vec<Swap>,
+}
+
+/// A word typed where another one stood.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Swap {
+    /// As it stands in the right answer.
+    pub expected: String,
+    /// As it was typed.
+    pub typed: String,
 }
 
 /// Checks a typed answer against the right ones. The first variant is the
@@ -157,6 +171,7 @@ pub fn check(variants: &[Variant], typed: &str) -> Checked {
             extra: Vec::new(),
             failure: None,
             missed: Vec::new(),
+            swapped: Vec::new(),
         };
     }
 
@@ -215,8 +230,32 @@ pub fn check(variants: &[Variant], typed: &str) -> Checked {
         } else {
             missing.iter().filter(|token| token.word).map(|token| token.shown.clone()).collect()
         },
+        swapped: if failure == Failure::Order {
+            Vec::new()
+        } else {
+            swaps(&closest.tokens, &typed, &pairs)
+        },
         failure: Some(failure),
     }
+}
+
+/// The words typed in the place of others: between two runs of words that
+/// came, one word of the answer that did not and one typed word nobody
+/// asked for. A longer gap is a sentence that went another way, and says
+/// nothing about which word stood for which.
+fn swaps(expected: &[Token], typed: &[Token], pairs: &[(usize, usize)]) -> Vec<Swap> {
+    let mut swapped = Vec::new();
+    let mut from = (0, 0);
+    for &(e, t) in pairs.iter().chain(std::iter::once(&(expected.len(), typed.len()))) {
+        if e == from.0 + 1 && t == from.1 + 1 {
+            swapped.push(Swap {
+                expected: expected[from.0].shown.clone(),
+                typed: typed[from.1].shown.clone(),
+            });
+        }
+        from = (e + 1, t + 1);
+    }
+    swapped
 }
 
 fn keys(variant: &Variant) -> Vec<&str> {
@@ -363,6 +402,30 @@ mod tests {
         assert_eq!(checked.failure, Some(Failure::Word));
         assert_eq!(checked.missed, vec!["busy"]);
         assert_eq!(checked.extra, vec!["bisy"]);
+    }
+
+    #[test]
+    fn a_word_typed_in_the_place_of_another_is_a_swap() {
+        let checked = check(&she_is_busy(), "She are busy");
+        assert_eq!(
+            checked.swapped,
+            vec![Swap {
+                expected: "is".to_string(),
+                typed: "are".to_string()
+            }]
+        );
+        let variants = [Variant::from_sentence("He told me the truth.", &["tell", "truth"])];
+        let checked = check(&variants, "He said me the truth");
+        assert_eq!(checked.swapped.len(), 1);
+        assert_eq!((checked.swapped[0].expected.as_str(), checked.swapped[0].typed.as_str()), ("told", "said"));
+        let last = check(&variants, "He told me the lie.");
+        assert_eq!(last.swapped[0].typed, "lie", "at the end of the sentence too");
+        assert!(check(&variants, "He told the truth").swapped.is_empty(), "a word left out is not a swap");
+        assert!(
+            check(&variants, "He said to me the truth").swapped.is_empty(),
+            "two words for one is another sentence"
+        );
+        assert!(check(&variants, "He told me the truth.").swapped.is_empty());
     }
 
     #[test]
