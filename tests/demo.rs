@@ -171,10 +171,29 @@ async fn inventory_to(pool: &SqlitePool, dice: &mut Dice, to: u32, now: &mut Dat
 
 /// A typed answer as a learner gets it wrong: a word left out, or two
 /// words the wrong way round.
+/// What the demo learner types for what: the word that stood, the word that
+/// came instead.
+const CONFUSED: [(&str, &str); 3] = [("at", "in"), ("many", "much"), ("make", "do")];
+
 fn slip(dice: &mut Dice, right: &str) -> String {
     let mut words: Vec<&str> = right.split_whitespace().collect();
     if words.len() < 2 {
         return format!("{right} {right}");
+    }
+    // The learner's own confusions, the ones a Russian speaker brings: where
+    // the sentence holds one, it is what slips half the time - which is how
+    // the demo comes to have its pairs.
+    let bare = |word: &str| word.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+    if let Some((at, typed)) = words
+        .iter()
+        .enumerate()
+        .find_map(|(at, word)| CONFUSED.iter().find(|(stood, _)| bare(word) == *stood).map(|(_, typed)| (at, *typed)))
+        && dice.chance(0.5)
+    {
+        let tail: String = words[at].chars().skip_while(|c| c.is_alphanumeric()).collect();
+        let mut said: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
+        said[at] = format!("{typed}{tail}");
+        return said.join(" ");
     }
     if dice.chance(0.6) {
         words.remove(dice.below(words.len()));
@@ -546,6 +565,8 @@ fn the_demo_learner_learns_from_the_pack_that_ships() {
     for card in &demo.cards {
         let known = match card.kind.as_str() {
             "word" => pack.words.iter().any(|word| pack::word_id(&pack.target, &word.lemma) == card.subject) || hilvan::words::rank(&card.subject).is_some(),
+            // A pair is two words of the language, swapped by the learner.
+            "pair" => pairs::words_of(&card.subject).is_some_and(|(a, b)| hilvan::words::rank(&a).is_some() && hilvan::words::rank(&b).is_some()),
             _ => pack.formulas.iter().any(|formula| formula.id == card.subject),
         };
         assert!(known, "{} {} is in neither the pack nor the lexicon", card.kind, card.subject);
@@ -760,11 +781,14 @@ async fn an_imported_moment_compares_the_way_the_tutor_writes_moments() {
     let (pool, _data, _) = loaded(now()).await;
     let mut model = model::export(&pool, now()).await.unwrap();
     let on_the_second = DateTime::parse_from_rfc3339("2026-10-12T14:00:00Z").unwrap().with_timezone(&Utc);
+    // A card last answered after the last break: one whose interval spans a
+    // break comes back that much later, and would not be due on the second.
+    let calm = model.breaks.iter().filter_map(|taken| taken.until).max();
     let card = model
         .cards
         .iter_mut()
-        .find(|card| card.kind == "formula")
-        .expect("the demo has drilled a formula");
+        .find(|card| card.kind == "formula" && calm.is_none_or(|end| card.last_reviewed.is_some_and(|last| last > end)))
+        .expect("the demo has drilled a formula since its last break");
     card.due = on_the_second;
     let id = card.subject.clone();
     model::import(&pool, &model, now()).await.unwrap();

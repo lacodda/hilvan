@@ -1740,8 +1740,13 @@ order = 10
         let pack = Pack::read(&path).expect("the shipped pack should load");
         let english = lexicon::of("en").unwrap();
         for word in &pack.words {
-            assert!(english.entry(&word.lemma).is_some(), "{:?} is not a word the lexicon knows", word.lemma);
+            // A phrase is as well spelt as each of its words.
+            for part in word.lemma.split(' ') {
+                assert!(english.entry(part).is_some(), "{part:?} of {:?} is not a word the lexicon knows", word.lemma);
+            }
         }
+        let phrases = pack.words.iter().filter(|word| word.lemma.contains(' ')).count();
+        assert!(phrases >= 8, "the pack teaches collocations and phrasal verbs as words, {phrases} of them");
         assert!(
             pack.words.len() >= 120,
             "the formulas' sentences should carry a vocabulary, the pack marks {} words",
