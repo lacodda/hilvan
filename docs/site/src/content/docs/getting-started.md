@@ -3,7 +3,7 @@ title: Getting started
 description: Run hilvan locally - the server over a SQLite file, the tutor app, and this documentation site.
 ---
 
-hilvan is one process: a Rust server over a SQLite file, serving a JSON API and a React app. As of v0.1.0 there is a learner model - formulas, spaced repetition, the daily drill - but no material of its own until you load a pack, and no lessons or audio yet.
+hilvan is one process: a Rust server over a SQLite file, serving a JSON API and a React app. It holds a learner model - formulas, words, spaced repetition, the daily drill, the reader - but no material of its own until you load a pack.
 
 ## What you need
 

@@ -7,7 +7,7 @@ All endpoints are under `/api` and speak JSON. A path outside `/api` that does n
 
 ## Sessions
 
-Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}` and its `/review`, `/api/words/{id}` and its `/review`, `/api/own-words`, `/api/inventory`, `/api/model`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
+Two endpoints - `/api/health` and `/api/session` - are reachable with no session. Every study endpoint (`/api/today`, `/api/formulas/{id}` and its `/review`, `/api/words/{id}` and its `/review`, `/api/pairs/{id}` and its `/review`, `/api/own-words`, `/api/inventory`, `/api/model`) sits behind [`HILVAN_PASSWORD_HASH`](/hilvan/reference/configuration/#the-password): when it is set, a request with no valid session cookie gets `401`.
 
 ```json
 { "error": "sign in first" }
@@ -88,7 +88,7 @@ Everything below requires a valid session when `HILVAN_PASSWORD_HASH` is set.
 
 ### `GET /api/today`
 
-Today's queue: formulas, then words. In each, everything due for review comes first, then the new ones the day has room for - at most one formula and ten words, fewer on a day that begins owing cards left over from earlier ones. Reviews are never crowded out by new material. On a [break](#breaks) the queue is empty.
+Today's queue: formulas, then words, then pairs. In each, everything due for review comes first, then the new ones the day has room for - at most one formula and ten words, fewer on a day that begins owing cards left over from earlier ones. Reviews are never crowded out by new material. On a [break](#breaks) the queue is empty.
 
 **Response** `200`:
 
@@ -120,7 +120,8 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
       "is_new": false,
       "due": "2026-09-03T09:00:00Z",
       "pace": { "typical_ms": 3800, "last_ms": 9100, "answers": 6 },
-      "stability": 8.06
+      "stability": 8.06,
+      "topics": ["home"]
     },
     {
       "kind": "word",
@@ -129,9 +130,21 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
       "is_new": true,
       "due": "2026-09-03T09:00:00Z",
       "pace": null,
-      "stability": 0
+      "stability": 0,
+      "topics": ["home"]
+    },
+    {
+      "kind": "pair",
+      "pair": { "id": "en:say|tell", "words": ["..."], "questions": ["..."], "languages": { "native": "ru", "target": "en" } },
+      "stitch": "new",
+      "is_new": true,
+      "due": "2026-09-03T09:00:00Z",
+      "pace": null,
+      "stability": 0,
+      "topics": []
     }
   ],
+  "topics": [{ "id": "home", "name": "Home" }, { "id": "food", "name": "Food and drink" }],
   "reviewed_today": 1,
   "counts": { "new": 24, "basted": 3, "sewn": 2 },
   "progress": {
@@ -158,15 +171,18 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
   "away_since": null,
   "last_week": { "starts_on": "2026-08-24", "slipped": 2, "names": ["I am / you are", "home"] },
   "as_of": "2026-09-03T09:00:00Z",
-  "usual": { "produce": 52000, "recognise": 18000, "word": 7400 },
+  "usual": { "produce": 52000, "recognise": 18000, "word": 7400, "pair": 21000 },
   "coming": ["2026-09-03T19:12:00Z", "2026-09-05T08:40:00Z"]
 }
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `queue` | array | Formulas due, then at most one new one; words due, then the new ones the day has room for. Empty once nothing is due and nothing new can open. |
-| `queue[].kind` | `"formula"` \| `"word"` | What the item asks. A formula item carries `formula` and `direction`, a word item `word`. |
+| `queue` | array | Formulas due, then at most one new one; words due, then the new ones the day has room for; then [pairs](#get-apipairsid) - due ones, and up to two new ones a day. Empty once nothing is due and nothing new can open. |
+| `queue[].kind` | `"formula"` \| `"word"` \| `"pair"` | What the item asks. A formula item carries `formula` and `direction`, a word item `word`, a pair item `pair`. |
+| `queue[].pair` | object | The full pair - see `GET /api/pairs/{id}` below. |
+| `queue[].topics` | array of strings | What the item is about: the ids of the topics of the sentences it is asked in, each once. Empty when none is. A sitting of one topic is the items that name it. |
+| `topics` | array | The topics the pack declares, each `{ "id", "name" }`, `name` as the app shows it, in the learner's own language. The app offers **One topic at a time** for each topic the queue holds two or more cards of. |
 | `queue[].formula` | object | The full formula - see `GET /api/formulas/{id}` below. |
 | `queue[].direction` | `"produce"` \| `"recognise"` | Which way round this item asks the formula. |
 | `queue[].word` | object | The full word - see `GET /api/words/{id}` below. |
@@ -185,7 +201,7 @@ Today's queue: formulas, then words. In each, everything due for review comes fi
 | `next` | object \| null | The first formula of the pack's sequence that has not started and is not opening today; `null` once every formula has. |
 | `next.waits_for` | array | Its [parents](/hilvan/reference/packs/#parents) not yet sewn, each with its `stitch`. Empty when it waits only for a day with room for a new formula. |
 | `as_of` | string (RFC 3339) | When the server read this. A copy the device keeps for a sitting out of reach says how old it is. |
-| `usual.produce` \| `usual.recognise` \| `usual.word` | integer \| null | How long an answer of each kind usually takes, in milliseconds: the median of the last 30 timed answers, `null` before there are three. A sitting of a few minutes is measured with it for a card with no `pace` of its own. |
+| `usual.produce` \| `usual.recognise` \| `usual.word` \| `usual.pair` | integer \| null | How long an answer of each kind usually takes, in milliseconds: the median of the last 30 timed answers, `null` before there are three. A sitting of a few minutes is measured with it for a card with no `pace` of its own. |
 | `coming` | array of RFC 3339 | When the cards not in the queue come back over the next seven days, breaks counted, earliest first. The app counts what has come back since the read - the number on its icon - without asking again. |
 | `room.debt` | integer | Cards the queue asks that had waited through a whole day they could have been answered on - come due before the start of yesterday, the breaks counted - as the day began. |
 | `room.words` | integer | New words the day opens, all told: ten, one fewer for every card of debt. Words started earlier the same day use up places. |
@@ -247,7 +263,8 @@ One formula with its samples and slots.
       "native": "<prompt in the learner's own language>",
       "target": "I am at home.",
       "words": [{ "word": "en:home", "lemma": "home", "form": "home", "start": 8 }],
-      "accept": ["I'm at home."]
+      "accept": ["I'm at home."],
+      "topics": ["home"]
     },
     {
       "sentence": 2,
@@ -292,7 +309,7 @@ One formula with its samples and slots.
 
 A slot's `takes` is `"noun"`, `"verb"` or `null`: the kind of the learner's [own words](#own-words) it takes. They stand among its `values` with `own: true`, after the pack's, and an own word spelt like a pack value is that value.
 
-Each sample is a sentence: `sentence` is its id, the same for every formula that shows it, and `words` marks the [words](/hilvan/reference/packs/#words) it teaches - `form` as spelt in `target`, `start` the character it starts at, counted in Unicode code points.
+Each sample is a sentence: `sentence` is its id, the same for every formula that shows it, and `words` marks the [words](/hilvan/reference/packs/#words) it teaches - `form` as spelt in `target`, `start` the character it starts at, counted in Unicode code points. A [phrase](/hilvan/reference/packs/#phrases) is marked from its first word to its last. `topics` lists the ids of the [topics](/hilvan/reference/packs/#topics) the sentence is about, and is left out when it has none.
 
 #### Forms of a shape
 
@@ -337,7 +354,8 @@ What the checker makes of it:
   ],
   "extra": ["is", "redy"],
   "failure": "formula",
-  "missed": ["ready"]
+  "missed": ["ready"],
+  "swapped": [{ "expected": "are", "typed": "is" }]
 }
 ```
 
@@ -350,6 +368,7 @@ What the checker makes of it:
 | `extra` | array | Words typed that `closest` does not have. |
 | `failure` | `"formula"` \| `"order"` \| `"word"` \| null | What went wrong: a piece of the shape missing (or something added), every word there in the wrong order, or only carried words missing. `null` when right. |
 | `missed` | array | Carried words that did not come, as they stand in `closest`. |
+| `swapped` | array | Words typed in the place of others: between two runs of words that came, one word of `closest` missing and one typed word in its place, each `{ "expected", "typed" }` as spelt. Left out when empty, and when the failure is `order`. The server reads each into lemmas and keeps the swaps with the turn; two lemmas swapped twice open a [pair](#get-apipairsid). |
 
 ### Answers from the device
 
@@ -471,17 +490,21 @@ One word, with the sentences it has been met in. `{id}` is the language and the 
       "anchor": false
     }
   ],
+  "family": [
+    { "id": "en:doctoral", "lemma": "doctoral", "gloss": "<what it means>", "hold": null }
+  ],
   "languages": { "native": "ru", "target": "en" }
 }
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `lemma` | string | As written: `doctor`, `I`, `Monday`. |
+| `lemma` | string | As written: `doctor`, `I`, `Monday`; several words for a [phrase](/hilvan/reference/packs/#phrases), `turn off`. |
 | `gloss` | string \| null | What it means in the learner's own language: the pack's own gloss for a word it teaches - the sense its sentences use - and its [glossary](/hilvan/reference/packs/#glossary) for any other; `null` when neither has one. |
 | `ipa` | string \| null | How it sounds, from the [lexicon](/hilvan/reference/lexicon/#transcription). |
 | `rank` | integer \| null | Its place among the lemmas of the language, 1 the commonest; `null` past the end of the lexicon. |
 | `level` | `1000` \| `2000` \| `5000` \| null | The smallest level that holds it; `null` past the last. |
+| `family` | array | The other words of its [family](/hilvan/reference/lexicon/#families), commonest first, never the word itself; empty for a word made from no other. Each is `{ "id", "lemma", "gloss", "hold" }`: `gloss` is `null` when the glossary has no line for it, and `hold` is what the learner holds of it - `"deck"`, `"basted"`, `"sewn"` or `null`. Shown, not scheduled: every member keeps its own card. |
 | `contexts` | array | The sentences it has been met in - those of formulas already answered, and those it was [taken into the deck](#post-apiwordsidpicks) from - its anchor first. A word not met anywhere yet shows every sentence of a pack that holds it. A sentence two formulas share is one context. |
 | `contexts[].translation` | string \| null | What the sentence means; `null` for a sentence of a text, which comes without one. |
 | `contexts[].source` | object | Where the sentence comes from: `{ "kind": "formula", "id" }`, or `{ "kind": "text", "id", "title" }` - both `null` once the text is gone and the sentence is kept for the word taken from it. |
@@ -539,6 +562,70 @@ Records an answer to a word and reschedules it through FSRS. A word has one card
 **Response** `200`: the same shape as a formula's review - `stitch`, `due`, `interval_days`, `pace`, `rating`, `words`, `stability`, `stability_before`. The first answer fixes the word's anchor.
 
 **Response** `404` when `{id}` names no word.
+
+### `GET /api/pairs/{id}`
+
+One pair of words the learner confuses, with the sentences it asks. `{id}` is the language and the two lowercase lemmas in order, `en:say|tell` - the `|` goes in a path as `%7C`. A pair is found from the learner's own [typed turns](#checking-a-typed-turn): two lemmas swapped twice, either way round, open it. It holds no row of its own.
+
+**Response** `200`:
+
+```json
+{
+  "id": "en:say|tell",
+  "words": [
+    { "id": "en:say", "lemma": "say", "gloss": "<what it means>", "typed_for_the_other": 1 },
+    { "id": "en:tell", "lemma": "tell", "gloss": "<what it means>", "typed_for_the_other": 2 }
+  ],
+  "questions": [
+    { "text": "She told me the truth.", "start": 4, "length": 4, "translation": "<its meaning>", "answer": "told" }
+  ],
+  "languages": { "native": "ru", "target": "en" }
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `words` | array | The two words, in the order of the id. |
+| `words[].gloss` | string \| null | What it means, by the pack or its glossary. |
+| `words[].typed_for_the_other` | integer | How many times it was typed where the other one stood. |
+| `questions` | array | At most four sentences the learner met, the two words taking turns being the right one while each has sentences left: the turns that swapped them first, then met formula samples, then sentences words were taken from. A sentence that holds both words, or neither, is not asked. |
+| `questions[].text` | string | The whole sentence, as it was met. |
+| `questions[].start`, `.length` | integer | Where the word stands, in characters - what the card hides. |
+| `questions[].translation` | string \| null | What it means, when known: the prompt the turn was typed for, or the pack's translation. |
+| `questions[].answer` | string | The word that stands there, as spelt. |
+
+At most two new pairs open a day, and they take no place from the day's new words. A new pair with no sentences to ask is not offered.
+
+**Response** `404` when `{id}` names no pair.
+
+### `POST /api/pairs/{id}/review`
+
+Records an answer to a pair and reschedules it through FSRS. The answer is the word chosen for each sentence; the server checks each by which of the two words the sentence holds, and grades the round as it grades a typed one.
+
+**Request:**
+
+```json
+{
+  "answer_id": "4c7a1d9e-5b2f-4a08-8e63-9d1f0b7c2a44",
+  "answered_at": "2026-09-03T08:44:10.000Z",
+  "choices": [
+    { "text": "She told me the truth.", "chosen": "en:tell" },
+    { "text": "He said hello.", "chosen": "en:tell" }
+  ],
+  "duration_ms": 14000
+}
+```
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `choices` | array | yes, at least one | One per sentence asked: `text` is the sentence as the card showed it, `chosen` the id of the word picked for its gap. |
+| `duration_ms` | integer | no | How long the answer took. Kept and reported as `pace`; never used to schedule. |
+
+The grade: no choice wrong, `good`; one wrong, `hard`; half or more wrong, `again`. There is no *easy*.
+
+**Response** `200`: the same shape as a formula's review - `stitch`, `due`, `interval_days`, `pace`, `rating`, `words`, `stability`, `stability_before`.
+
+**Response** `404` when `{id}` names no pair. **Response** `422` when there are no choices, a choice picks a word that is not one of the two, or a sentence holds neither word or both and cannot say which is right.
 
 ## Breaks
 
@@ -628,7 +715,7 @@ The commonest words of the language being learnt, each asked once: do you know i
 ```json
 {
   "language": "en",
-  "next": [{ "word": "en:african", "lemma": "African", "ipa": "ˈæfɹəkən", "rank": 1301 }],
+  "next": [{ "word": "en:african", "lemma": "African", "ipa": "ˈæfɹəkən", "rank": 1301, "gloss": "<what it means>" }],
   "levels": [
     { "size": 1000, "left": 0, "known": 758 },
     { "size": 2000, "left": 694, "known": 854 },
@@ -638,6 +725,8 @@ The commonest words of the language being learnt, each asked once: do you know i
   "known": 854
 }
 ```
+
+`gloss` is what the word means in the learner's own language, or `null` when the pack's glossary has no line for it. The app shows it after the answer, never before.
 
 `left` is how many words of the level are still to be asked; a word already being learnt in the drill is not asked. The run goes as far as the 5,000 level. `language` is `null` before a pack is loaded; `levels` is empty for a language hilvan has no lexicon for.
 

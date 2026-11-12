@@ -3,6 +3,7 @@ title: How hilvan teaches
 description: Three mechanisms behind the tutor - comprehensible input, spaced retrieval, and production with feedback - and what the LLM's role actually is.
 ---
 
+<!-- historical versions -->
 hilvan is built on three mechanisms that show up again and again in language acquisition research, not on a theory of its own. As of v0.1.0, the first of the three - production with feedback, through formulas and spaced retrieval - is what actually exists. Comprehensible input and the LLM-as-compiler are the vision the rest of the product builds toward, and this page says plainly which is which.
 
 ## Production with feedback - built
@@ -53,6 +54,20 @@ From v0.4.0 the vocabulary grows out of the formulas rather than from a list. Ev
 
 Words are ranked by how common they are in the language, and the commonest open first. The levels - the commonest 1,000, 2,000 and 5,000 lemmas - are what a learner aims at, and the Today screen counts the words in hand against them. See [Lexicon and levels](/hilvan/reference/lexicon/).
 
+### Words wider than a word - built
+
+A vocabulary is made of more than single words, and v0.11.0 teaches the pieces a learner actually meets.
+
+**Phrases.** A pack's word may be several words - *make a decision*, *turn off*. A phrase is a word card like any other, asked in the sentence it was met in. It is found in a sentence by each of its words in order, each as itself or one of its forms, with at most three other words between two of them: *Can you turn the light off?* holds *turn off*, and *turned* is *turn*. A word of a phrase that does not come in a typed turn sends the learner to the phrase's card, as a missed word goes to its card. A phrase has no rank and no level: levels are of lemmas.
+
+**Families.** The word card and the reader's word sheet show the words made from the same root - *decide*, *decision*, *decisive* - each with its meaning and what the learner holds of it. They are shown, not scheduled: every member keeps its own card, because the learner holds them unequally and one card would say one thing about all of them. Families come from the derivation links of an open wordnet, not from rules of English written into the code (see [Lexicon and levels](/hilvan/reference/lexicon/#families)).
+
+**Pairs, found from mistakes.** A learner who types *tell* where the sentence says *say* has told the tutor something. The answer check finds such swaps, and two words swapped twice open a card of a kind of its own: the pair. It shows the two words with their meanings, then up to four sentences the learner met, each with its word left out, and the learner chooses. The tutor checks each choice by which of the two the sentence holds and grades the round as it grades a typed one: none wrong good, one wrong hard, half or more again. The pairs are the learner's own mistakes, not a list somebody else made, and at most two open a day without taking room from new words.
+
+**Topics.** A pack says what its sentences are about, and Today offers a sitting of one topic: the day's own cards about it, and for a formula, its sentences of that topic. A topic belongs to a sentence, not to a word, because most everyday sentences are about a situation more than about their nouns.
+
+What is not built: a phrase taught by a pack is not yet looked for in the reader's texts, which count lemmas. The decisions are in [ADR 0014](https://github.com/lacodda/hilvan/blob/main/docs/adr/0014-phrases-families-pairs-and-topics.md).
+
 ### How fast it comes, not only whether it comes
 
 A formula answered right, after eight seconds of assembling it, is not the same as one that simply arrives - and a memory model cannot see the difference, because both are "good". hilvan times answers and shows the median of the recent ones on the card. It is shown and never scheduled on: a home-made correction over FSRS would move every interval with no way to tell what moved it ([ADR 0005](https://github.com/lacodda/hilvan/blob/main/docs/adr/0005-forms-directions-and-pace.md)).
@@ -68,3 +83,4 @@ The plan is for an LLM to assemble sentences and audio lessons from your learner
 ## Coverage as the honest progress metric - built
 
 The reader measures how much of a real text you already know, word by word, and reports that coverage rather than a score: the share of its running words you hold, names left out, a word you put in the deck counted apart until you have answered it. A text you cover at ninety-five percent is comprehensible input; a text you cover at forty percent is not yet worth your time. A book is counted chapter by chapter too, so the hard chapter shows itself before you reach it. Coverage answers "am I ready for this" with a number instead of a guess, and every word you take from the text or say you know moves it on the spot. The number is one piece of arithmetic in the code the server and the phone share, so the list and the page never disagree ([ADR 0012](https://github.com/lacodda/hilvan/blob/main/docs/adr/0012-texts-coverage-and-the-glossary.md)). Structures are not counted yet: coverage is of words.
+<!-- /historical versions -->

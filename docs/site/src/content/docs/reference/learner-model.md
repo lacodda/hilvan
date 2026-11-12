@@ -11,23 +11,27 @@ The material is not in it. Packs are files of their own and the lexicon is built
 
 The format is published as a JSON Schema (draft 2020-12):
 
-**[`https://lacodda.github.io/hilvan/schema/learner-model-4.json`](/hilvan/schema/learner-model-4.json)**
+**[`https://lacodda.github.io/hilvan/schema/learner-model-5.json`](/hilvan/schema/learner-model-5.json)**
 
 Every file names it in `$schema`, and every file hilvan writes follows it - the test suite checks each export against it. What the schema refuses, `hilvan import` refuses too; import also checks what a schema cannot say: nothing listed twice, and every language the file names is one it lists. A change that would make a reader of this format misread a file is a new format, with a schema of its own.
 
-Format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and a `source`; format 3 (from v0.9.0) added `texts` and `picks`; format 2 (from v0.7.0) added `breaks`. hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-3.json`](/hilvan/schema/learner-model-3.json), [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
+<!-- historical versions -->
+Format 5 (from v0.11.0) added cards of kind `pair`, phrases as words and `swapped` on typed turns; format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and a `source`; format 3 (from v0.9.0) added `texts` and `picks`; format 2 (from v0.7.0) added `breaks`.
+<!-- /historical versions -->
+
+hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-4.json`](/hilvan/schema/learner-model-4.json), [`learner-model-3.json`](/hilvan/schema/learner-model-3.json), [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
 
 ## What is in it
 
 ```json
 {
-  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-4.json",
-  "format": 4,
+  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-5.json",
+  "format": 5,
   "exported_at": "2026-10-12T15:00:00Z",
   "as_of": "2026-10-12T15:00:00Z",
-  "app": { "name": "hilvan", "version": "0.10.0" },
+  "app": { "name": "hilvan", "version": "0.11.0" },
   "languages": [{ "code": "ru", "native": true }, { "code": "en", "native": false }],
-  "packs": [{ "id": "en-from-ru", "version": 6 }],
+  "packs": [{ "id": "en-from-ru", "version": 7 }],
   "cards": [
     {
       "kind": "formula", "subject": "be-present-statement", "state": "sewn",
@@ -39,8 +43,20 @@ Format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and 
           "elapsed_days": 0, "stability": 3.13, "difficulty": 5.31, "duration_ms": 6200,
           "attempts": [
             { "prompt": "<the prompt, in the learner's language>", "expected": "I am at home.", "typed": "I am at hom",
-              "correct": false, "failure": "word", "missed": ["home"] }
+              "correct": false, "failure": "word", "missed": ["home"], "swapped": [["en:home", "en:house"]] }
           ]
+        }
+      ]
+    },
+    {
+      "kind": "pair", "subject": "en:say|tell", "state": "basted",
+      "stability": 2.31, "difficulty": 5.1, "due": "2026-10-13T08:00:00Z",
+      "reps": 1, "lapses": 0, "last_reviewed": "2026-10-12T08:00:00Z", "introduced_at": "2026-10-12T08:00:00Z",
+      "reviews": [
+        {
+          "at": "2026-10-12T08:00:00Z", "rating": "hard", "source": "asked",
+          "elapsed_days": 0, "stability": 2.31, "difficulty": 5.1, "duration_ms": 14000,
+          "attempts": []
         }
       ]
     }
@@ -78,9 +94,9 @@ Format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and 
 | --- | --- |
 | `as_of` | The moment the model is told as of: when it was written, or an earlier one for a snapshot. |
 | `packs` | The packs the learner was learning from. Another version of a pack reads fine - cards key on ids. |
-| `cards` | Every card answered. `kind` is `formula` (saying it), `formula-recognise` (understanding it) or `word`; a word's `subject` is `language:lemma`, lowercase. A card never answered is not listed: it is new, and a loaded pack makes those. |
+| `cards` | Every card answered. `kind` is `formula` (saying it), `formula-recognise` (understanding it), `word` or `pair`; a word's `subject` is `language:lemma`, lowercase, and may be a phrase (`en:turn off`); a pair's is its two lemmas in order, `en:say|tell`. A card never answered is not listed: it is new, and a loaded pack makes those. |
 | `reviews` | Every answer, oldest first. `source` is `asked` - the tutor asked and the learner answered - or `declared`, a yes in the inventory, which moves the card like an *easy* and is not counted as an answer. |
-| `attempts` | The turns typed for a said formula: what was asked, the answer it was read against, what was typed and what failed - `formula`, `order` or `word`. |
+| `attempts` | The turns typed for a said formula: what was asked, the answer it was read against, what was typed and what failed - `formula`, `order` or `word` - and `swapped`: the words typed in place of others, each `[expected word id, typed word id]`, kept when both are lemmas of the lexicon and share none. Two lemmas swapped twice open a `pair` card; the card holds no row of its own, the turns say what the pair is. |
 | `anchors` | The sentence each word is heard in, by its text. |
 | `inventory` | Every answer of the inventory, yes and no. |
 | `texts` | The texts the learner reads, whole: chapters of paragraphs of sentences - a book's chapters as its source names them, one chapter for anything else - who wrote it and the link it came from where known, how it came in, where the learner stopped (the paragraph through the whole text) and whether they said they had read it. |

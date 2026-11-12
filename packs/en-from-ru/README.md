@@ -33,6 +33,7 @@ form = "statement"             # optional: statement, negation or question
   native = "Я дома."
   target = "I am at home."
   accept = ["I'm at home."]   # optional: other spellings just as right
+  topics = ["home"]           # optional: what the sentence is about
 
   [[formula.slot]]            # the substitutions the drill draws from
   name = "pronoun"
@@ -88,12 +89,47 @@ gloss = "врач"
 
 Mark the words a learner should come away with - nouns, verbs, adjectives,
 adverbs - and leave the formula's own words unmarked: the pronoun and the
-*am* are what the formula drills. A phrase (*make it*, *get up*) is not
-marked word by word; collocations come in a later version. How common a
-word is and how it sounds are not written here - the lexicon of the language
-says them (`lexicons/en`).
+*am* are what the formula drills. How common a word is and how it sounds are
+not written here - the lexicon of the language says them (`lexicons/en`).
 
-This pack marks 126 words across its 150 sentences.
+A word may be a phrase the deck learns as one: a collocation (*make a
+decision*) or a phrasal verb (*turn off*), its words one space apart. Each of
+its words is found by its forms, in order, with at most three other words
+between two of them - *Turn the light off.* holds *turn off*, and *We made a
+quick decision.* holds *make a decision*:
+
+```toml
+  [[formula.sample]]
+  native = "Можешь выключить свет?"
+  target = "Can you turn the light off?"
+  words = ["turn off", "light"]
+
+[[word]]
+lemma = "turn off"
+gloss = "выключать"
+```
+
+This pack marks 142 words, ten of them phrases, across its 170 sentences.
+
+## Topics
+
+A pack names the topics its sentences are about, and a sample names its own:
+
+```toml
+[[topic]]
+id = "food"
+name = "Food and drink"      # as the app shows it, in the interface's language
+
+  [[formula.sample]]
+  native = "В холодильнике есть молоко."
+  target = "There is milk in the fridge."
+  topics = ["food", "home"]
+```
+
+Today offers a sitting of one topic: the day's own cards about it, each
+formula asking its sentences of that topic. Every topic a sample names is
+declared once; a declared topic no sentence is in is refused, as a sitting of
+nothing would be. A sentence may be in no topic.
 
 ## Glossary
 

@@ -25,6 +25,8 @@ Before the first formula, the tutor can learn what you bring. **What you already
 
 A word you know starts **sewn**, and the levels on Today count it at once. It is your word against the schedule, not a free pass: the first time a formula's sentence brings it, it is asked like any other word, and if it does not hold it comes loose. A word you do not know is never asked here again, and nothing about it changes. Neither answer counts among the day's answers, and neither takes a place from the day's new words.
 
+A word's meaning is shown after you answer, never before: the question is whether you know the word, and a translation on the screen would answer it for you.
+
 The commonest thousand go by in an evening. The run goes on to the 5,000 level when you want it to; it is not something to finish before starting.
 
 ## A sitting
@@ -81,6 +83,10 @@ A new word is met before it is asked: the card says the word slowly, then the se
 
 The sentence it was first met in stays its sentence - you will hear the word in it every time it comes back. When the same word turns up in another formula's example, it is not a second card: the card lists that sentence under **Also met in**.
 
+A word may be several words: *make a decision*, *turn off*. A phrase is one card like any other word, and its sentence marks it from its first word to its last - *Can you turn the light off?* marks *turn the light off*. If one of its words does not come when you type a sentence, it is the phrase's card that comes back.
+
+On a word's card, and on the word sheet in the [reader](/hilvan/guides/reading/), the words of the same family are listed - *decide*, *decision*, *decisive* - each with its meaning and whether it is in your deck, basted or sewn. They are there to be noticed: each keeps its own card and its own schedule, and knowing one does not count as knowing the others.
+
 Under **Your words** on Today, three bars show the levels - the commonest 1,000, 2,000 and 5,000 words of English - and how many of yours are sewn in each. They start near zero and fill slowly; they are measured against the language, not against the pack.
 
 ### How firmly it holds
@@ -94,6 +100,20 @@ Under the turn counter, a card that has been drilled a few times says how fast i
 ### A few minutes
 
 When the queue is longer than five minutes, **Only a few minutes?** above **Start** offers a sitting of 5, 10 or 15. It takes cards from the front of the queue - reviews first, as always - for as long as they fit, measured by how long each card usually takes you, or cards of its kind when it has no pace of its own yet. Nothing further back is picked out because it is quick: what is owed first is done first. What is left waits for the next sitting, the same day or the next.
+
+### Two words you mix up
+
+When you type one word where the sentence has another - *tell* for *say* - the tutor notes it. Two words swapped twice, either way round, become a pair, and the pair comes in the queue as a card of its own. At most two new pairs open a day, and they take no room from new words.
+
+![A pair of words you mix up: a sentence with the word left out, and the two to choose from](/hilvan/screenshots/pair.png)
+
+The card shows the two words with what they mean, then up to four sentences you have met, each with one of the two left out. Choose the word that fits each. A sentence that holds both words, or neither, is never asked. The tutor checks the choices and grades the round as it grades a typed one: none wrong is good, one wrong is hard, half or more is again.
+
+A pair waits for its sentences: one opened by swaps in substitutions only is asked in the sentences of those turns.
+
+### One topic at a time
+
+When the queue holds two or more cards about one topic - *Home*, *Food and drink*, *Time* - Today offers **One topic at a time** with a button for each. A sitting of one topic is the day's own cards about it, in the queue's order; a formula in it asks its sentences of that topic. Nothing new is added to the day: it is the same queue, cut by what it is about. The cards left out wait for the next sitting.
 
 ### From a keyboard
 

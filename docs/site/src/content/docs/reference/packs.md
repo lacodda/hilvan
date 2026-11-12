@@ -31,6 +31,7 @@ form = "statement"          # optional: statement, negation or question
   target = "I am at home."
   words = ["home"]
   accept = ["I'm at home."]   # optional: other spellings just as right
+  topics = ["home"]           # optional: what the sentence is about
 
   [[formula.slot]]
   name = "pronoun"
@@ -53,6 +54,10 @@ parents = ["be-present-statement"]   # optional: opens once these are sewn
 [[word]]
 lemma = "home"
 gloss = "<what it means, in the learner's own language>"
+
+[[topic]]
+id = "home"
+name = "Home"
 ```
 
 | Field | Meaning |
@@ -63,6 +68,7 @@ gloss = "<what it means, in the learner's own language>"
 | `target` | The language being learnt (ISO 639-1, e.g. `en`). |
 | `[[formula]]` | One assembly pattern the learner builds sentences from. Repeated once per formula. |
 | `[[word]]` | A word the worked examples teach - see [Words](#words). Repeated once per word. |
+| `[[topic]]` | What some sentences are about - see [Topics](#topics). Repeated once per topic. |
 
 ### A formula
 
@@ -81,7 +87,7 @@ gloss = "<what it means, in the learner's own language>"
 | `[[formula.sample]]` | A worked example: what a correct answer looks like. At least one per formula. |
 | `[[formula.slot]]` | A hole in the pattern the drill substitutes into. Optional. |
 
-A `sample` has `native` (the prompt), `target` (the answer), and optionally `words` - the lemmas of `target` it teaches - and `accept`, other spellings of `target` that are just as right. A `slot` has a `name` matching a `<placeholder>` in the pattern, `values` - a list of `{ native, target }` pairs the drill draws substitutions from - and optionally `takes`, the kind of the learner's [own words](#own-words) it takes as well.
+A `sample` has `native` (the prompt), `target` (the answer), and optionally `words` - the lemmas of `target` it teaches - `accept`, other spellings of `target` that are just as right, and `topics`, the [topics](#topics) the sentence is about. A `slot` has a `name` matching a `<placeholder>` in the pattern, `values` - a list of `{ native, target }` pairs the drill draws substitutions from - and optionally `takes`, the kind of the learner's [own words](#own-words) it takes as well.
 
 A formula with no slot can still be recalled, just not drilled by substitution.
 
@@ -93,6 +99,37 @@ A word is never learnt alone: it enters the learner's deck only inside a sentenc
 - **`[[word]]`** declares each word once, with its `gloss` in the pack's native language. How common the word is and how it sounds are not here: they belong to the language, and its lexicon says them.
 
 A word marked in several sentences is one word with several contexts: one card, and the sentence it was first met in is the one it is heard in.
+
+#### Phrases
+
+A `[[word]]` may be a phrase: several words, one space apart - `lemma = "make a decision"`, `lemma = "turn off"`. A phrase is a word card like any other, keyed by the language and its lemma (`en:turn off`). It is marked in a sample by the same `words = ["turn off"]`.
+
+A phrase is found in a sentence by each of its words in order, each as itself or one of its forms, with at most three other words between two of them. *Can you turn it off?*, *Can you turn the light off?* and *She turned off the radio.* all hold *turn off*. The mark runs from the phrase's first word to its last, other words inside it included. A word of the phrase that does not come in a typed turn goes to the phrase's card, not to a card of its own: the phrase's *off* is the phrase's. A phrase has no rank and no level, because levels are of lemmas.
+
+The shipped pack has a collocation formula (*make*, *do*, *take*, *have* with what they go with - *Let's make a decision.*) and two of phrasal verbs: one with an object (*Can you turn off the light?* and *Can you turn the light off?*) and one with a pronoun (*Can you turn it off?* - never *turn off it*).
+
+### Topics
+
+A topic is what a sentence is about - *Home*, *Work*, *Food and drink* - so a sitting can be of one topic. The pack declares its topics and a sample names its own:
+
+```toml
+[[topic]]
+id = "food"
+name = "Food and drink"
+
+  [[formula.sample]]
+  native = "В холодильнике есть молоко."
+  target = "There is milk in the fridge."
+  words = ["milk", "fridge"]
+  topics = ["food", "home"]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable, unique among the pack's topics. What a sample's `topics` names. |
+| `name` | The topic as the app shows it, in the language of the interface - English - like every other word on the screen. |
+
+A sentence may be in none, one or several topics. A formula is in every topic one of its samples is in, so the counts of topics overlap. The shipped pack declares nine: Home, Work, Food and drink, People, Time, Free time, Getting around, How you feel and Shopping. See [Your first week](/hilvan/guides/your-first-week/#one-topic-at-a-time) for how the app offers them.
 
 ### Glossary
 
@@ -218,7 +255,11 @@ The loader rejects a pack outright rather than loading it partway - a half-loade
 - A parent is not a formula of the pack, is named twice, or does not come before its child in `order`.
 - A sample accepts an empty spelling, its own `target`, or the same spelling twice; or one sentence accepts different spellings in two formulas.
 - A sample marks a word the pack declares no `[[word]]` for, marks the same word twice, or marks a word its sentence does not hold in any form.
-- A `[[word]]` is in no sentence - it could never enter the deck - has no gloss, is more than one word, or shares its lemma with another, whatever the case.
+- A `[[word]]` is in no sentence - it could never enter the deck - has no gloss, is spaced oddly (a phrase is its words with one space between them), or shares its lemma with another, whatever the case.
+- A topic has no `id` or no `name`, or two topics share an `id`.
+- A sample names a topic the pack does not declare, or names the same topic twice.
+- A declared topic holds no sentence - a sitting of it would be empty.
+- The same sentence is in different topics in two formulas.
 - The same sentence is translated two ways, or marked with different words, in two formulas.
 - The glossary glosses a lemma the lexicon does not have, or writes it otherwise than the lexicon does (`i` for `I`), glosses a lemma twice or with nothing, has a line that is not `lemma<TAB>gloss`, holds no lines at all, or belongs to a pack of a language hilvan has no lexicon for.
 
