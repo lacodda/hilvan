@@ -68,7 +68,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 
 ## Status
 
-**v0.10.0**, early, built for one learner: formulas for a Russian speaker, collocations and phrasal verbs, pairs of words you mix up, sittings that work out of reach, and a reader that measures any book against what you know. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
+**v0.11.0**, early, built for one learner: formulas for a Russian speaker, collocations and phrasal verbs, pairs of words you mix up, sittings that work out of reach, and a reader that measures any book against what you know. See the [CHANGELOG](https://github.com/lacodda/hilvan/blob/main/CHANGELOG.md) and the [ADRs](https://github.com/lacodda/hilvan/tree/main/docs/adr).
 
 ## Documentation
 

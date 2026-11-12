@@ -8,6 +8,36 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.11.0] - 2026-11-12
+
+### Breaking Changes
+- The learner model file is format 5
+(learner-model-5.json): cards of kind `pair`, phrases as words, and
+`swapped` on every typed turn; format 4 is refused.
+
+### CI
+- Release from release.toml, with the Checked live list on the page
+
+### Dependencies
+- Take minimatch 11 past eslint's range in the app
+- Update the stack, and take dowel-ui 0.43
+
+### Documentation
+- Explain phrases, families, pairs and topics, and format 5
+- Say the status in fewer words
+
+### Features
+- Learn phrases and word families, pair confused words, sit by topic
+- Teach collocations and phrasal verbs, split the continuous, add topics
+- Ask pairs, sit by topic, show families, say sentences with the core
+- Carry each word's meaning for after the answer
+- A sitting of one topic asks its formulas' sentences of it
+
+### Testing
+- Catch a phrase's lost word, a sentence holding both of a pair, and a book's chapters
+- Show the value when a list is expected empty, as clippy 1.99 asks
+- Say why in a comment, as toBe takes one argument
+
 ## [0.10.0] - 2026-11-01
 
 ### Breaking Changes
