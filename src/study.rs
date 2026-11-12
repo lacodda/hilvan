@@ -2845,6 +2845,61 @@ gloss = "занятой"
     }
 
     #[tokio::test]
+    async fn a_word_of_a_phrase_that_did_not_come_goes_to_the_phrases_card() {
+        // "off" of "turn off" is the phrase's word: missing it is missing the
+        // phrase, not a word "off" of its own.
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+        let pack: crate::pack::Pack = toml::from_str(
+            r#"
+id = "p"
+version = 1
+native = "ru"
+target = "en"
+
+[[word]]
+lemma = "turn off"
+gloss = "выключать"
+
+[[word]]
+lemma = "light"
+gloss = "свет"
+
+[[formula]]
+id = "phrasal"
+name = "n"
+pattern = "x"
+explanation = "e"
+order = 1
+
+  [[formula.sample]]
+  native = "Выключи свет."
+  target = "Turn the light off."
+  words = ["turn off", "light"]
+"#,
+        )
+        .unwrap();
+        pack.validate().unwrap();
+        crate::pack::load(&pool, &pack).await.unwrap();
+        let sample = &formula(&pool, "phrasal").await.unwrap().samples[0];
+        let phrase = sample.words.iter().find(|mark| mark.word == "en:turn off").expect("the phrase is marked");
+        assert_eq!(
+            (phrase.form.as_str(), phrase.parts.clone()),
+            ("Turn the light off", vec!["Turn".to_string(), "off".to_string()])
+        );
+
+        let reviewed = super::review(
+            &pool,
+            "phrasal",
+            produced(vec![typed(Asked::Sample(sample.sentence), "Turn the light.")], false),
+            at(0),
+        )
+        .await
+        .unwrap();
+        assert_eq!(reviewed.words, vec!["en:turn off"], "the phrase's card, not the light's");
+    }
+
+    #[tokio::test]
     async fn a_slip_of_the_shape_sends_no_word_to_the_deck() {
         let pool = tree().await;
         let sentence = formula(&pool, "be").await.unwrap().samples[0].sentence;

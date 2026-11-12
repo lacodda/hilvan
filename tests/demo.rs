@@ -651,6 +651,10 @@ async fn the_demo_loads_onto_an_empty_tutor_and_comes_back_out_the_same() {
     assert_eq!(out.voices, moved.voices);
     assert_eq!(out.packs, moved.packs);
     assert_eq!(out.breaks, moved.breaks);
+    // A book comes back in the chapters it went in with, every paragraph in
+    // the chapter it was in.
+    assert_eq!(out.texts, moved.texts);
+    assert_eq!(out.picks, moved.picks);
 
     let document = serde_json::to_value(&out).unwrap();
     assert_eq!(complaints(&document), Vec::<String>::new(), "an export should follow the schema");

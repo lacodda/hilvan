@@ -484,6 +484,31 @@ mod tests {
         );
         assert_eq!(question.translation.as_deref(), Some("Он врач."));
 
+        // Sentences met in a text: one that holds only the other word is
+        // asked, its turn after the first; one that holds both cannot say
+        // which is right, and is not.
+        let library = crate::reading::Library::default();
+        let text = crate::reading::tests::plain("Ward", "The nurse is here. The nurse saw a doctor.");
+        let added = crate::reading::add(&pool, &library, &text, at(2)).await.unwrap();
+        let read = crate::reading::read(&pool, &library, added.id, None).await.unwrap();
+        let (only, both) = (read.lines[0][0].sentence, read.lines[0][1].sentence);
+        crate::words::pick(&pool, "en:nurse", only, 4, at(2)).await.unwrap();
+        crate::words::pick(&pool, "en:doctor", both, 16, at(2)).await.unwrap();
+        let told: Vec<(String, String)> = super::pair(&pool, "en:doctor|nurse")
+            .await
+            .unwrap()
+            .questions
+            .into_iter()
+            .map(|question| (question.text, question.answer))
+            .collect();
+        assert_eq!(
+            told,
+            [
+                ("He is a doctor.".to_string(), "en:doctor".to_string()),
+                ("The nurse is here.".to_string(), "en:nurse".to_string())
+            ]
+        );
+
         let chosen = Chosen {
             choices: vec![Choice {
                 text: question.text.clone(),
