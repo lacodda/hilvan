@@ -44,11 +44,11 @@ clap = { version = "4.6.7", features = ["derive"] }
 dotenvy = "0.15.7"
 encoding_rs = "0.8.44"
 hilvan-core = { path = "crates/core" }
-html5gum = "0.9.0"
+html5gum = "0.9.1"
 pulldown-cmark = { version = "0.13.6", default-features = false }
 rand = "0.10.3"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query"] }
-rpassword = "7.5.4"
+rpassword = "7.5.5"
 rs-fsrs = { version = "1.2.1", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -58,17 +58,17 @@ subtle = "2.6.1"
 thiserror = "2.0.21"
 time = { version = "0.3.55", default-features = false }
 tokio = { version = "1.54.1", features = ["full"] }
-toml = "1.1.8"
+toml = "1.2.1"
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-zip = { version = "9.2.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
 # Holds the exported learner model to its published JSON Schema. No HTTP or
 # file resolution: the schema is one self-contained file.
-jsonschema = { version = "0.60.2", default-features = false }
+jsonschema = { version = "0.61.2", default-features = false }
 tempfile = "3.27.0"
 tower = { version = "0.5.3", features = ["util"] }
 
