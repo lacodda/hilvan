@@ -41,6 +41,10 @@ pub struct Item {
     pub ipa: Option<String>,
     /// Its place in the frequency list, 1 for the commonest.
     pub rank: u32,
+    /// What it means, by the glossary of the pack. Shown once the word is
+    /// answered, never before: a meaning on the screen turns "do I know
+    /// this?" into "do I recognise the translation?".
+    pub gloss: Option<String>,
 }
 
 /// One level, and how far the run has gone through it.
@@ -150,8 +154,20 @@ pub async fn run(pool: &SqlitePool, limit: usize) -> Result<Run> {
                 lemma: entry.lemma.clone(),
                 ipa: entry.ipa.clone(),
                 rank: entry.rank,
+                gloss: None,
             });
         }
+    }
+    for item in &mut next {
+        item.gloss = sqlx::query_scalar(
+            "SELECT g.text FROM gloss g JOIN pack p ON p.id = g.pack_id
+             WHERE g.word_id = ? AND p.target = ? ORDER BY p.loaded_at, p.id LIMIT 1",
+        )
+        .bind(&item.word)
+        .bind(&language)
+        .fetch_optional(pool)
+        .await
+        .context("failed to read the gloss of a word")?;
     }
 
     Ok(Run {
@@ -352,6 +368,15 @@ order = 1
         let ranks: Vec<u32> = run.next.iter().map(|item| item.rank).collect();
         assert_eq!(ranks, vec![1, 2, 3, 4, 5]);
         assert_eq!(run.levels.iter().map(|level| level.left).collect::<Vec<_>>(), vec![1000, 2000, 5000]);
+    }
+
+    #[tokio::test]
+    async fn a_word_carries_its_meaning_for_after_the_answer() {
+        let pool = crate::reading::tests::tutor().await;
+        let run = run(&pool, 200).await.unwrap();
+        let gloss = |word: &str| run.next.iter().find(|item| item.word == word).map(|item| item.gloss.clone());
+        assert_eq!(gloss("en:go"), Some(Some("идти".to_string())), "the glossary's meaning");
+        assert_eq!(gloss("en:the"), Some(None), "a word the glossary has no line for");
     }
 
     #[tokio::test]
