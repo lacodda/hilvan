@@ -68,21 +68,30 @@ export interface Filled {
  * kept already: background work with no deadline, that must not fight the
  * learner's own requests for the connection. Stops at the first sign the
  * tutor went away; what it got stays.
+ *
+ * `kin` names the paths one answer stands for: once one of them is not
+ * there (404), the rest of its kin are not asked - a stand with no voice for
+ * a language says so for its first sentence, and would for every other.
  */
-async function fill(cacheName: string, paths: readonly string[], refresh: boolean): Promise<Filled> {
+async function fill(cacheName: string, paths: readonly string[], refresh: boolean, kin?: (path: string) => string | null): Promise<Filled> {
   if (!canHold() || paths.length === 0) return { held: 0, missed: paths.length }
   const cache = await caches.open(cacheName)
+  const gone = new Set<string>()
   let held = 0
   for (const path of paths) {
     if (!refresh && (await cache.match(path))) {
       held += 1
       continue
     }
+    const family = kin?.(path) ?? null
+    if (family !== null && gone.has(family)) continue
     try {
       const response = await fetch(path)
       if (response.ok) {
         await cache.put(path, response)
         held += 1
+      } else if (response.status === 404 && family !== null) {
+        gone.add(family)
       }
     } catch {
       // The tutor went away mid-fill: the rest is not tried against a tutor
@@ -95,7 +104,15 @@ async function fill(cacheName: string, paths: readonly string[], refresh: boolea
 
 /** Keeps the sounds a sitting will play. A sound kept once is kept: its URL names its text and speed. */
 export function holdSounds(urls: readonly string[]): Promise<Filled> {
-  return fill(SOUND, urls, false)
+  return fill(SOUND, urls, false, languageOf)
+}
+
+/**
+ * The language a sound is asked in: a stand answers 404 for a language it
+ * has no voice for, and then has none for any sentence of it.
+ */
+export function languageOf(url: string): string | null {
+  return new URL(url, 'http://stand').searchParams.get('language')
 }
 
 /** Keeps reads the sitting may need besides Today: the forms of a shape the learner can switch to. */

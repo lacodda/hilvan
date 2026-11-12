@@ -27,6 +27,7 @@ import { Mark } from '@/Mark'
 import { holdReads, holdShell, holdSounds, setBadge } from '@/offline'
 import { held, settle } from '@/outbox'
 import { OwnWordsScreen } from '@/OwnWordsScreen'
+import { PairCard } from '@/PairCard'
 import { ReaderScreen } from '@/ReaderScreen'
 import { ShelfScreen } from '@/ShelfScreen'
 import { SignIn } from '@/SignIn'
@@ -35,6 +36,7 @@ import { opening as thenOpening } from '@/then'
 import { ThenAndNowScreen } from '@/ThenAndNowScreen'
 import { TextsScreen } from '@/TextsScreen'
 import { TodayScreen } from '@/TodayScreen'
+import { unrendered } from '@/prompts'
 import { noteLine } from '@/schedule'
 import { VoicesScreen } from '@/VoicesScreen'
 import { WordCard } from '@/WordCard'
@@ -90,7 +92,13 @@ async function loadDay(): Promise<Day> {
   if (!read.cached) await settle(read.readAt)
   const answered = new Set((await held()).map((sending) => sending.card))
   const queue = unanswered(read.today.queue, answered)
-  const planned = plan(queue, keptPlan(), Math.random)
+  // The core says the sentences: without it - never fetched, and out of
+  // reach - a formula is drilled on its samples, which are written out.
+  const render = await checker().then(
+    (loaded) => loaded.render,
+    () => unrendered,
+  )
+  const planned = plan(queue, keptPlan(), Math.random, render)
   keepPlan(planned)
   return { read, queue, plan: planned }
 }
@@ -384,6 +392,7 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
     // effect full of setState would otherwise have to. The direction is part
     // of a formula's, because the same formula asked backwards is a
     // different question and must not inherit the state of the one before.
+    if (due.kind === 'pair') return <PairCard key={cardOf(due)} due={due} {...turn} />
     return due.kind === 'formula' ? (
       <Suspense fallback={<Shell>Opening the checker…</Shell>}>
         <Drill key={cardOf(due)} due={due} prompts={day.plan[cardOf(due)] ?? []} {...turn} />

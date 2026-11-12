@@ -143,6 +143,13 @@ export function InventoryScreen({ run, onLeave }: { run: Promise<InventoryRun>; 
               I know it
             </Button>
           </div>
+          {/* The meaning of the word just answered, after the answer and
+              never before it: seen first, it would be the question. */}
+          {last?.item.gloss && (
+            <p className="text-center text-base text-faint">
+              <span className="text-dim">{last.item.lemma}</span> - {last.item.gloss}
+            </p>
+          )}
         </section>
       ) : unsent > 0 ? (
         <p className="text-xl text-dim">Saving your answers…</p>

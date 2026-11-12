@@ -3,7 +3,7 @@
 //! JSON in, JSON out, through two buffers in the module's own memory: the app
 //! asks for an input buffer of the length it needs, writes the request into
 //! it, calls the function, and reads the reply from the output buffer. No
-//! bindings generator - the whole interface is five exports, and a tool that
+//! bindings generator - the whole interface is six exports, and a tool that
 //! has to match a library version on every machine that builds the app costs
 //! more than the twenty lines of JavaScript it saves (`web/src/core.ts`).
 //!
@@ -13,11 +13,14 @@
 //! that says it could not check.
 
 use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 
 use hilvan_core::answer::{Checked, Failure};
 use hilvan_core::check::{self, Formula, Turn};
 use hilvan_core::cover::{self, Coverage, Hold, Piece, Standing};
+use hilvan_core::material::Value;
 use hilvan_core::rating::Rating;
+use hilvan_core::say::Template;
 use serde::{Deserialize, Serialize};
 
 /// What `check` is asked: a formula as the server sent it, and one turn.
@@ -33,6 +36,14 @@ struct CheckRequest {
 struct RateRequest {
     failures: Vec<Option<Failure>>,
     easy: bool,
+}
+
+/// What `render` is asked: a `say` template, and the value chosen for each
+/// slot.
+#[derive(Deserialize)]
+struct RenderRequest {
+    say: String,
+    chosen: BTreeMap<String, Value>,
 }
 
 /// What `cover` is asked: the running words of a text, and what the learner
@@ -56,6 +67,7 @@ enum Reply {
     Checked(Checked),
     Rating(Rating),
     Covered(Covered),
+    Rendered(String),
     Error(String),
 }
 
@@ -85,6 +97,23 @@ pub fn rate_json(request: &[u8]) -> Vec<u8> {
     answer(request, |request: RateRequest| Reply::Rating(check::rate(&request.failures, request.easy)))
 }
 
+/// The sentence a template says with the values chosen: what the app shows
+/// and speaks as the answer, rendered by the code the server checks it with.
+#[must_use]
+pub fn render_json(request: &[u8]) -> Vec<u8> {
+    answer(request, |request: RenderRequest| {
+        let template = match Template::parse(&request.say) {
+            Ok(template) => template,
+            Err(error) => return Reply::Error(error.to_string()),
+        };
+        let chosen: HashMap<&str, &Value> = request.chosen.iter().map(|(slot, value)| (slot.as_str(), value)).collect();
+        template.render(&chosen).map_or_else(
+            || Reply::Error("a slot has no value chosen, or a value lacks a form the template asks".to_string()),
+            Reply::Rendered,
+        )
+    })
+}
+
 /// How much of a text the learner holds, word by word.
 #[must_use]
 pub fn cover_json(request: &[u8]) -> Vec<u8> {
@@ -112,7 +141,7 @@ fn run(handle: fn(&[u8]) -> Vec<u8>) -> usize {
 /// and writes through it, inside the module's memory.
 #[allow(unsafe_code)]
 mod exports {
-    use super::{INPUT, OUTPUT, check_json, cover_json, rate_json, run};
+    use super::{INPUT, OUTPUT, check_json, cover_json, rate_json, render_json, run};
 
     /// Makes the input buffer `length` bytes long; where to write it.
     #[unsafe(no_mangle)]
@@ -142,6 +171,12 @@ mod exports {
         run(cover_json)
     }
 
+    /// Renders the template in the input buffer; the length of the reply.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn render() -> usize {
+        run(render_json)
+    }
+
     /// Where the last reply starts.
     #[unsafe(no_mangle)]
     pub extern "C" fn output() -> *const u8 {
@@ -162,7 +197,7 @@ mod tests {
         "say": "<pronoun> <pronoun:be> <rest>.", "accept": [], "explanation": "",
         "samples": [{ "sentence": 7, "native": "Я дома.", "target": "I'm at home.",
                       "words": [{ "word": "en:home", "lemma": "home", "form": "home", "start": 8 }], "accept": [] }],
-        "slots": [{ "name": "pronoun", "takes": null, "values": [{ "native": "он", "target": "he", "forms": { "be": "is" }, "own": false }] },
+        "slots": [{ "name": "pronoun", "takes": null, "values": [{ "native": "he", "target": "he", "forms": { "be": "is" }, "own": false }] },
                   { "name": "rest", "takes": null, "values": [{ "native": "на работе", "target": "at work", "forms": {}, "own": false }] }]
     }"#;
 
@@ -192,6 +227,19 @@ mod tests {
     fn a_round_is_graded_as_the_server_would() {
         assert_eq!(reply(&rate_json(br#"{ "failures": [null, "order"], "easy": false }"#))["rating"], "again");
         assert_eq!(reply(&rate_json(br#"{ "failures": [null, null], "easy": true }"#))["rating"], "easy");
+    }
+
+    #[test]
+    fn a_template_is_rendered_as_the_server_renders_it() {
+        let request = br#"{ "say": "<pronoun:be> <pronoun> <rest>?",
+                            "chosen": { "pronoun": { "native": "he", "target": "he", "forms": { "be": "is" }, "own": false },
+                                        "rest": { "native": "home", "target": "at home", "forms": {}, "own": false } } }"#;
+        assert_eq!(reply(&render_json(request))["rendered"], "Is he at home?");
+        let lacking = br#"{ "say": "<rest:be>", "chosen": { "rest": { "native": "x", "target": "y", "forms": {}, "own": false } } }"#;
+        assert!(
+            reply(&render_json(lacking))["error"].is_string(),
+            "a form the value lacks is an error, not half a sentence"
+        );
     }
 
     #[test]

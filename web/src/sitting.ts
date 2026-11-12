@@ -6,20 +6,37 @@
  * a train.
  */
 
-import { speechUrl, type Due, type Formula, type FormulaDue, type Usual } from '@/api'
-import { nextPrompt, type Prompt, type Random } from '@/prompts'
+import { speechUrl, type Due, type Formula, type FormulaDue, type Topic, type Usual } from '@/api'
+import { nextPrompt, type Prompt, type Random, type Render } from '@/prompts'
 import { sides, tempoFor, urlOf } from '@/speech'
 
 /** How many turns one formula gets before it is graded. */
 export const TURNS = 4
 
-/** The card a queue item asks: `formula:<id>:<direction>` or `word:<id>`. */
+/** The card a queue item asks: `formula:<id>:<direction>`, `word:<id>` or `pair:<id>`. */
 export function cardOf(due: Due): string {
-  return due.kind === 'formula' ? formulaCard(due.formula.id, due.direction) : wordCard(due.word.id)
+  if (due.kind === 'formula') return formulaCard(due.formula.id, due.direction)
+  return due.kind === 'word' ? wordCard(due.word.id) : pairCard(due.pair.id)
 }
 
 export const formulaCard = (id: string, direction: FormulaDue['direction']): string => `formula:${id}:${direction}`
 export const wordCard = (id: string): string => `word:${id}`
+export const pairCard = (id: string): string => `pair:${id}`
+
+/**
+ * The topics a sitting can be of, with how many of the queue's cards each
+ * holds: only those that hold any, in the order the pack lists them.
+ */
+export function topicsOf(queue: readonly Due[], topics: readonly Topic[]): { topic: Topic; count: number }[] {
+  return topics
+    .map((topic) => ({ topic, count: queue.filter((due) => due.topics.includes(topic.id)).length }))
+    .filter(({ count }) => count > 0)
+}
+
+/** The cards of the queue about one topic, in the queue's own order. */
+export function ofTopic(queue: readonly Due[], topic: string): Due[] {
+  return queue.filter((due) => due.topics.includes(topic))
+}
 
 /**
  * The queue less the cards answered on this device since it was read: the
@@ -39,10 +56,11 @@ export function unanswered(queue: readonly Due[], answered: ReadonlySet<string>)
 export function expected(due: Due, usual: Usual): number {
   if (due.pace) return due.pace.typical_ms
   if (due.kind === 'word') return usual.word ?? FIRST_GUESS.word
+  if (due.kind === 'pair') return usual.pair ?? FIRST_GUESS.pair
   return due.direction === 'produce' ? (usual.produce ?? FIRST_GUESS.produce) : (usual.recognise ?? FIRST_GUESS.recognise)
 }
 
-const FIRST_GUESS = { produce: 90_000, recognise: 40_000, word: 15_000 }
+const FIRST_GUESS = { produce: 90_000, recognise: 40_000, word: 15_000, pair: 30_000 }
 
 /**
  * As much of the queue as fits `minutes`, from the front.
@@ -97,7 +115,7 @@ export type Plan = Record<string, Prompt[]>
  * leaves the queue; one the pack no longer asks - a value gone from a slot,
  * a sentence gone from the formula - is drawn again.
  */
-export function plan(queue: readonly Due[], kept: Plan, random: Random): Plan {
+export function plan(queue: readonly Due[], kept: Plan, random: Random, render: Render): Plan {
   const planned: Plan = {}
   for (const due of queue) {
     if (due.kind !== 'formula') continue
@@ -106,7 +124,7 @@ export function plan(queue: readonly Due[], kept: Plan, random: Random): Plan {
     planned[card] =
       held && held.length === TURNS && held.every((prompt) => stillAsks(due.formula, prompt))
         ? held
-        : Array.from({ length: TURNS }, (_, turn) => nextPrompt(due.formula, turn, random))
+        : Array.from({ length: TURNS }, (_, turn) => nextPrompt(due.formula, turn, random, render))
   }
   return planned
 }
@@ -141,6 +159,11 @@ export function soundsOf(queue: readonly Due[], planned: Plan): string[] {
       const anchor = due.word.contexts[0]
       if (anchor) urls.push(speechUrl(due.word.languages.target, anchor.text, tempo))
       urls.push(speechUrl(due.word.languages.target, due.word.lemma, 'slow'))
+      continue
+    }
+    if (due.kind === 'pair') {
+      // Each sentence is heard once its gap is filled.
+      for (const question of due.pair.questions) urls.push(speechUrl(due.pair.languages.target, question.text, tempo))
       continue
     }
     const { formula } = due

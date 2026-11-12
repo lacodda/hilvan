@@ -1,7 +1,8 @@
-import { use, useState, type ChangeEvent } from 'react'
+import { use, useEffect, useState, type ChangeEvent } from 'react'
 
-import { ANKI_URL, api, type NextRead, type TextSummary, type Texts } from '@/api'
+import { ANKI_URL, api, textPath, type NextRead, type TextSummary, type Texts } from '@/api'
 import { Shell } from '@/App'
+import { holdReads } from '@/offline'
 import { ACCEPTED, coverageLine, nextLine, nextReason, placeLine, yours } from '@/reading'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -66,7 +67,16 @@ export function TextsScreen({
   const [problem, setProblem] = useState<string | null>(null)
   const [removing, setRemoving] = useState<number | null>(null)
 
-  const bring = (what: Exclude<Bringing, null>, arriving: () => Promise<TextSummary>) => {
+  // What to read next, kept for the road while the tutor is in reach: a
+  // text of the learner's own opens where they stopped on a train too. One
+  // from the shelf has to be fetched by the tutor first, and is kept as it
+  // is opened.
+  const nextText = read.next?.kind === 'text' ? read.next.id : null
+  useEffect(() => {
+    if (nextText !== null) void holdReads([`/api${textPath(nextText)}`])
+  }, [nextText])
+
+  const bring =(what: Exclude<Bringing, null>, arriving: () => Promise<TextSummary>) => {
     setBringing(what)
     setProblem(null)
     arriving()

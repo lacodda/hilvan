@@ -30,30 +30,17 @@ function pick<T>(values: readonly T[], random: Random): T | undefined {
 }
 
 /**
- * The sentence `say` makes of the values chosen.
- *
- * `<slot>` is the value's word, `<slot:form>` a form the value carries - the
- * pronoun "he" carries be = "is" - and the first letter is raised, so a
- * question opens "Is he...". The server renders the same template the same
- * way (`src/say.rs`) and checks a sentence against it before speaking it, so
- * the two must agree to the letter.
- *
- * `null` when a slot has no value chosen or a value lacks a form: the pack
- * validator rules both out, so it can only be a database edited by hand.
+ * The sentence `say` makes of the values chosen: `<slot>` is the value's
+ * word, `<slot:form>` a form the value carries, the first letter raised.
+ * Rendered by the core (`core.ts`), the code the server checks the answer
+ * against, so the sentence shown and heard is the one the answer is read
+ * against, to the letter. `null` when it cannot be said - and when there is
+ * no core to say it, which leaves the drill to its samples.
  */
-export function render(say: string, chosen: ReadonlyMap<string, Value>): string | null {
-  let missing = false
-  const filled = say.replace(/<([^>]*)>/g, (_, inside: string) => {
-    const [slot, form] = inside.split(':').map((part) => part.trim())
-    const value = chosen.get(slot ?? '')
-    const text = value === undefined ? undefined : form === undefined ? value.target : value.forms[form]
-    if (text === undefined) missing = true
-    return text ?? ''
-  })
-  if (missing) return null
-  const tidy = filled.split(' ').filter((word) => word !== '').join(' ')
-  return tidy.charAt(0).toUpperCase() + tidy.slice(1)
-}
+export type Render = (say: string, chosen: ReadonlyMap<string, Value>) => string | null
+
+/** A render for when the core could not be loaded: nothing is substituted. */
+export const unrendered: Render = () => null
 
 /**
  * The value for one slot. A slot that takes the learner's own words draws
@@ -80,7 +67,7 @@ function choose(slot: Slot, random: Random): Value | undefined {
  * with no values, no `say` - and the caller falls back to a sample rather than
  * showing half a sentence.
  */
-export function substitute(formula: Formula, random: Random): Prompt | null {
+export function substitute(formula: Formula, random: Random, render: Render): Prompt | null {
   if (formula.slots.length === 0 || formula.say === null) return null
 
   let native = formula.pattern
@@ -108,7 +95,7 @@ export function substitute(formula: Formula, random: Random): Prompt | null {
  * are natural sentences an adult actually says, and a drill that is only
  * assembled fragments drifts away from the language.
  */
-export function nextPrompt(formula: Formula, turn: number, random: Random): Prompt {
+export function nextPrompt(formula: Formula, turn: number, random: Random, render: Render): Prompt {
   const wantsSample = turn % 3 === 0
   const sample = formula.samples.length > 0 ? formula.samples[turn % formula.samples.length] : undefined
 
@@ -116,7 +103,7 @@ export function nextPrompt(formula: Formula, turn: number, random: Random): Prom
     return { native: sample.native, target: sample.target, source: 'sample', asked: { sample: sample.sentence } }
   }
 
-  const substituted = substitute(formula, random)
+  const substituted = substitute(formula, random, render)
   if (substituted) return substituted
 
   // A formula with no usable slots is drilled on its samples alone.
@@ -223,7 +210,7 @@ const LADDER_SLOTS = ['pronoun', 'subject']
  * nothing about the person. Each rung is the whole sentence - "He is at
  * home." - so the ladder is something to say and to hear, not a scaffold.
  */
-export function ladder(formula: Formula): Rung[] {
+export function ladder(formula: Formula, render: Render): Rung[] {
   const pronouns = LADDER_SLOTS.map((name) => formula.slots.find((slot) => slot.name === name)).find(Boolean)
   if (!pronouns || pronouns.values.length === 0 || formula.say === null) return []
   const say = formula.say

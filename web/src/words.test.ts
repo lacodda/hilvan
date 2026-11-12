@@ -34,8 +34,9 @@ describe('levels', () => {
   })
 
   it('tells how common a word is by its level', () => {
-    expect(commonness({ level: 1000, rank: 910 })).toBe('among the 1000 commonest words')
-    expect(commonness({ level: null, rank: 5419 })).toBe('rarer than any level')
-    expect(commonness({ level: null, rank: null })).toBeNull()
+    expect(commonness({ level: 1000, rank: 910, lemma: 'house' })).toBe('among the 1000 commonest words')
+    expect(commonness({ level: null, rank: 5419, lemma: 'gauge' })).toBe('rarer than any level')
+    expect(commonness({ level: null, rank: null, lemma: 'zxqv' })).toBeNull()
+    expect(commonness({ level: null, rank: null, lemma: 'turn off' })).toBe('a phrase, learnt as one word')
   })
 })

@@ -13,10 +13,12 @@ export interface Mark {
   /** The word's id, `en:doctor`. */
   word: string
   lemma: string
-  /** As spelt in the sentence: "went" for go. */
+  /** As spelt in the sentence: "went" for go; for a phrase, from its first word to its last. */
   form: string
   /** The character it starts at. */
   start: number
+  /** A phrase's own words as they stand - "turned" and "off" - absent for a word of one. */
+  parts?: string[]
 }
 
 /** A worked example of a formula: a sentence, what it means, and its words. */
@@ -156,7 +158,64 @@ export interface Word {
   level: number | null
   /** The sentences it has been met in, its anchor first. */
   contexts: Context[]
+  /** The other words of its family - decision and decisive for decide - commonest first. */
+  family: Kin[]
   languages: { native: string; target: string }
+}
+
+/** A word of the same family, shown with the word it is kin to. */
+export interface Kin {
+  /** `en:decision`. */
+  id: string
+  lemma: string
+  gloss: string | null
+  /** What the learner holds of it; null when it is not in hand. */
+  hold: Hold | null
+}
+
+/** One word of a pair the learner confuses. */
+export interface Side {
+  /** `en:tell`. */
+  id: string
+  lemma: string
+  gloss: string | null
+  /** How many times it was typed where the other one stood. */
+  typed_for_the_other: number
+}
+
+/** A sentence a pair asks, with the word left out. */
+export interface Question {
+  /** The whole sentence. */
+  text: string
+  /** Where the word stands in it, in characters: what the card hides. */
+  start: number
+  length: number
+  /** What it means in the learner's own language, when it is known. */
+  translation: string | null
+  /** The word that stands there: one of the pair's ids. */
+  answer: string
+}
+
+/** Two words the learner typed one for the other, and the sentences that tell them apart. */
+export interface WordPair {
+  /** `en:say|tell`. */
+  id: string
+  words: Side[]
+  questions: Question[]
+  languages: { native: string; target: string }
+}
+
+/** A sentence of a pair, answered: the sentence as shown, and the word chosen for its gap. */
+export interface Choice {
+  text: string
+  chosen: string
+}
+
+/** A topic the pack's sentences are about. */
+export interface Topic {
+  id: string
+  /** As shown: "Food and drink". */
+  name: string
 }
 
 /** What every item in today's queue carries, whatever it is about. */
@@ -167,6 +226,8 @@ interface DueCommon {
   pace: Pace | null
   /** How firmly it holds, in days: FSRS's stability. 0 for a card never answered. Drawn as a bar. */
   stability: number
+  /** The topics of the sentences it is asked in, by id. */
+  topics: string[]
 }
 
 /** A formula, asked one way round. */
@@ -175,8 +236,11 @@ export type FormulaDue = DueCommon & { kind: 'formula'; formula: Formula; direct
 /** A word, asked in its sentence. */
 export type WordDue = DueCommon & { kind: 'word'; word: Word }
 
+/** Two words the learner confuses, asked in sentences with the word left out. */
+export type PairDue = DueCommon & { kind: 'pair'; pair: WordPair }
+
 /** One item in today's queue. */
-export type Due = FormulaDue | WordDue
+export type Due = FormulaDue | WordDue | PairDue
 
 /** How many formulas or words stand in each state. */
 export interface Counts {
@@ -267,6 +331,8 @@ export interface Today {
   usual: Usual
   /** When the cards not in the queue come back over the next week, earliest first. */
   coming: string[]
+  /** The topics the packs' sentences are about: what a sitting of one topic is chosen from. */
+  topics: Topic[]
 }
 
 /** How long an answer usually takes, in milliseconds; null before there are enough. */
@@ -274,6 +340,7 @@ export interface Usual {
   produce: number | null
   recognise: number | null
   word: number | null
+  pair: number | null
 }
 
 /** Today as the device read it: from the tutor, or from the copy kept for the road. */
@@ -445,6 +512,8 @@ export interface Heard {
 
 /** A word the inventory asks about. */
 export interface InventoryItem {
+  /** What it means, by the pack's glossary: shown once the word is answered, never before. */
+  gloss: string | null
   /** `en:house`: what the answer is sent back under. */
   word: string
   lemma: string
@@ -691,6 +760,7 @@ export const api = {
   },
   formula: (id: string) => call<Formula>(`/formulas/${encodeURIComponent(id)}`),
   word: (id: string) => call<Word>(`/words/${encodeURIComponent(id)}`),
+  pair: (id: string) => call<WordPair>(`/pairs/${encodeURIComponent(id)}`),
   voices: () => call<VoicesScreen>('/voices'),
   chooseVoice: (language: string, voice: Voice) =>
     call<Voice>(`/voices/${encodeURIComponent(language)}`, {
@@ -721,7 +791,7 @@ export const api = {
   drift: () => call<Drift>('/drift'),
   texts: () => call<Texts>('/texts'),
   /** One chapter of a text, every word read: the one asked for, or the one the learner stopped in. */
-  text: (id: number, chapter?: number) => call<Text>(chapter === undefined ? `/texts/${id}` : `/texts/${id}?chapter=${chapter}`),
+  text: (id: number, chapter?: number) => call<Text>(textPath(id, chapter)),
   addText: (body: string, title: string | null, format: TextFormat | null) =>
     call<TextSummary>('/texts', { method: 'POST', body: JSON.stringify({ body, title, format }) }),
   /** A file as it is - a book, a page, subtitles - read by the tutor; its name says what it is. */
@@ -751,6 +821,16 @@ export const api = {
     call<{ holds: Holds }>(`/words/${encodeURIComponent(word)}/picks`, { method: 'POST', body: JSON.stringify({ sentence, start }) }),
   unpick: (word: string, sentence: number) =>
     call<{ holds: Holds }>(`/words/${encodeURIComponent(word)}/picks/${sentence}`, { method: 'DELETE' }),
+}
+
+/**
+ * Where a text is read from, under `/api`: one chapter, or the one the
+ * learner stopped in. One spelling of it, because the worker keeps a read by
+ * its address, and a chapter fetched for the road under another spelling is
+ * a chapter the road does not have.
+ */
+export function textPath(id: number, chapter?: number): string {
+  return chapter === undefined ? `/texts/${id}` : `/texts/${id}?chapter=${chapter}`
 }
 
 /**

@@ -3,7 +3,7 @@
  * way a learner says it.
  */
 
-import type { Level, Word } from '@/api'
+import type { Hold, Level, Word } from '@/api'
 
 /** A sentence cut around the word it holds. */
 export interface Marked {
@@ -56,8 +56,28 @@ export function levelLine(level: Level): string {
  * How common a word is, in words: the level it belongs to, which is what the
  * learner aims at, rather than a rank nobody can feel.
  */
-export function commonness(word: Pick<Word, 'level' | 'rank'>): string | null {
+export function commonness(word: Pick<Word, 'level' | 'rank' | 'lemma'>): string | null {
   if (word.level !== null) return `among the ${word.level} commonest words`
   if (word.rank !== null) return 'rarer than any level'
+  if (isPhrase(word)) return 'a phrase, learnt as one word'
   return null
+}
+
+/** Whether a word of the deck is a phrase: a collocation, a phrasal verb. */
+export function isPhrase(word: Pick<Word, 'lemma'>): boolean {
+  return word.lemma.includes(' ')
+}
+
+/** Where the learner stands with a word of a family, in a few words; null when it is not theirs at all. */
+export function kinHold(hold: Hold | null): string | null {
+  switch (hold) {
+    case 'sewn':
+      return 'yours'
+    case 'basted':
+      return 'being learnt'
+    case 'deck':
+      return 'in the deck'
+    default:
+      return null
+  }
 }

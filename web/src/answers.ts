@@ -6,10 +6,10 @@
  * underground does.
  */
 
-import type { Rating, Reviewed, Turn } from '@/api'
+import type { Choice, Rating, Reviewed, Turn } from '@/api'
 import { countWaiting, delivered } from '@/delivery'
 import { enqueue, mintId } from '@/outbox'
-import { formulaCard, wordCard } from '@/sitting'
+import { formulaCard, pairCard, wordCard } from '@/sitting'
 
 /**
  * How long a screen waits for the tutor's reply before it says the answer
@@ -61,6 +61,11 @@ export function answerHeard(id: string, rating: Rating, durationMs: number | nul
     rating,
     duration_ms: durationMs,
   })
+}
+
+/** A pair: a word chosen for each sentence's gap, and the tutor grades the choices. */
+export function answerPair(id: string, choices: Choice[], durationMs: number | null): Promise<Outcome> {
+  return give(`/pairs/${encodeURIComponent(id)}/review`, pairCard(id), { choices, duration_ms: durationMs })
 }
 
 /** A word, recalled in its sentence and graded by the learner. */

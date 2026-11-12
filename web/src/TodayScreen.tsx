@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress'
 import { useDelivery } from '@/delivery'
 import { useKeys } from '@/keys'
 import { awayLine, breakLine, roomLine } from '@/schedule'
-import { fitting, minutesOf } from '@/sitting'
+import { fitting, minutesOf, ofTopic, topicsOf } from '@/sitting'
 import { asOfLine, describeQueue, nextLine, waitingLine } from '@/today'
 import { levelLine, levelName } from '@/words'
 
@@ -105,6 +105,11 @@ export function TodayScreen({
     </>
   ) : null
 
+  // A sitting of one topic: the day's own cards that are about it, in the
+  // queue's order. Offered only for a topic the queue holds two or more of -
+  // a sitting of one card is the Start button with extra steps.
+  const topical = today.on_break ? [] : topicsOf(queue, today.topics).filter(({ count }) => count >= 2)
+
   return (
     <Shell actions={actions}>
       <section className="flex flex-col gap-2">
@@ -122,6 +127,25 @@ export function TodayScreen({
         {owing && !today.on_break && <p className="text-base text-faint">{owing}</p>}
         {sending && <p className="text-base text-faint">{sending}</p>}
       </section>
+
+      {topical.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-base font-medium tracking-caption text-dim uppercase">One topic at a time</h3>
+          <div className="flex flex-wrap gap-2">
+            {topical.map(({ topic, count }) => (
+              <Button
+                key={topic.id}
+                onClick={() => onStart(ofTopic(queue, topic.id))}
+                variant="ghost"
+                size={null}
+                className="px-3 py-2 text-base text-text"
+              >
+                {topic.name} <span className="text-faint">· {count}</span>
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* An absence nobody declared: one tap makes it a break, and what came
           due in it stops being owed. Offered until the first answer. */}

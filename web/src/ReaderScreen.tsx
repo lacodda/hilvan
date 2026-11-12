@@ -1,9 +1,10 @@
 import { cn } from 'dowel-ui'
 import { Fragment, use, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
-import { api, speechUrl, Unreachable, type ChapterSummary, type Holds, type Standing, type Text } from '@/api'
+import { api, speechUrl, textPath, Unreachable, type ChapterSummary, type Holds, type Standing, type Text } from '@/api'
 import { Shell } from '@/App'
 import { checker } from '@/core'
+import { holdReads } from '@/offline'
 import { chapterName, coverageLine, offsets, paragraphAt, placeIn, restOf, runs, swipe, throughText, tokensOf, withHolds, yours } from '@/reading'
 
 import { Button } from '@/components/ui/button'
@@ -133,6 +134,13 @@ export function ReaderScreen({
   const toasts = useToastManager()
   const playing = usePlaying()
   useStopOnLeave()
+
+  // The chapter after this one, kept for the road while the tutor is in
+  // reach: a chapter finished on a train opens the next one there.
+  const following = text.contents[text.shown + 1]?.position
+  useEffect(() => {
+    if (following !== undefined) void holdReads([`/api${textPath(text.id, following)}`])
+  }, [text.id, following])
 
   const tokens = useMemo(() => tokensOf(text), [text])
   const starts = useMemo(() => offsets(text.lines), [text])

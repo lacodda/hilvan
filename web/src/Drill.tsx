@@ -92,7 +92,7 @@ export function Drill({
   /** The question of a turn: the one planned, for the queue's own form. */
   const promptFor = (formula: Formula, turn: number): Prompt => {
     const planned = formula.id === due.formula.id ? prompts[turn] : undefined
-    return planned ?? nextPrompt(formula, turn, Math.random)
+    return planned ?? nextPrompt(formula, turn, Math.random, checking.render)
   }
   const fresh = (formula: Formula, turn: number): Phase => {
     const prompt = promptFor(formula, turn)
@@ -108,7 +108,7 @@ export function Drill({
   const startedAt = useRef<number | null>(null)
   startedAt.current ??= Date.now()
 
-  const rungs = ladder(shown)
+  const rungs = ladder(shown, checking.render)
   const tempo = tempoFor(shownStitch, due.is_new && shown.id === due.formula.id)
 
   const next = (turn: number) => setPhase(fresh(shown, turn))

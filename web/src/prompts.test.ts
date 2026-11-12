@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+
+import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Formula } from '@/api'
-import { ask, formLabels, gradeLine, instruction, ladder, nextPrompt, paceLine, render, seconds, substitute, tabs, tally, verdictLine, whenBack } from '@/prompts'
+import { checkerOf, type Checker } from '@/core'
+import { ask, formLabels, gradeLine, instruction, ladder, nextPrompt, paceLine, seconds, substitute, tabs, tally, verdictLine, whenBack, type Render } from '@/prompts'
 
 const formula: Formula = {
   id: 'be-present',
@@ -35,6 +38,14 @@ const formula: Formula = {
   parents: [],
 }
 
+// The real module, built from crates/check by `pnpm test`: the sentences a
+// substitution says are the core's, as they are in the app.
+let checker: Checker
+beforeAll(async () => {
+  checker = await checkerOf(readFileSync(new URL('./check.wasm', import.meta.url)))
+})
+const render: Render = (say, chosen) => checker.render(say, chosen)
+
 /** Always the first value of every slot, so a test can name the answer. */
 const first = () => 0
 /** Always the last, which is where an off-by-one would show. */
@@ -42,7 +53,7 @@ const last = () => 0.999999
 
 describe('substitute', () => {
   it('prompts with the scaffold and answers with the sentence', () => {
-    expect(substitute(formula, first)).toEqual({
+    expect(substitute(formula, first, render)).toEqual({
       native: 'first + am/is/are + third',
       target: 'I am at home.',
       source: 'substitution',
@@ -52,31 +63,31 @@ describe('substitute', () => {
 
   it('can reach the last value of a slot', () => {
     // A picker that never returns the final value silently drills half a slot.
-    expect(substitute(formula, last)?.target).toBe('You are at home.')
+    expect(substitute(formula, last, render)?.target).toBe('You are at home.')
   })
 
   it('leaves the choice the formula teaches in the prompt, and makes it in the answer', () => {
     // "am/is/are" is not a hole: picking the right one is the formula, so
     // the prompt offers all three and the answer holds exactly one.
-    expect(substitute(formula, first)?.native).toContain('am/is/are')
-    expect(substitute(formula, first)?.target).not.toContain('/')
+    expect(substitute(formula, first, render)?.native).toContain('am/is/are')
+    expect(substitute(formula, first, render)?.target).not.toContain('/')
   })
 
   it('refuses a formula with no sentence to say', () => {
-    expect(substitute({ ...formula, say: null }, first)).toBeNull()
+    expect(substitute({ ...formula, say: null }, first, render)).toBeNull()
   })
 
   it('refuses a formula with no slots rather than showing a raw pattern', () => {
-    expect(substitute({ ...formula, slots: [] }, first)).toBeNull()
+    expect(substitute({ ...formula, slots: [] }, first, render)).toBeNull()
   })
 
   it('refuses a slot with no values', () => {
-    expect(substitute({ ...formula, slots: [{ name: 'pronoun', takes: null, values: [] }] }, first)).toBeNull()
+    expect(substitute({ ...formula, slots: [{ name: 'pronoun', takes: null, values: [] }] }, first, render)).toBeNull()
   })
 
   it('refuses a slot the pattern never mentions', () => {
     const wrong = { ...formula, slots: [{ name: 'verb', takes: null, values: [{ native: 'a', target: 'b', forms: {}, own: false }] }] }
-    expect(substitute(wrong, first)).toBeNull()
+    expect(substitute(wrong, first, render)).toBeNull()
   })
 })
 
@@ -108,7 +119,7 @@ describe('render', () => {
 
 describe('nextPrompt', () => {
   it('opens on a worked sample, so the shape is shown before it is asked for', () => {
-    expect(nextPrompt(formula, 0, first)).toEqual({
+    expect(nextPrompt(formula, 0, first, render)).toEqual({
       native: 'prompt one',
       target: 'I am at home.',
       source: 'sample',
@@ -117,23 +128,23 @@ describe('nextPrompt', () => {
   })
 
   it('substitutes on the turns in between', () => {
-    expect(nextPrompt(formula, 1, first).source).toBe('substitution')
-    expect(nextPrompt(formula, 2, first).source).toBe('substitution')
+    expect(nextPrompt(formula, 1, first, render).source).toBe('substitution')
+    expect(nextPrompt(formula, 2, first, render).source).toBe('substitution')
   })
 
   it('comes back to a sample so the drill stays real language', () => {
-    expect(nextPrompt(formula, 3, first).source).toBe('sample')
-    expect(nextPrompt(formula, 3, first).target).toBe('He is a doctor.')
+    expect(nextPrompt(formula, 3, first, render).source).toBe('sample')
+    expect(nextPrompt(formula, 3, first, render).target).toBe('He is a doctor.')
   })
 
   it('falls back to samples when a formula cannot be substituted into', () => {
     const bare = { ...formula, slots: [] }
-    expect(nextPrompt(bare, 1, first).source).toBe('sample')
+    expect(nextPrompt(bare, 1, first, render).source).toBe('sample')
   })
 
   it('never shows an empty card', () => {
     const empty = { ...formula, slots: [], samples: [] }
-    expect(nextPrompt(empty, 1, first).native).toBe(formula.pattern)
+    expect(nextPrompt(empty, 1, first, render).native).toBe(formula.pattern)
   })
 })
 
@@ -177,7 +188,7 @@ describe('ask', () => {
 
 describe('ladder', () => {
   it('runs the formula through every person', () => {
-    expect(ladder(formula)).toEqual([
+    expect(ladder(formula, render)).toEqual([
       { native: 'first', target: 'I am at home.' },
       { native: 'second', target: 'You are at home.' },
     ])
@@ -200,16 +211,16 @@ describe('ladder', () => {
         },
       ],
     }
-    expect(ladder(roomy).every((rung) => rung.target.endsWith('at home.'))).toBe(true)
+    expect(ladder(roomy, render).every((rung) => rung.target.endsWith('at home.'))).toBe(true)
   })
 
   it('offers no ladder for a formula with no person to run through', () => {
     const lets = { ...formula, pattern: "Let's + <verb>", say: "Let's <verb>.", slots: [{ name: 'verb', takes: 'verb' as const, values: [{ native: 'идти', target: 'go', forms: {}, own: false }] }] }
-    expect(ladder(lets)).toEqual([])
+    expect(ladder(lets, render)).toEqual([])
   })
 
   it('offers no ladder when there is nothing to substitute', () => {
-    expect(ladder({ ...formula, slots: [] })).toEqual([])
+    expect(ladder({ ...formula, slots: [] }, render)).toEqual([])
   })
 })
 
@@ -293,16 +304,16 @@ describe('own words in a substitution', () => {
     // The pronoun takes no own words, so it draws once; the rest tosses a
     // coin first - below a half is your own - then draws.
     const draws = [0, 0.2, 0]
-    const fromOwn = substitute(withOwn, () => draws.shift() ?? 0)
+    const fromOwn = substitute(withOwn, () => draws.shift() ?? 0, render)
     expect(fromOwn?.target).toBe('I am a car.')
     expect(fromOwn?.asked).toEqual({ values: { pronoun: 'I', rest: 'a car' } })
 
     const fromPack = [0, 0.7, 0]
-    expect(substitute(withOwn, () => fromPack.shift() ?? 0)?.target).toBe('I am at home.')
+    expect(substitute(withOwn, () => fromPack.shift() ?? 0, render)?.target).toBe('I am at home.')
   })
 
   it('names a sample by its sentence and a substitution by its values', () => {
-    expect(nextPrompt(withOwn, 3, first).asked).toEqual({ sample: 2 })
+    expect(nextPrompt(withOwn, 3, first, render).asked).toEqual({ sample: 2 })
   })
 })
 

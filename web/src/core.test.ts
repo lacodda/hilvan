@@ -4,7 +4,6 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import type { Formula, Value } from '@/api'
 import { checkerOf, Unchecked, type Checker } from '@/core'
-import { render } from '@/prompts'
 
 // The real module, built from crates/check by `pnpm test`: what is under test
 // is that the app reads the server's code the way the server does.
@@ -76,9 +75,9 @@ describe('the checker built from the core', () => {
     expect(checker.rate(['formula', 'order', null, null], false)).toBe('again')
   })
 
-  it('agrees with the sentence the app says for every substitution', () => {
-    // The app renders `say` itself to show and speak the answer; the checker
-    // renders it in Rust to read the answer against. One sentence, or the
+  it('says the sentence it reads an answer against, for every substitution', () => {
+    // The app shows and speaks the sentence the core renders, and the core
+    // reads the typed answer against the same template: one sentence, or the
     // learner hears one thing and is marked against another.
     for (const pronoun of formula.slots[0]!.values) {
       for (const rest of formula.slots[1]!.values) {
@@ -86,7 +85,7 @@ describe('the checker built from the core', () => {
           ['pronoun', pronoun],
           ['rest', rest],
         ])
-        const said = render(formula.say!, chosen)
+        const said = checker.render(formula.say!, chosen)
         const checked = checker.check(formula, { asked: { values: { pronoun: pronoun.target, rest: rest.target } }, typed: said ?? '' })
         expect(checked.answer).toBe(said)
         expect(checked.correct).toBe(true)

@@ -9,11 +9,11 @@
  * counts a text here too: how much of it is the learner's, word by word,
  * again after every tap - the arithmetic the server counts the list with.
  *
- * The module is five exports and two buffers (`crates/check/src/lib.rs`):
+ * The module is six exports and two buffers (`crates/check/src/lib.rs`):
  * the request is written into its memory as JSON, the reply read back out.
  */
 
-import type { Checked, Coverage, Failure, Formula, Hold, Rating, Standing, Token, Turn } from '@/api'
+import type { Checked, Coverage, Failure, Formula, Hold, Rating, Standing, Token, Turn, Value } from '@/api'
 import wasmUrl from '@/check.wasm?url'
 
 interface Exports {
@@ -22,6 +22,7 @@ interface Exports {
   check: () => number
   rate: () => number
   cover: () => number
+  render: () => number
   output: () => number
 }
 
@@ -30,6 +31,7 @@ type Reply =
   | { checked: Checked }
   | { rating: Rating }
   | { covered: Covered }
+  | { rendered: string }
   | { error: string }
 
 /** How a text stands, and each of its running words, in order. */
@@ -46,6 +48,8 @@ export interface Checker {
   rate: (failures: readonly (Failure | null)[], easy: boolean) => Rating
   /** How a text's running words stand, given what the learner holds of each of its lemmas. */
   cover: (tokens: readonly Pick<Token, 'parts' | 'name'>[], holds: readonly (Hold | null)[]) => Covered
+  /** The sentence a `say` template makes of the values chosen; null when it cannot be said. */
+  render: (say: string, chosen: ReadonlyMap<string, Value>) => string | null
 }
 
 /** A turn the checker could not read: a formula and a turn out of step. */
@@ -92,6 +96,10 @@ export async function checkerOf(source: BufferSource | Response | Promise<Respon
       const reply = call(exports.cover, { pieces, holds })
       if ('covered' in reply) return reply.covered
       throw new Unchecked('error' in reply ? reply.error : 'the checker answered something else')
+    },
+    render: (say, chosen) => {
+      const reply = call(exports.render, { say, chosen: Object.fromEntries(chosen) })
+      return 'rendered' in reply ? reply.rendered : null
     },
   }
 }

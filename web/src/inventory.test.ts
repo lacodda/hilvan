@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { InventoryItem } from '@/api'
 import { currentLevel, keyAnswer, MOST_AT_ONCE, nextRequest, ordinal, reachLine, stillToAsk, withdraw, type Op } from '@/inventory'
 
-const item = (rank: number, lemma = `w${rank}`): InventoryItem => ({ word: `en:${lemma}`, lemma, ipa: null, rank })
+const item = (rank: number, lemma = `w${rank}`): InventoryItem => ({ word: `en:${lemma}`, lemma, ipa: null, rank, gloss: null })
 const answer = (word: string, known = true): Op => ({ kind: 'answer', answer: { word, known } })
 
 describe('stillToAsk', () => {

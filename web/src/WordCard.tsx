@@ -4,6 +4,7 @@ import { speechUrl, type Context, type Rating, type WordDue } from '@/api'
 import { answerWord, tookSince, type Outcome } from '@/answers'
 import { Shell } from '@/App'
 import { Grade } from '@/Drill'
+import { Family } from '@/Family'
 import { Hold } from '@/Hold'
 import { RATING_KEYS, useKeys, type Key } from '@/keys'
 import { Button } from '@/components/ui/button'
@@ -178,6 +179,7 @@ export function WordCard({
             {word.gloss && <p className="text-xl text-accent">{word.gloss}</p>}
             {commonness(word) && <p className="text-sm text-faint">{commonness(word)}</p>}
           </div>
+          <Family family={word.family} />
           {others.length > 0 && <Elsewhere contexts={others} language={word.languages.target} />}
         </section>
       )}

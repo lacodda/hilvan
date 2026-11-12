@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 
-import type { Due, Formula, FormulaDue, Usual, WordDue } from '@/api'
-import { badgeCount, cardOf, expected, fitting, minutesOf, plan, soundsOf, stillAsks, TURNS, unanswered } from '@/sitting'
+import { beforeAll, describe, expect, it } from 'vitest'
+
+import type { Due, Formula, FormulaDue, PairDue, Usual, WordDue } from '@/api'
+import { checkerOf, type Checker } from '@/core'
+import type { Render } from '@/prompts'
+import { badgeCount, cardOf, expected, fitting, minutesOf, ofTopic, plan, soundsOf, stillAsks, topicsOf, TURNS, unanswered } from '@/sitting'
+
+// The real module, built from crates/check by `pnpm test`: the sentences a
+// substitution says are the core's, as they are in the app.
+let checker: Checker
+beforeAll(async () => {
+  checker = await checkerOf(readFileSync(new URL('./check.wasm', import.meta.url)))
+})
+const render: Render = (say, chosen) => checker.render(say, chosen)
 
 const formula: Formula = {
   id: 'be',
@@ -35,6 +47,7 @@ function said(id: string, typical: number | null, isNew = false): FormulaDue {
     due: '2026-10-20T08:00:00Z',
     pace: typical === null ? null : { typical_ms: typical, last_ms: typical, answers: 4 },
     stability: 3,
+    topics: [],
   }
 }
 
@@ -49,6 +62,7 @@ function word(id: string, isNew = false): WordDue {
       rank: 1,
       level: 1000,
       contexts: [{ sentence: 1, text: 'I am at home.', translation: 'Я дома.', form: 'home', start: 8, source: { kind: 'formula', id: 'be' }, anchor: true }],
+      family: [],
       languages: { native: 'ru', target: 'en' },
     },
     stitch: isNew ? 'new' : 'sewn',
@@ -56,10 +70,63 @@ function word(id: string, isNew = false): WordDue {
     due: '2026-10-20T08:00:00Z',
     pace: null,
     stability: 20,
+    topics: ['home'],
   }
 }
 
-const usual: Usual = { produce: 60_000, recognise: null, word: 10_000 }
+function pair(id: string): PairDue {
+  return {
+    kind: 'pair',
+    pair: {
+      id,
+      words: [
+        { id: 'en:at', lemma: 'at', gloss: 'в', typed_for_the_other: 0 },
+        { id: 'en:in', lemma: 'in', gloss: 'в', typed_for_the_other: 2 },
+      ],
+      questions: [{ text: 'She is at work.', start: 7, length: 2, translation: 'Она на работе.', answer: 'en:at' }],
+      languages: { native: 'ru', target: 'en' },
+    },
+    stitch: 'new',
+    is_new: true,
+    due: '2026-10-20T08:00:00Z',
+    pace: null,
+    stability: 0,
+    topics: ['work'],
+  }
+}
+
+const usual: Usual = { produce: 60_000, recognise: null, word: 10_000, pair: null }
+
+describe('a sitting of one topic', () => {
+  const topics = [
+    { id: 'home', name: 'Home' },
+    { id: 'work', name: 'Work' },
+    { id: 'food', name: 'Food and drink' },
+  ]
+  const queue: Due[] = [{ ...said('a', null), topics: ['work', 'home'] }, word('en:home'), pair('en:at|in'), said('b', null)]
+
+  it('offers the topics the queue holds, in the pack\'s order, with how many cards each', () => {
+    expect(topicsOf(queue, topics).map(({ topic, count }) => [topic.id, count])).toEqual([
+      ['home', 2],
+      ['work', 2],
+    ])
+  })
+
+  it('is the cards about it, in the queue\'s own order', () => {
+    expect(ofTopic(queue, 'work').map(cardOf)).toEqual(['formula:a:produce', 'pair:en:at|in'])
+    expect(ofTopic(queue, 'food')).toEqual([])
+  })
+})
+
+describe('a pair in the sitting', () => {
+  it('is its own card, given the time of a pair, and heard in its sentences', () => {
+    const due = pair('en:at|in')
+    expect(cardOf(due)).toBe('pair:en:at|in')
+    expect(expected(due, usual)).toBe(30_000)
+    expect(expected(due, { ...usual, pair: 12_000 })).toBe(12_000)
+    expect(soundsOf([due], {})).toEqual(['/api/speech?language=en&text=She+is+at+work.&tempo=slow'])
+  })
+})
 
 describe('the queue less what was answered here', () => {
   it('takes off the cards answered on this device, by card and direction', () => {
@@ -109,20 +176,20 @@ describe('the questions planned for a sitting', () => {
 
   it('draws each formula its turns once, and keeps them while it is in the queue', () => {
     const queue: Due[] = [said('a', null), word('en:home')]
-    const first = plan(queue, {}, draws)
+    const first = plan(queue, {}, draws, render)
     expect(Object.keys(first)).toEqual(['formula:a:produce'])
     expect(first['formula:a:produce']).toHaveLength(TURNS)
     // Kept: drawn again with other dice, the plan is what it was.
-    expect(plan(queue, first, () => 0.99)).toEqual(first)
+    expect(plan(queue, first, () => 0.99, render)).toEqual(first)
   })
 
   it('forgets a card that has left the queue, and redraws a question the pack no longer asks', () => {
     const queue: Due[] = [said('a', null)]
-    const kept = plan(queue, {}, draws)
-    expect(plan([said('b', null)], kept, draws)['formula:a:produce']).toBeUndefined()
+    const kept = plan(queue, {}, draws, render)
+    expect(plan([said('b', null)], kept, draws, render)['formula:a:produce']).toBeUndefined()
 
     const stale = kept['formula:a:produce']!.map((prompt) => ('sample' in prompt.asked ? { ...prompt, asked: { sample: 99 } } : prompt))
-    const redrawn = plan(queue, { 'formula:a:produce': stale }, draws)['formula:a:produce']!
+    const redrawn = plan(queue, { 'formula:a:produce': stale }, draws, render)['formula:a:produce']!
     expect(redrawn.every((prompt) => stillAsks(formula, prompt))).toBe(true)
   })
 
@@ -139,7 +206,7 @@ describe('the questions planned for a sitting', () => {
 describe('the sounds a sitting plays', () => {
   it('holds every question and answer at the card speed, and a new formula its explanation', () => {
     const queue: Due[] = [said('a', null, true), word('en:home')]
-    const planned = plan(queue, {}, () => 0)
+    const planned = plan(queue, {}, () => 0, render)
     const urls = soundsOf(queue, planned).map((url) => Object.fromEntries(new URL(url, 'http://x').searchParams))
     expect(urls).toContainEqual({ language: 'ru', text: 'Объяснение.', tempo: 'normal' })
     // A new formula is said slowly; a sample question is said in Russian too.

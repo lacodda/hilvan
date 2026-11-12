@@ -3,6 +3,7 @@ import { Component, Suspense, use, type ReactNode } from 'react'
 import { api, speechUrl, type Example, type Hold, type Line, type Token, type Word } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerBody, DrawerHeader, DrawerPopup, DrawerTitle } from '@/components/ui/drawer'
+import { Family } from '@/Family'
 import { Speak } from '@/Speak'
 import { player } from '@/speech'
 import { commonness, mark } from '@/words'
@@ -256,6 +257,7 @@ function Lemma({
           </Button>
         )}
       </div>
+      <Family family={word.family} />
       <Settled fallback={null}>
         <Suspense fallback={null}>
           <Elsewhere examples={remembered(examples, word.id, api.examples)} besides={tapped.line.sentence} />

@@ -23,6 +23,7 @@ function capitalise(text: string): string {
 export function describeQueue(queue: readonly Due[]): string {
   const formulas = queue.filter((due) => due.kind === 'formula')
   const words = queue.filter((due) => due.kind === 'word')
+  const pairs = queue.filter((due) => due.kind === 'pair').length
   const backwards = formulas.filter((due) => due.direction === 'recognise').length
   const fresh = formulas.some((due) => due.is_new && due.direction === 'produce')
   const comingBack = formulas.length - backwards - (fresh ? 1 : 0)
@@ -40,6 +41,7 @@ export function describeQueue(queue: readonly Due[]): string {
 
   const sentences: string[] = []
   if (parts.length > 0) sentences.push(`${capitalise(parts.join(', '))}.`)
+  if (pairs > 0) sentences.push(pairs === 1 ? 'Two words you mix up, told apart.' : `${pairs} pairs of words you mix up, told apart.`)
   if (wordParts.length > 0) {
     const line = wordParts.join(' and ')
     sentences.push(parts.length > 0 ? `Then ${line}.` : `${capitalise(line)}.`)

@@ -5,7 +5,7 @@ import { asOfLine, describeQueue, nextLine, waitingLine } from '@/today'
 
 const formula = { id: 'f' } as Formula
 const word = { id: 'en:doctor' } as Word
-const common = { stitch: 'new', due: '', pace: null, stability: 0 } as const
+const common = { stitch: 'new' as const, due: '', pace: null, stability: 0, topics: [] as string[] }
 const room: Room = { debt: 0, words: 10, formulas: 1 }
 
 const produce = (is_new: boolean): Due => ({ ...common, kind: 'formula', formula, direction: 'produce', is_new })

@@ -4,6 +4,11 @@ import { defineConfig } from 'vitest/config'
 // Kept apart from vite.config.ts on purpose: a `test` block in the Vite
 // config does not type-check against Vite's own config type in this line.
 export default defineConfig({
+  // What the build stamps into the app: the caches name the version they
+  // belong to.
+  define: {
+    __APP_VERSION__: JSON.stringify('test'),
+  },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
