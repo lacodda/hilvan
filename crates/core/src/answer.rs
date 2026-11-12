@@ -425,7 +425,7 @@ mod tests {
             check(&variants, "He said to me the truth").swapped.is_empty(),
             "two words for one is another sentence"
         );
-        assert!(check(&variants, "He told me the truth.").swapped.is_empty());
+        assert_eq!(check(&variants, "He told me the truth.").swapped, Vec::<Swap>::new());
     }
 
     #[test]

@@ -988,7 +988,7 @@ mod tests {
             ["housing"],
             "never itself"
         );
-        assert!(word(&pool, "en:go").await.unwrap().family.is_empty());
+        assert_eq!(word(&pool, "en:go").await.unwrap().family, Vec::<Kin>::new());
     }
 
     #[tokio::test]
