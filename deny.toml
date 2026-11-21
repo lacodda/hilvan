@@ -20,6 +20,10 @@ ignore = [
     # JSON, books as zip and XML, never a SQLite file. Drop this once sqlx
     # takes 0.39: cargo deny says when the advisory no longer matches.
     { id = "RUSTSEC-2026-0459", reason = "fix needs libsqlite3-sys 0.39, which sqlx 0.9.0 does not take; only the stand's own database is ever opened" },
+    # chrono is unmaintained, not vulnerable. The scheduler, rs-fsrs, is
+    # built on it, so it stays in the tree until rs-fsrs leaves it; hilvan's
+    # own time moving to jiff is a stage of its own, not a line in a feature.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained, not vulnerable; rs-fsrs is built on it, and the move to jiff is a stage of its own" },
 ]
 
 [licenses]

@@ -11,6 +11,13 @@ import { Progress } from '@/components/ui/progress'
 import { Segment, SegmentedControl } from '@/components/ui/segmented-control'
 import { useToastManager } from '@/components/ui/toast'
 
+/** What became of a lesson's grades: how many held and slipped, and whether any wait on the phone. */
+interface Sent {
+  held: number
+  slipped: number
+  kept: boolean
+}
+
 /** How often a lesson being made is asked about. */
 const FOLLOW_MS = 2_000
 
@@ -38,7 +45,7 @@ export function LessonScreen({ opening, onLeave }: { opening: Promise<Lessons | 
   const [device, setDevice] = useState<Kept | null | undefined>(undefined)
   const [taking, setTaking] = useState(false)
   const [asking, setAsking] = useState(false)
-  const [sent, setSent] = useState<{ held: number; slipped: number } | null>(null)
+  const [sent, setSent] = useState<Sent | null>(null)
   // Graded here, whether or not the device could write it down.
   const [graded, setGraded] = useState<number | null>(null)
   const toasts = useToastManager()
@@ -87,8 +94,11 @@ export function LessonScreen({ opening, onLeave }: { opening: Promise<Lessons | 
   }
 
   const lengths = told?.lengths ?? [15, 25, 40]
-  const playable = device && device.lesson.id !== graded && !listened(device.lesson.id).graded ? device : null
-  const newer = latest?.state === 'ready' && latest.id !== playable?.lesson.id ? latest : null
+  // A lesson heard and graded here is done with: it is neither played nor
+  // offered again, and the next one is made.
+  const done = (id: number) => id === graded || listened(id).graded
+  const playable = device && !done(device.lesson.id) ? device : null
+  const newer = latest?.state === 'ready' && latest.id !== playable?.lesson.id && !done(latest.id) ? latest : null
 
   return (
     <Shell
@@ -108,7 +118,11 @@ export function LessonScreen({ opening, onLeave }: { opening: Promise<Lessons | 
           <p className="text-xl">
             {sent.held} held{sent.slipped > 0 ? `, ${sent.slipped} slipped` : ''}.
           </p>
-          <p className="text-base text-dim">Gone to your schedule: what slipped comes back soon, the rest when it is due.</p>
+          <p className="text-base text-dim">
+            {sent.kept
+              ? 'Kept on this phone until the tutor is in reach; then what slipped comes back soon, the rest when it is due.'
+              : 'Gone to your schedule: what slipped comes back soon, the rest when it is due.'}
+          </p>
         </section>
       )}
 
@@ -116,8 +130,8 @@ export function LessonScreen({ opening, onLeave }: { opening: Promise<Lessons | 
         <Player
           key={playable.lesson.id}
           kept={playable}
-          onGraded={(counts) => {
-            setSent(counts)
+          onGraded={(grades) => {
+            setSent(grades)
             setGraded(playable.lesson.id)
           }}
         />
@@ -126,6 +140,7 @@ export function LessonScreen({ opening, onLeave }: { opening: Promise<Lessons | 
       {!playable && device !== undefined && (
         <Making
           told={told !== null}
+          done={device !== null}
           latest={latest}
           newer={newer}
           minutes={minutes}
@@ -148,6 +163,7 @@ export function LessonScreen({ opening, onLeave }: { opening: Promise<Lessons | 
 /** Asking for a lesson, following it while it is made, and taking it onto the device. */
 function Making({
   told,
+  done,
   latest,
   newer,
   minutes,
@@ -159,6 +175,8 @@ function Making({
   onTake,
 }: {
   told: boolean
+  /** Whether the lesson on this phone has been heard and graded. */
+  done: boolean
   latest: Lesson | null
   newer: Lesson | null
   minutes: number
@@ -170,7 +188,13 @@ function Making({
   onTake: (lesson: Lesson) => void
 }) {
   if (!told) {
-    return <p className="text-xl text-dim">Out of the tutor’s reach, and no lesson is on this phone. Make one at home and take it with you.</p>
+    return (
+      <p className="text-xl text-dim">
+        {done
+          ? 'Out of the tutor’s reach, and the lesson on this phone is done. Make the next one at home and take it with you.'
+          : 'Out of the tutor’s reach, and no lesson is on this phone. Make one at home and take it with you.'}
+      </p>
+    )
   }
   if (latest?.state === 'building') {
     return (
@@ -222,7 +246,7 @@ function Making({
 }
 
 /** The lesson on the device, played: where it is, what has been heard, and the grading after. */
-function Player({ kept, onGraded }: { kept: Kept; onGraded: (counts: { held: number; slipped: number }) => void }) {
+function Player({ kept, onGraded }: { kept: Kept; onGraded: (sent: Sent) => void }) {
   const { lesson, audio } = kept
   const chapters = lesson.chapters
   const length = lesson.length_ms ?? 0
@@ -232,6 +256,8 @@ function Player({ kept, onGraded }: { kept: Kept; onGraded: (counts: { held: num
   const [state, setState] = useState<Listened>(() => listened(lesson.id))
   const [playing, setPlaying] = useState(false)
   const [grading, setGrading] = useState(false)
+  // Where the player last reported, to tell playing from a jump.
+  const last = useRef(state.at)
 
   useEffect(() => remember(lesson.id, state), [lesson.id, state])
 
@@ -316,7 +342,9 @@ function Player({ kept, onGraded }: { kept: Kept; onGraded: (counts: { held: num
         }}
         onTimeUpdate={(event) => {
           const ms = Math.floor(event.currentTarget.currentTime * 1_000)
-          setState((before) => hear(before, chapters, ms, Date.now()))
+          const from = last.current
+          last.current = ms
+          setState((before) => hear(before, chapters, from, ms, Date.now()))
         }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
@@ -378,7 +406,7 @@ function Player({ kept, onGraded }: { kept: Kept; onGraded: (counts: { held: num
 }
 
 /** How it went: every phrase asked to the end, held unless the learner says it slipped. */
-function Grade({ lesson, state, onBack, onSent }: { lesson: Lesson; state: Listened; onBack: () => void; onSent: (counts: { held: number; slipped: number }) => void }) {
+function Grade({ lesson, state, onBack, onSent }: { lesson: Lesson; state: Listened; onBack: () => void; onSent: (sent: Sent) => void }) {
   const heard = Object.keys(state.heard)
     .map(Number)
     .sort((a, b) => a - b)
@@ -388,7 +416,9 @@ function Grade({ lesson, state, onBack, onSent }: { lesson: Lesson; state: Liste
   const send = () => {
     setSending(true)
     void Promise.all(heard.map((phrase) => answerByEar(lesson.phrases[phrase]!.card, !slipped.has(phrase), state.heard[phrase]!)))
-      .then(() => onSent({ held: heard.length - slipped.size, slipped: slipped.size }))
+      .then((outcomes) =>
+        onSent({ held: heard.length - slipped.size, slipped: slipped.size, kept: outcomes.some((outcome) => outcome.kind === 'kept') }),
+      )
       .finally(() => setSending(false))
   }
 

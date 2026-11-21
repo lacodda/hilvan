@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Stretch } from '@/api'
-import { askedBy, clock, hear, minutesLine, nextStart, previousStart, stretchAt, type Listened } from '@/lessons'
+import { clock, hear, minutesLine, nextStart, playedThrough, PLAYED_MS, previousStart, stretchAt, type Listened } from '@/lessons'
 
 /** A fresh phrase heard and then asked, a phrase asked, and the fresh one asked again. */
 const chapters: Stretch[] = [
@@ -19,11 +19,22 @@ describe('a lesson played through', () => {
     expect(stretchAt(chapters, 60_000)).toBe(3)
   })
 
-  it('counts a phrase heard once it has been asked to the end, not when it was only heard', () => {
-    expect(askedBy(chapters, 9_000)).toEqual([])
-    expect(askedBy(chapters, 21_999)).toEqual([])
-    expect(askedBy(chapters, 22_000)).toEqual([1])
-    expect(askedBy(chapters, 35_000)).toEqual([0, 1])
+  it('counts a phrase heard once its asking is played to the end, not when it was only heard', () => {
+    expect(playedThrough(chapters, 8_500, 9_000)).toEqual([])
+    expect(playedThrough(chapters, 21_500, 21_999)).toEqual([])
+    expect(playedThrough(chapters, 21_500, 22_000)).toEqual([1])
+    // An end is crossed once.
+    expect(playedThrough(chapters, 22_000, 22_250)).toEqual([])
+    expect(playedThrough(chapters, 34_000, 35_000)).toEqual([0])
+  })
+
+  it('hears nothing in a jump: a phrase skipped was not answered', () => {
+    expect(playedThrough(chapters, 0, 40_000)).toEqual([])
+    expect(playedThrough(chapters, 21_000, 21_000 + PLAYED_MS + 1)).toEqual([])
+    // Nor going back.
+    expect(playedThrough(chapters, 40_000, 21_000)).toEqual([])
+    // A slow report from a locked phone is still playing.
+    expect(playedThrough(chapters, 18_000, 18_000 + PLAYED_MS)).toEqual([1])
   })
 
   it('skips to the next stretch, and has none after the last', () => {
@@ -43,21 +54,24 @@ describe('what the device remembers', () => {
   const fresh: Listened = { at: 0, heard: {}, graded: false }
 
   it('keeps the moment each phrase was first heard', () => {
-    const once = hear(fresh, chapters, 22_000, 1_000)
+    const once = hear(fresh, chapters, 21_800, 22_000, 1_000)
     expect(once.heard).toEqual({ 1: 1_000 })
-    const twice = hear(once, chapters, 48_000, 5_000)
+    const asked = hear(once, chapters, 34_900, 35_000, 5_000)
+    const twice = hear(asked, chapters, 47_900, 48_000, 7_000)
     // Phrase 1 was heard at 1 000 and is not heard again later.
     expect(twice.heard).toEqual({ 0: 5_000, 1: 1_000 })
     expect(twice.at).toBe(48_000)
   })
 
   it('leaves the state alone when nothing moved, or less than a second did', () => {
-    const state = hear(fresh, chapters, 22_000, 1_000)
-    expect(hear(state, chapters, 22_000, 9_000)).toBe(state)
-    expect(hear(state, chapters, 22_900, 9_000)).toBe(state)
-    expect(hear(state, chapters, 23_000, 9_000).at).toBe(23_000)
-    // Back is a move too.
-    expect(hear(state, chapters, 10_000, 9_000).at).toBe(10_000)
+    const state = hear(fresh, chapters, 21_800, 22_000, 1_000)
+    expect(hear(state, chapters, 22_000, 22_000, 9_000)).toBe(state)
+    expect(hear(state, chapters, 22_000, 22_900, 9_000)).toBe(state)
+    expect(hear(state, chapters, 22_900, 23_000, 9_000).at).toBe(23_000)
+    // Back is a move too, and hears nothing.
+    const back = hear(state, chapters, 23_000, 10_000, 9_000)
+    expect(back.at).toBe(10_000)
+    expect(back.heard).toEqual(state.heard)
   })
 })
 

@@ -9,6 +9,7 @@
 //! chapter start exactly where the plan says it does.
 
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::path::Path;
 use std::process::Stdio;
 
@@ -89,7 +90,7 @@ pub struct Mark {
 ///
 /// Fails when a part names a line that was not decoded, when ffmpeg cannot
 /// be started, or when it fails.
-pub async fn encode(ffmpeg: &Path, parts: &[Part], lines: &HashMap<Line, Decoded>, marks: &[Mark], title: &str) -> Result<Vec<u8>> {
+pub async fn encode<S: BuildHasher>(ffmpeg: &Path, parts: &[Part], lines: &HashMap<Line, Decoded, S>, marks: &[Mark], title: &str) -> Result<Vec<u8>> {
     for part in parts {
         if let Part::Say { line } = part
             && !lines.contains_key(line)
@@ -121,7 +122,7 @@ pub async fn encode(ffmpeg: &Path, parts: &[Part], lines: &HashMap<Line, Decoded
 }
 
 /// The whole lesson as raw samples, in order: what the encoder is fed.
-fn layout(parts: &[Part], lines: &HashMap<Line, Decoded>) -> Vec<u8> {
+fn layout<S: BuildHasher>(parts: &[Part], lines: &HashMap<Line, Decoded, S>) -> Vec<u8> {
     let mut pcm = Vec::new();
     for part in parts {
         match part {
@@ -156,15 +157,19 @@ fn ffmetadata(title: &str, marks: &[Mark]) -> String {
     out
 }
 
-/// A value as ffmetadata takes it: `=`, `;`, `#`, `\` and line ends are
-/// escaped with a backslash.
+/// A value as ffmetadata takes it: `=`, `;`, `#` and `\` escaped with a
+/// backslash, and a line end made a space - a chapter's title is one line.
 fn escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for character in value.chars() {
-        if matches!(character, '=' | ';' | '#' | '\\' | '\n') {
-            out.push('\\');
+        match character {
+            '\n' | '\r' => out.push(' '),
+            '=' | ';' | '#' | '\\' => {
+                out.push('\\');
+                out.push(character);
+            }
+            _ => out.push(character),
         }
-        out.push(character);
     }
     out
 }
@@ -234,7 +239,7 @@ mod tests {
         let samples = rate * ms / 1_000;
         let mut wav = crate::voice::tests::wav(rate, samples);
         let data = wav.len() - usize::try_from(samples * 2).unwrap();
-        for (n, sample) in wav[data..].chunks_exact_mut(2).enumerate() {
+        for (n, sample) in wav[data..].as_chunks_mut::<2>().0.iter_mut().enumerate() {
             #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
             let value = ((n as f64 * 440.0 * std::f64::consts::TAU / f64::from(rate)).sin() * 8_000.0) as i16;
             sample.copy_from_slice(&value.to_le_bytes());
@@ -261,7 +266,7 @@ mod tests {
             }],
         );
         assert!(written.starts_with(";FFMETADATA1\n"));
-        assert!(written.contains("title=x \\= 1\\; \\#2 \\\\ ok\\\n[CHAPTER]\n"), "{written}");
+        assert!(written.contains("title=x \\= 1\\; \\#2 \\\\ ok [CHAPTER]\n"), "{written}");
         assert_eq!(written.matches("\n[CHAPTER]\n").count(), 1, "a title made a chapter of its own: {written}");
     }
 
@@ -321,7 +326,7 @@ mod tests {
         assert!(error.to_string().contains("missing"), "{error:#}");
     }
 
-    /// The size of an ID3v2 tag with its header: four 7-bit bytes.
+    /// The size of an `ID3v2` tag with its header: four 7-bit bytes.
     fn tag_size(file: &[u8]) -> usize {
         10 + file[6..10].iter().fold(0usize, |size, byte| (size << 7) | usize::from(*byte & 0x7f))
     }

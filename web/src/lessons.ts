@@ -44,14 +44,23 @@ export function previousStart(chapters: readonly Stretch[], ms: number): number 
 }
 
 /**
- * The phrases heard by the time `ms` has been played through: those asked
- * at least once to the end. A fresh phrase only heard and not yet asked has
- * not been answered, so it is not among them.
+ * The longest step between two reports of the player that is still playing
+ * rather than a jump: a phone reports a few times a second, less often with
+ * the screen off; "Next phrase" moves ten seconds and more at once.
  */
-export function askedBy(chapters: readonly Stretch[], ms: number): number[] {
+export const PLAYED_MS = 5_000
+
+/**
+ * The phrases whose asking ended while the player went from `from` to `to`
+ * by playing. A jump - back, or forward past the step of playing - hears
+ * nothing: a phrase skipped was not answered. A fresh phrase only heard and
+ * not yet asked has not been answered either.
+ */
+export function playedThrough(chapters: readonly Stretch[], from: number, to: number): number[] {
+  if (to < from || to - from > PLAYED_MS) return []
   const asked = new Set<number>()
   for (const stretch of chapters) {
-    if (stretch.turn === 'asked' && stretch.end_ms <= ms) asked.add(stretch.phrase)
+    if (stretch.turn === 'asked' && stretch.end_ms > from && stretch.end_ms <= to) asked.add(stretch.phrase)
   }
   return [...asked].sort((a, b) => a - b)
 }
@@ -89,15 +98,16 @@ export function remember(id: number, state: Listened): void {
 }
 
 /**
- * Lays what has been played up to `ms` over what was remembered: each phrase
- * asked to the end by then is heard, at `now` unless it was heard before.
- * The place moves by whole seconds: a player reports it four times a
- * second, and the device need not write it down that often.
+ * Lays a step of the player, from `from` to `ms`, over what was remembered:
+ * each phrase whose asking was played to its end in it is heard, at `now`
+ * unless it was heard before. The place moves by whole seconds: a player
+ * reports it four times a second, and the device need not write it down
+ * that often.
  */
-export function hear(state: Listened, chapters: readonly Stretch[], ms: number, now: number): Listened {
+export function hear(state: Listened, chapters: readonly Stretch[], from: number, ms: number, now: number): Listened {
   const heard = { ...state.heard }
   let changed = false
-  for (const phrase of askedBy(chapters, ms)) {
+  for (const phrase of playedThrough(chapters, from, ms)) {
     if (heard[phrase] === undefined) {
       heard[phrase] = now
       changed = true

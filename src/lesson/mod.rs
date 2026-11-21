@@ -135,7 +135,10 @@ pub fn offer(due: &Due, day: i64) -> Option<Offered> {
             if samples.is_empty() {
                 return None;
             }
-            let at = usize::try_from(day.rem_euclid(i64::try_from(samples.len()).ok()?)).ok()?;
+            // Understanding takes the sample after the one saying takes, so
+            // the two sides of a formula due on one day are two sentences.
+            let turn = day + i64::from(*direction == Direction::Recognise);
+            let at = usize::try_from(turn.rem_euclid(i64::try_from(samples.len()).ok()?)).ok()?;
             let sample = &samples[at];
             let fresh = due.is_new && *direction == Direction::Produce;
             let explanation = formula.explanation.trim();
@@ -625,6 +628,124 @@ async fn prune(pool: &SqlitePool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scheduling::Stitch;
+    use crate::study::{Formula, Languages, Sample};
+    use crate::words::{self, Word};
+
+    fn languages() -> Languages {
+        Languages {
+            native: "ru".to_string(),
+            target: "en".to_string(),
+        }
+    }
+
+    fn sample(sentence: i64, native: &str, target: &str) -> Sample {
+        Sample {
+            sentence,
+            native: native.to_string(),
+            target: target.to_string(),
+            words: Vec::new(),
+            accept: Vec::new(),
+            topics: Vec::new(),
+        }
+    }
+
+    fn due(subject: Subject, is_new: bool) -> Due {
+        Due {
+            subject,
+            stitch: if is_new { Stitch::New } else { Stitch::Basted },
+            is_new,
+            due: Utc::now(),
+            pace: None,
+            stability: 0.0,
+            topics: Vec::new(),
+        }
+    }
+
+    fn formula(direction: Direction, is_new: bool) -> Due {
+        let formula = Formula {
+            id: "be".to_string(),
+            name: "To be".to_string(),
+            pattern: "<pronoun> + am/is/are".to_string(),
+            say: None,
+            explanation: "Связка обязательна.".to_string(),
+            samples: vec![sample(1, "Я дома.", "I am at home."), sample(2, "Он устал.", "He is tired.")],
+            slots: Vec::new(),
+            family: None,
+            form: None,
+            sisters: Vec::new(),
+            accept: Vec::new(),
+            parents: Vec::new(),
+            languages: languages(),
+        };
+        due(Subject::Formula { formula, direction }, is_new)
+    }
+
+    fn word(translation: Option<&str>, gloss: Option<&str>) -> Due {
+        let word = Word {
+            id: "en:home".to_string(),
+            lemma: "home".to_string(),
+            gloss: gloss.map(str::to_string),
+            ipa: None,
+            rank: None,
+            level: None,
+            contexts: vec![words::Context {
+                sentence: 1,
+                text: "I am at home.".to_string(),
+                translation: translation.map(str::to_string),
+                form: "home".to_string(),
+                start: 8,
+                source: words::Source::Text { id: None, title: None },
+                anchor: true,
+            }],
+            family: Vec::new(),
+            languages: languages(),
+        };
+        due(Subject::Word { word }, false)
+    }
+
+    #[test]
+    fn the_two_sides_of_a_formula_due_on_one_day_are_two_sentences_and_the_next_day_two_others() {
+        let saying = offer(&formula(Direction::Produce, false), 10).unwrap();
+        let understanding = offer(&formula(Direction::Recognise, false), 10).unwrap();
+        assert_ne!(saying.item.target, understanding.item.target);
+        assert_eq!(saying.item.asks, Asks::Produce);
+        assert_eq!(understanding.item.asks, Asks::Recognise);
+        let tomorrow = offer(&formula(Direction::Produce, false), 11).unwrap();
+        assert_ne!(saying.item.target, tomorrow.item.target, "another sample each day");
+    }
+
+    #[test]
+    fn a_new_formula_is_led_in_by_its_explanation_and_only_when_said() {
+        let new = offer(&formula(Direction::Produce, true), 0).unwrap();
+        assert!(new.item.fresh);
+        assert_eq!(new.item.lead.as_deref(), Some("Связка обязательна."));
+        // The understanding side opens once the formula has been said: it is
+        // new to the schedule, not to the learner.
+        let opened = offer(&formula(Direction::Recognise, true), 0).unwrap();
+        assert!(!opened.item.fresh);
+        assert_eq!(opened.item.lead, None);
+        assert_eq!(
+            new.card,
+            CardRef::Formula {
+                id: "be".to_string(),
+                direction: Direction::Produce
+            }
+        );
+    }
+
+    #[test]
+    fn a_word_is_heard_in_its_sentence_or_alone_with_its_gloss_or_not_at_all() {
+        let in_sentence = offer(&word(Some("Я дома."), Some("дом")), 0).unwrap();
+        assert_eq!(
+            (in_sentence.item.target.as_str(), in_sentence.item.native.as_str()),
+            ("I am at home.", "Я дома.")
+        );
+        assert_eq!(in_sentence.item.asks, Asks::Recognise);
+        let alone = offer(&word(None, Some("дом")), 0).unwrap();
+        assert_eq!((alone.item.target.as_str(), alone.item.native.as_str()), ("home", "дом"));
+        assert!(offer(&word(None, None), 0).is_none(), "nothing to say it means");
+    }
 
     #[test]
     fn a_guess_grows_with_the_line_and_slows_with_it() {
