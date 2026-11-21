@@ -45,7 +45,9 @@ pub(super) fn tags(source: &str, raw_text: bool) -> Vec<Tag> {
             }),
             Token::EndTag(tag) => Some(Tag::Close(lossy(&tag.name))),
             Token::String(text) => Some(Tag::Text(lossy(&text.value))),
-            Token::Comment(_) | Token::Doctype(_) | Token::Error(_) => None,
+            // `<?xml ... ?>` heads every FB2 and XHTML file and says nothing a
+            // reader reads.
+            Token::Comment(_) | Token::Doctype(_) | Token::ProcessingInstruction(_) | Token::Error(_) => None,
         })
         .collect()
 }
