@@ -179,38 +179,3 @@ export function shelfOrder(items: readonly ShelfItem[]): ShelfItem[] {
 /** The files the reader takes: books, pages, subtitles and plain or marked text. */
 export const ACCEPTED =
   '.txt,.md,.markdown,.srt,.vtt,.html,.htm,.xhtml,.epub,.fb2,.zip,text/plain,text/markdown,text/html,application/epub+zip'
-
-/** How far a finger has to travel across a paragraph to say "I know the rest". */
-export const SWIPE = 80
-
-/** Beyond this much vertical movement it is a scroll, not a swipe. */
-export const SLOPE = 30
-
-/** What a movement to (x, y) means for a drag that began at `start`. */
-export type Swipe = 'known' | 'abandon' | 'watching'
-
-/**
- * The swipe across a paragraph, apart from the browser that delivers it.
- *
- * Rightwards only - the way a hand sweeps a page aside - and abandoned the
- * moment it runs down the page: a reader scrolling must never declare a
- * paragraph known, however far the scroll drifts sideways.
- */
-export function swipe(start: { x: number; y: number }, x: number, y: number): Swipe {
-  if (Math.abs(y - start.y) > SLOPE) return 'abandon'
-  if (start.x - x > SLOPE) return 'abandon'
-  if (x - start.x >= SWIPE) return 'known'
-  return 'watching'
-}
-
-/**
- * The paragraph being read: the last one whose top has passed the middle
- * of the screen - the line the eye is on, not the one about to appear.
- */
-export function paragraphAt(tops: readonly (number | null)[], middle: number): number {
-  let at = 0
-  tops.forEach((top, index) => {
-    if (top !== null && top < middle) at = index
-  })
-  return at
-}

@@ -1,11 +1,13 @@
 import { cn } from 'dowel-ui'
-import { Fragment, use, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Fragment, use, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api, speechUrl, textPath, Unreachable, type ChapterSummary, type Holds, type Standing, type Text } from '@/api'
 import { Shell } from '@/App'
 import { checker } from '@/core'
 import { holdReads } from '@/offline'
-import { chapterName, coverageLine, offsets, paragraphAt, placeIn, restOf, runs, swipe, throughText, tokensOf, withHolds, yours } from '@/reading'
+import { chapterName, coverageLine, offsets, placeIn, restOf, runs, throughText, tokensOf, withHolds, yours } from '@/reading'
+
+import { ReaderScreen as Reader } from '@/components/blocks/reader-screen'
 
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerBody, DrawerHeader, DrawerPopup, DrawerTitle } from '@/components/ui/drawer'
@@ -103,8 +105,9 @@ function Contents({
  * - with its chapters a tap away, each saying how much of it is the
  * learner's. The place is kept through the whole book.
  *
- * The page itself - the measure, the size, the place kept by paragraph - is
- * rhapsod's reader, copied until the line's Reader block is in dowel.
+ * The page itself - the measure, the size, the paragraph being read, the
+ * place restored, the sweep - is the line's Reader block from dowel; every
+ * word on it is drawn here.
  */
 export function ReaderScreen({
   text: promised,
@@ -225,36 +228,11 @@ export function ReaderScreen({
     return () => window.clearTimeout(timer)
   }, [swept])
 
-  // Back where the learner stopped, or at the top of a chapter opened.
-  // Once: the text is here before the first paint, and a paragraph flush
-  // against the top reads as a page cut.
-  const paragraphs = useRef<(HTMLParagraphElement | null)[]>([])
+  // A chapter opened with no place in it starts at its top, wherever the
+  // page was scrolled in the one before; the block restores a place itself.
   useEffect(() => {
-    if (placeHere === null || placeHere <= 0) {
-      window.scrollTo({ top: 0 })
-      return
-    }
-    paragraphs.current[placeHere]?.scrollIntoView({ block: 'start' })
-    window.scrollBy({ top: -72 })
+    if (placeHere === null || placeHere <= 0) window.scrollTo({ top: 0 })
   }, [placeHere])
-
-  // Follow the reader down the page.
-  useEffect(() => {
-    let frame = 0
-    const onScroll = () => {
-      if (frame) return
-      frame = window.requestAnimationFrame(() => {
-        frame = 0
-        const tops = paragraphs.current.map((element) => (element ? element.getBoundingClientRect().top : null))
-        setAt(paragraphAt(tops, window.innerHeight / 2))
-      })
-    }
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      if (frame) window.cancelAnimationFrame(frame)
-    }
-  }, [])
 
   // The place told to the tutor once the reader settles on it, and on the
   // way out. Opening the text is telling it too: the list orders by it.
@@ -277,20 +255,6 @@ export function ReaderScreen({
     void api.placeInText(text.id, { finished: read }).catch(failed('Not saved'))
   }
 
-  // The swipe: watched from a finger's first touch on a paragraph.
-  const drag = useRef<{ x: number; y: number; paragraph: number } | null>(null)
-  const onDown = (paragraph: number) => (event: ReactPointerEvent) => {
-    drag.current = event.pointerType === 'touch' ? { x: event.clientX, y: event.clientY, paragraph } : null
-  }
-  const onMove = (event: ReactPointerEvent) => {
-    const start = drag.current
-    if (!start) return
-    const verdict = swipe(start, event.clientX, event.clientY)
-    if (verdict === 'watching') return
-    drag.current = null
-    if (verdict === 'known') knowTheRest(start.paragraph)
-  }
-
   const segments = [
     { key: 'sewn', start: 0, end: coverage.sewn, tone: 'accent' as const, label: `${coverage.sewn} held` },
     { key: 'basted', start: coverage.sewn, end: coverage.sewn + coverage.basted, tone: 'past' as const, label: `${coverage.basted} being learnt` },
@@ -303,6 +267,45 @@ export function ReaderScreen({
     },
   ]
 
+  const paragraph = (number: number) =>
+    (text.lines[number] ?? []).map((line, index) => {
+      const url = speechUrl(text.language, line.text, 'normal')
+      const first = starts[number]?.[index] ?? 0
+      return (
+        <Fragment key={line.sentence}>
+          <span
+            onClick={(event) => {
+              // A tap between words says the sentence; a tap on one opens it.
+              if ((event.target as HTMLElement).closest('button')) return
+              void player.play(url)
+            }}
+            className={playing === url ? 'rounded-xs bg-raise' : ''}
+          >
+            {runs(line).map((run, piece) =>
+              run.token === null ? (
+                <Fragment key={piece}>{run.text}</Fragment>
+              ) : (
+                <Button
+                  key={piece}
+                  onClick={() => setTapped({ line, token: line.tokens[run.token!]! })}
+                  variant="link"
+                  size={null}
+                  className={cn(
+                    // A word of the text, not a control on it: the
+                    // paragraph's own size, weight and colour.
+                    'inline cursor-pointer align-baseline font-normal whitespace-normal text-text not-data-disabled:hover:no-underline',
+                    tokenClass(standings[first + run.token]),
+                  )}
+                >
+                  {run.text}
+                </Button>
+              ),
+            )}
+          </span>{' '}
+        </Fragment>
+      )
+    })
+
   return (
     <Shell
       aside={
@@ -310,108 +313,62 @@ export function ReaderScreen({
           Your texts
         </Button>
       }
-      actions={
-        <div className="flex items-center gap-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <span className="text-base text-dim">{book ? `This chapter: ${coverageLine(coverage)}` : coverageLine(coverage)}</span>
-            <Track segments={segments} from={0} to={Math.max(coverage.words, 1)} minWidth={0} size="sm" label={coverageLine(coverage)} />
+    >
+      <Reader
+        title={text.title}
+        byline={text.author || undefined}
+        lead={
+          <div className="flex flex-col gap-3">
+            {book && (
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-lg text-dim">
+                  Chapter {text.shown + 1} of {text.chapters}
+                  {chapter.title ? ` · ${chapter.title}` : ''}
+                </span>
+                <Button onClick={() => setContentsOpen(true)} variant="link" className="text-base text-faint underline">
+                  Chapters
+                </Button>
+              </div>
+            )}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-base text-dim">{book ? `This chapter: ${coverageLine(coverage)}` : coverageLine(coverage)}</span>
+              <Track segments={segments} from={0} to={Math.max(coverage.words, 1)} minWidth={0} size="sm" label={coverageLine(coverage)} />
+            </div>
+            <p className="text-base text-faint">Tap a word you do not know; tap between words to hear the sentence; swipe a paragraph to the right when you know the rest of it.</p>
           </div>
-          <Button onClick={() => knowTheRest(at)} variant="ghost" size={null} className="px-3 py-2.5 text-base whitespace-normal text-text">
+        }
+        count={text.lines.length}
+        renderParagraph={paragraph}
+        start={placeHere}
+        onParagraphChange={setAt}
+        onSwipe={knowTheRest}
+        marked={swept}
+        foot={
+          <Button onClick={() => knowTheRest(at)} variant="ghost" size={null} className="shrink-0 px-3 py-2.5 text-base text-text">
             I know the rest
           </Button>
-        </div>
-      }
-    >
-      <header className="flex flex-col gap-1">
-        <h2 className="text-2xl font-semibold tracking-tight text-balance">{text.title}</h2>
-        {text.author && <p className="text-base text-faint">{text.author}</p>}
-        {book && (
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="text-lg text-dim">
-              Chapter {text.shown + 1} of {text.chapters}
-              {chapter.title ? ` · ${chapter.title}` : ''}
-            </span>
-            <Button onClick={() => setContentsOpen(true)} variant="link" className="text-base text-faint underline">
-              Chapters
-            </Button>
-          </div>
-        )}
-        <p className="text-base text-faint">Tap a word you do not know; tap between words to hear the sentence; swipe a paragraph to the right when you know the rest of it.</p>
-      </header>
-
-      <article className="flex flex-col gap-5">
-        {text.lines.map((lines, paragraph) => (
-          <p
-            key={paragraph}
-            ref={(element) => {
-              paragraphs.current[paragraph] = element
-            }}
-            onPointerDown={onDown(paragraph)}
-            onPointerMove={onMove}
-            onPointerUp={() => (drag.current = null)}
-            onPointerCancel={() => (drag.current = null)}
-            className={`touch-pan-y text-xl leading-[1.75] text-pretty text-text transition-colors duration-500 sm:text-lg sm:leading-[1.8] ${
-              swept === paragraph ? 'bg-accent-soft' : ''
-            }`}
-          >
-            {lines.map((line, index) => {
-              const url = speechUrl(text.language, line.text, 'normal')
-              const first = starts[paragraph]?.[index] ?? 0
-              return (
-                <Fragment key={line.sentence}>
-                  <span
-                    onClick={(event) => {
-                      // A tap between words says the sentence; a tap on one opens it.
-                      if ((event.target as HTMLElement).closest('button')) return
-                      void player.play(url)
-                    }}
-                    className={playing === url ? 'rounded-xs bg-raise' : ''}
-                  >
-                    {runs(line).map((run, piece) =>
-                      run.token === null ? (
-                        <Fragment key={piece}>{run.text}</Fragment>
-                      ) : (
-                        <Button
-                          key={piece}
-                          onClick={() => setTapped({ line, token: line.tokens[run.token!]! })}
-                          variant="link"
-                          size={null}
-                          className={cn(
-                            // A word of the text, not a control on it: the
-                            // paragraph's own size, weight and colour.
-                            'inline cursor-pointer align-baseline font-normal whitespace-normal text-text not-data-disabled:hover:no-underline',
-                            tokenClass(standings[first + run.token]),
-                          )}
-                        >
-                          {run.text}
-                        </Button>
-                      ),
-                    )}
-                  </span>{' '}
-                </Fragment>
-              )
-            })}
-          </p>
-        ))}
-      </article>
-
-      <section className="flex flex-col gap-3 border-t border-line pt-6">
-        {book && !last ? (
-          <Button onClick={() => onChapter(text.shown + 1)} variant="primary" size={null} className="flex-col items-start self-start px-4 py-3 text-left whitespace-normal">
-            <span className="block text-lg">Next chapter</span>
-            {text.contents[text.shown + 1] && <span className="block text-base opacity-80">{chapterName(text.contents[text.shown + 1]!)}</span>}
-          </Button>
-        ) : (
-          <Button onClick={() => finish(!finished)} variant={finished ? 'ghost' : 'primary'} size={null} className="self-start px-4 py-3 text-lg">
-            {finished ? 'Read · mark unread' : book ? 'I have read the book' : 'I have read it'}
-          </Button>
-        )}
-        {book && text.shown > 0 && (
-          <Button onClick={() => onChapter(text.shown - 1)} variant="link" className="self-start text-base text-faint underline">
-            Previous chapter
-          </Button>
-        )}
-      </section>
+        }
+        after={
+          <>
+            {book && !last ? (
+              <Button onClick={() => onChapter(text.shown + 1)} variant="primary" size={null} className="flex-col items-start self-start px-4 py-3 text-left whitespace-normal">
+                <span className="block text-lg">Next chapter</span>
+                {text.contents[text.shown + 1] && <span className="block text-base opacity-80">{chapterName(text.contents[text.shown + 1]!)}</span>}
+              </Button>
+            ) : (
+              <Button onClick={() => finish(!finished)} variant={finished ? 'ghost' : 'primary'} size={null} className="self-start px-4 py-3 text-lg">
+                {finished ? 'Read · mark unread' : book ? 'I have read the book' : 'I have read it'}
+              </Button>
+            )}
+            {book && text.shown > 0 && (
+              <Button onClick={() => onChapter(text.shown - 1)} variant="link" className="self-start text-base text-faint underline">
+                Previous chapter
+              </Button>
+            )}
+          </>
+        }
+        words={{ progress: (reached, count) => `Paragraph ${reached} of ${count}` }}
+      />
 
       {book && (
         <Contents

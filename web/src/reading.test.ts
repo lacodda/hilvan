@@ -5,30 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Coverage, Hold, Line } from '@/api'
 import { checkerOf, type Checker } from '@/core'
 import type { ShelfItem } from '@/api'
-import { chapterName, coverageLine, fit, levelLine, nextLine, nextReason, offsets, paragraphAt, placeIn, placeLine, restOf, runs, shelfOrder, swipe, SWIPE, throughText, tokensOf, withHolds, yours } from '@/reading'
-
-describe('a swipe across a paragraph', () => {
-  const start = { x: 40, y: 300 }
-
-  it('says the rest known once it has gone far enough to the right', () => {
-    expect(swipe(start, 40 + SWIPE - 1, 305)).toBe('watching')
-    expect(swipe(start, 40 + SWIPE, 305)).toBe('known')
-  })
-
-  it('is a scroll the moment it runs down the page, however far it went sideways', () => {
-    expect(swipe(start, 40 + SWIPE * 2, 340)).toBe('abandon')
-  })
-
-  it('is nothing to the left', () => {
-    expect(swipe(start, 0, 300)).toBe('abandon')
-  })
-
-  it('reads the paragraph whose top passed the middle last', () => {
-    expect(paragraphAt([-400, -10, 380, 900], 400)).toBe(2)
-    expect(paragraphAt([500, 900], 400)).toBe(0)
-    expect(paragraphAt([null, 100, null], 400)).toBe(1)
-  })
-})
+import { chapterName, coverageLine, fit, levelLine, nextLine, nextReason, offsets, placeIn, placeLine, restOf, runs, shelfOrder, throughText, tokensOf, withHolds, yours } from '@/reading'
 
 const none: Coverage = { words: 0, sewn: 0, basted: 0, deck: 0, unknown: 0, beyond: 0, names: 0 }
 
