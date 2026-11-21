@@ -3,7 +3,7 @@ title: The learner model file
 description: Everything hilvan knows about its learner, as one JSON file - what is in it, the published schema, export, import, snapshots of past days and the demo learner.
 ---
 
-Everything the tutor knows about its learner fits in one JSON file: every card that has been answered with every answer behind it and the turns typed for it, the learner's own words, the voices they chose, their answers in the [inventory](/hilvan/guides/your-first-week/#what-you-already-know), the [breaks](/hilvan/guides/your-first-week/#a-break) they took, the [texts](/hilvan/guides/reading/) they read and the words they took from them. It moves a learner to another stand, keeps a copy that does not need hilvan to read, and tells the model as it stood on any past day.
+Everything the tutor knows about its learner fits in one JSON file: every card that has been answered with every answer behind it and the turns typed for it, the learner's own words, the voices they chose, their answers in the [inventory](/hilvan/guides/your-first-week/#what-you-already-know), the [breaks](/hilvan/guides/your-first-week/#a-break) they took, how long they like an [audio lesson](/hilvan/reference/lessons/), the [texts](/hilvan/guides/reading/) they read and the words they took from them. It moves a learner to another stand, keeps a copy that does not need hilvan to read, and tells the model as it stood on any past day.
 
 The material is not in it. Packs are files of their own and the lexicon is built into the binary; the model names the packs it was learnt on and keys everything on what outlives a reload of a pack - a formula's id, a word's lemma, a sentence's text.
 
@@ -11,22 +11,22 @@ The material is not in it. Packs are files of their own and the lexicon is built
 
 The format is published as a JSON Schema (draft 2020-12):
 
-**[`https://lacodda.github.io/hilvan/schema/learner-model-5.json`](/hilvan/schema/learner-model-5.json)**
+**[`https://lacodda.github.io/hilvan/schema/learner-model-6.json`](/hilvan/schema/learner-model-6.json)**
 
 Every file names it in `$schema`, and every file hilvan writes follows it - the test suite checks each export against it. What the schema refuses, `hilvan import` refuses too; import also checks what a schema cannot say: nothing listed twice, and every language the file names is one it lists. A change that would make a reader of this format misread a file is a new format, with a schema of its own.
 
 <!-- historical versions -->
-Format 5 (from v0.11.0) added cards of kind `pair`, phrases as words and `swapped` on typed turns; format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and a `source`; format 3 (from v0.9.0) added `texts` and `picks`; format 2 (from v0.7.0) added `breaks`.
+Format 6 (from v0.12.0) marks an answer `heard` when it was said aloud in an audio lesson and graded afterwards, and carries `lesson_minutes`; format 5 (from v0.11.0) added cards of kind `pair`, phrases as words and `swapped` on typed turns; format 4 (from v0.10.0) keeps a text in `chapters` and gives it an `author` and a `source`; format 3 (from v0.9.0) added `texts` and `picks`; format 2 (from v0.7.0) added `breaks`.
 <!-- /historical versions -->
 
-hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-4.json`](/hilvan/schema/learner-model-4.json), [`learner-model-3.json`](/hilvan/schema/learner-model-3.json), [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
+hilvan reads only the format it writes, so a file of an earlier format is refused; their schemas stay published at [`learner-model-5.json`](/hilvan/schema/learner-model-5.json), [`learner-model-4.json`](/hilvan/schema/learner-model-4.json), [`learner-model-3.json`](/hilvan/schema/learner-model-3.json), [`learner-model-2.json`](/hilvan/schema/learner-model-2.json) and [`learner-model-1.json`](/hilvan/schema/learner-model-1.json) for anything that reads such files.
 
 ## What is in it
 
 ```json
 {
-  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-5.json",
-  "format": 5,
+  "$schema": "https://lacodda.github.io/hilvan/schema/learner-model-6.json",
+  "format": 6,
   "exported_at": "2026-10-12T15:00:00Z",
   "as_of": "2026-10-12T15:00:00Z",
   "app": { "name": "hilvan", "version": "0.11.0" },
@@ -39,7 +39,7 @@ hilvan reads only the format it writes, so a file of an earlier format is refuse
       "reps": 4, "lapses": 0, "last_reviewed": "2026-10-05T19:02:11Z", "introduced_at": "2026-09-18T19:01:40Z",
       "reviews": [
         {
-          "at": "2026-09-18T19:01:40Z", "rating": "good", "source": "asked",
+          "at": "2026-09-18T19:01:40Z", "rating": "good", "source": "asked", "heard": false,
           "elapsed_days": 0, "stability": 3.13, "difficulty": 5.31, "duration_ms": 6200,
           "attempts": [
             { "prompt": "<the prompt, in the learner's language>", "expected": "I am at home.", "typed": "I am at hom",
@@ -54,7 +54,7 @@ hilvan reads only the format it writes, so a file of an earlier format is refuse
       "reps": 1, "lapses": 0, "last_reviewed": "2026-10-12T08:00:00Z", "introduced_at": "2026-10-12T08:00:00Z",
       "reviews": [
         {
-          "at": "2026-10-12T08:00:00Z", "rating": "hard", "source": "asked",
+          "at": "2026-10-12T08:00:00Z", "rating": "hard", "source": "asked", "heard": false,
           "elapsed_days": 0, "stability": 2.31, "difficulty": 5.1, "duration_ms": 14000,
           "attempts": []
         }

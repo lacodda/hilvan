@@ -1,6 +1,6 @@
 ---
 title: Voice
-description: Who speaks each language, the speech, listening and voices endpoints, the audio cache and the ElevenLabs budget.
+description: Who speaks each language, the speech and voices endpoints, the audio cache and the ElevenLabs budget.
 ---
 
 Every sentence of the material can be heard. Two engines share the work, and the learner never has to know which one is talking:
@@ -41,19 +41,9 @@ One sentence, spoken. A GET so the app can hand the URL straight to an `<audio>`
 | `404` | No voice speaks the language - no engine configured, or none answering. |
 | `502` | The engine failed: ElevenLabs out of credits, Piper stuck. The body names the cause. |
 
-## `GET /api/listen`
+## Audio lessons
 
-The sentences of the listening mode: every worked example of every formula the learner has started, in either direction.
-
-```json
-{
-  "sentences": [
-    { "formula": "be-present-statement", "target": "I am at home.", "native": "<its meaning>", "language": "en" }
-  ]
-}
-```
-
-Samples only: "what does it mean?" deserves a real sentence as its answer, and a substitution's meaning in the learner's own language is a scaffold. Listening is practice and is not graded - there is no listening card in the schedule.
+A lesson says its lines through the same engines and the same cache: the teacher's lines by Piper, the native speaker's by the voice of the language being learnt. It is priced against the budget before a paid line is said. See [Audio lessons](/hilvan/reference/lessons/).
 
 ## `GET /api/voices`
 
@@ -121,4 +111,4 @@ Explicit rather than on a timer: a paid sound dropped is a sound paid for again.
 }
 ```
 
-`remaining` and `resets_at` come from the account; `per_day` is what the cache says was spent over the last two weeks, and `runs_out_at` is when `remaining` ends at that rate (`null` when nothing is being spent). `lasts` answers the one question worth asking before a lesson: will this period's credits hold until they start over? The account is asked at most every ten minutes.
+`remaining` and `resets_at` come from the account; `per_day` is what the cache says was spent over the last two weeks, and `runs_out_at` is when `remaining` ends at that rate (`null` when nothing is being spent). `lasts` answers the question worth asking over a month: will this period's credits hold until they start over? A [lesson](/hilvan/reference/lessons/#how-it-is-made) asks a narrower one before it is made - whether what is left pays for its own new lines. The account is asked at most every ten minutes.

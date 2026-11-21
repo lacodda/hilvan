@@ -1014,7 +1014,11 @@ Where the learner stood at a moment, beside where they stand now, counted the wa
 
 ## Voice
 
-`GET /api/speech`, `GET /api/listen`, `GET /api/voices` and `PUT /api/voices/{language}` sit behind the same door as the study endpoints; they are described in [Voice](/hilvan/reference/voice/).
+`GET /api/speech`, `GET /api/voices` and `PUT /api/voices/{language}` sit behind the same door as the study endpoints; they are described in [Voice](/hilvan/reference/voice/).
+
+## Audio lessons
+
+`GET /api/lessons`, `POST /api/lessons`, `GET /api/lessons/{id}`, `GET /api/lessons/{id}/audio` and `POST /api/heard` - a lesson asked for, followed, taken onto the phone and answered by ear - are described in [Audio lessons](/hilvan/reference/lessons/).
 
 ## Errors
 

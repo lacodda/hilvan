@@ -42,6 +42,10 @@ What you had and lost is named: each week's slips - a card you came up with on o
 
 The time a learner has is mostly in between: a ride, a queue, ten minutes before something else. From v0.8.0 a sitting can be as long as the time there is - a few minutes takes the front of the queue, reviews first, measured by how long each card usually takes - and it runs with the tutor out of reach. Each typed turn is checked on the phone by the same code the tutor grades with, and each answer waits on the phone and arrives later at the moment it was given, so a day underground is a day of study like any other ([ADR 0011](https://github.com/lacodda/hilvan/blob/main/docs/adr/0011-answers-from-the-road.md)).
 
+### By ear, Pimsleur's way - built
+
+Saying a phrase aloud before hearing it is the retrieval that makes it stick, and a walk is time enough for it. From v0.12.0 the day's queue is also an audio lesson: a question in your language, a pause to answer aloud, the answer in a native voice, room to say it again - and every phrase back inside the lesson at growing intervals, Pimsleur's graduated interval recall, so a phrase met at the start is asked again before it fades. The lesson is made of what the schedule says is due, and what you heard goes back to the schedule once you say whether it held: one queue, answered by hand or by ear. The sound is assembled from pieces - each line said once and kept, the pauses and the order laid by ffmpeg - so a lesson costs the paid voice only what it has never said ([ADR 0015](https://github.com/lacodda/hilvan/blob/main/docs/adr/0015-audio-lessons.md)).
+
 ### Two directions, counted apart
 
 Understanding a sentence and producing one are different skills, and recognition always runs ahead. From v0.2.0 each formula is scheduled twice - saying it, and understanding it - so the two are never averaged into a number that describes neither. The Today screen shows both columns, and the gap between them is the point: you will understand more than you can say, and seeing by how much is more useful than a single figure that hides it.
@@ -78,7 +82,7 @@ Material you can read or hear that sits just past what you already know teaches 
 
 ## The LLM compiles material; it does not chat - coming
 
-The plan is for an LLM to assemble sentences and audio lessons from your learner model - the formulas and words you already know - so that new material is reachable from where you actually are. A compiler with a grammar and a vocabulary as its build inputs, not a conversation partner improvising at whatever level it guesses you are at. Audio, voiced by a separate TTS provider, is next; formulas woven into full sentences follow; the reader and the compiler that ties it all together come after that.
+The plan is for an LLM to assemble new sentences, stories and lessons from your learner model - the formulas and words you already know - so that new material is reachable from where you actually are. A compiler with a grammar and a vocabulary as its build inputs, not a conversation partner improvising at whatever level it guesses you are at. The audio lessons already compile by template from the material the packs hold; the LLM is what will let them say sentences no pack has.
 
 ## Coverage as the honest progress metric - built
 

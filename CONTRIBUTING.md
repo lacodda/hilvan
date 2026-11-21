@@ -8,6 +8,8 @@ Requires Rust (see `rust-version` in `Cargo.toml`) with the WebAssembly target, 
 rustup target add wasm32-unknown-unknown
 ```
 
+Audio lessons are spliced by ffmpeg, and their tests run the real one: have `ffmpeg` on the path, or point `HILVAN_FFMPEG` at it. Without it the lesson tests fail rather than pass for nothing.
+
 The app checks typed turns with the server's own code, built to WebAssembly from `crates/check`: `pnpm test` and `pnpm build` in `web/` build it with cargo (`pnpm check-wasm` does only that), and the app imports it from `web/src/check.wasm`, which is built, never committed.
 
 ```sh
@@ -41,4 +43,4 @@ Run it after changing `shelves/en/catalogue.toml`, the lexicon, its rules of rea
 
 ## The learner model format
 
-The schema of the learner model file is `docs/site/public/schema/learner-model-5.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.
+The schema of the learner model file is `docs/site/public/schema/learner-model-6.json`, published with the docs; the schemas of earlier formats stay beside it. A change to the model that a reader of the current format would misread is a new format and a new schema file beside it; the tests hold every export to the schema.

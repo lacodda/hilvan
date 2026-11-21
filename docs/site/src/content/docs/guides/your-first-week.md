@@ -129,6 +129,16 @@ For the road to work, the app has to have been opened once with the tutor in rea
 
 If you answer the same card on two devices before either reaches the tutor, both answers count, in the order you gave them.
 
+## By ear
+
+**By ear** on Today makes the same day into an audio lesson for a walk: 15, 25 or 40 minutes, chosen once and remembered. The tutor makes it in a minute or two - a new line takes a moment to say, one heard before is instant - and **Take it with you** downloads it whole to the phone, so it plays in the park as it does at home, with the screen locked and the phone's own buttons skipping by phrase.
+
+![A lesson on the phone: how far into it, which phrase, back, pause and next](/hilvan/screenshots/lesson.png)
+
+Each phrase is asked the way Pimsleur's courses ask: you hear the meaning, answer aloud in the pause, hear the answer, say it after the native voice, and hear it once more. A phrase you have never met is heard first, slowly and then at speed, and comes back several times as the lesson goes on; one you know comes back once. What is due comes first, then what is new, then - for a long lesson - what is about to be forgotten. Pairs stay on the cards.
+
+At the end, or whenever you stop, **How did it go?** lists every phrase asked to the end: tap the ones that did not come, and the rest count as held. Those answers go to the schedule like any others - from the road too, at the moment you heard them - so a card heard on a walk is not asked again on the train. A lesson that the month's ElevenLabs credits cannot pay for is not made, and says how many it needs and how many are left. More in [Audio lessons](/hilvan/reference/lessons/).
+
 ## On the home screen
 
 Installed on a phone's home screen, the app has two shortcuts on its icon - press and hold it: **Today**, and **Ten minutes**, which opens straight into a sitting that fits ten minutes. The icon carries a number: the cards waiting to come back. Where the phone allows it - an installed app on Android - the number is recounted now and then while the app is closed, as cards come due, without the tutor having to reach the phone; elsewhere it is the number the app last left.

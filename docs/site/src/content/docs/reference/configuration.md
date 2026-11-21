@@ -13,6 +13,7 @@ hilvan is configured entirely through the environment. There is no configuration
 | `HILVAN_PASSWORD_HASH` | no | unset | Argon2 hash of the learner's password, from `hilvan hash`. Unset leaves the stand open. |
 | `HILVAN_PIPER_URL` | no | unset | The Piper service that speaks the learner's own language, e.g. `http://piper:5000`. The compose files set it; unset leaves that language silent. |
 | `HILVAN_ELEVENLABS_KEY` | no | unset | ElevenLabs key with the Text to Speech permission; the language being learnt is spoken with it. Unset means Piper speaks every language. |
+| `HILVAN_FFMPEG` | no | `ffmpeg` | The ffmpeg [audio lessons](/hilvan/reference/lessons/) are spliced with. The image has Debian's on the path; without one, everything but the lessons works, and the server says so at startup. |
 | `RUST_LOG` | no | `hilvan=info,tower_http=info` | Log filter, in `tracing-subscriber` `EnvFilter` syntax. |
 
 A `.env` file in the working directory is read first, so all of these can live there during development. The file is never committed; `.env.example` shows the shape.
