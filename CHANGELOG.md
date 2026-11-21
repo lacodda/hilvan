@@ -8,6 +8,29 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.12.0] - 2026-11-21
+
+### Breaking Changes
+- The learner model file is format 6
+(learner-model-6.json): every review carries heard, and the file
+carries lesson_minutes; format 5 is refused. GET /api/listen is
+removed.
+
+### Bug Fixes
+- Hear only what was played, and say where the grades are
+- Pass over processing instructions, which html5gum 0.9.2 reports
+
+### Dependencies
+- Update the stack
+
+### Documentation
+- Explain audio lessons, answers by ear and format 6
+
+### Features
+- Read on dowel's Reader block, on dowel-ui 1.0
+- Plan an audio lesson the way Pimsleur's courses do
+- Hear today's cards as an audio lesson
+
 ## [0.11.0] - 2026-11-12
 
 ### Breaking Changes
