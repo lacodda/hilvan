@@ -16,6 +16,10 @@ const DEFAULT_DATABASE_URL: &str = "sqlite://data/hilvan.db?mode=rwc";
 /// in `web/` produces, relative to the working directory.
 const DEFAULT_WEB_DIR: &str = "web/dist";
 
+/// Default ffmpeg when `HILVAN_FFMPEG` is not set: the one on the path,
+/// which is where the image puts it.
+const DEFAULT_FFMPEG: &str = "ffmpeg";
+
 /// Runtime configuration, read from the environment.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -42,6 +46,8 @@ pub struct Config {
     /// The `ElevenLabs` key the language being learnt is spoken with
     /// (`HILVAN_ELEVENLABS_KEY`). Unset means Piper speaks it too.
     pub elevenlabs_key: Option<String>,
+    /// The ffmpeg audio lessons are spliced with (`HILVAN_FFMPEG`).
+    pub ffmpeg: PathBuf,
 }
 
 impl Config {
@@ -74,6 +80,10 @@ impl Config {
             );
         }
         let elevenlabs_key = lookup("HILVAN_ELEVENLABS_KEY").map(|key| key.trim().to_string()).filter(|key| !key.is_empty());
+        let ffmpeg = lookup("HILVAN_FFMPEG")
+            .map(|path| path.trim().to_string())
+            .filter(|path| !path.is_empty())
+            .map_or_else(|| PathBuf::from(DEFAULT_FFMPEG), PathBuf::from);
         Ok(Self {
             addr,
             database_url,
@@ -81,6 +91,7 @@ impl Config {
             password_hash,
             piper_url,
             elevenlabs_key,
+            ffmpeg,
         })
     }
 }
@@ -98,6 +109,7 @@ mod tests {
         let config = Config::from_lookup(env(&[])).expect("config should build with nothing set");
         assert_eq!(config.addr, DEFAULT_ADDR.parse().unwrap());
         assert_eq!(config.database_url, DEFAULT_DATABASE_URL);
+        assert_eq!(config.ffmpeg, PathBuf::from(DEFAULT_FFMPEG));
         assert_eq!(config.web_dir, PathBuf::from(DEFAULT_WEB_DIR));
         assert!(config.password_hash.is_none(), "an unset password should leave the stand open");
         assert!(
@@ -130,19 +142,28 @@ mod tests {
             ("HILVAN_ADDR", "127.0.0.1:9090"),
             ("HILVAN_DATABASE_URL", "sqlite:///data/tutor.db?mode=rwc"),
             ("HILVAN_WEB_DIR", "/app/web"),
+            ("HILVAN_FFMPEG", "/usr/local/bin/ffmpeg"),
         ]))
         .expect("config should accept valid overrides");
         assert_eq!(config.addr, "127.0.0.1:9090".parse().unwrap());
         assert_eq!(config.database_url, "sqlite:///data/tutor.db?mode=rwc");
         assert_eq!(config.web_dir, PathBuf::from("/app/web"));
+        assert_eq!(config.ffmpeg, PathBuf::from("/usr/local/bin/ffmpeg"));
     }
 
     #[test]
     fn treats_blank_optionals_as_unset() {
         // A compose file that leaves a variable empty means "the default",
         // not "a database with no name" or "serve the working directory".
-        let config = Config::from_lookup(env(&[("HILVAN_DATABASE_URL", ""), ("HILVAN_WEB_DIR", " "), ("HILVAN_PASSWORD_HASH", "  ")])).unwrap();
+        let config = Config::from_lookup(env(&[
+            ("HILVAN_DATABASE_URL", ""),
+            ("HILVAN_WEB_DIR", " "),
+            ("HILVAN_PASSWORD_HASH", "  "),
+            ("HILVAN_FFMPEG", " "),
+        ]))
+        .unwrap();
         assert_eq!(config.database_url, DEFAULT_DATABASE_URL);
+        assert_eq!(config.ffmpeg, PathBuf::from(DEFAULT_FFMPEG));
         assert_eq!(config.web_dir, PathBuf::from(DEFAULT_WEB_DIR));
         // An .env with `HILVAN_PASSWORD_HASH=` means unset, not "a hash of
         // nothing lets you in".

@@ -53,8 +53,11 @@ RUN touch src/main.rs src/lib.rs && cargo build --release -p hilvan
 
 # ------------------------------------------------------------- the runtime
 FROM debian:trixie-slim
+# ffmpeg splices audio lessons: every line decoded to one sample rate, the
+# silences laid between them, the whole encoded to MP3 with its chapters.
+# Debian's own build, so it is patched with the base image.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Unprivileged: nothing here needs root, and a web-facing process least of all.

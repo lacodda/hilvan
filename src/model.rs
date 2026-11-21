@@ -2,9 +2,9 @@
 //!
 //! Everything the tutor knows about its learner - each card and every answer
 //! behind it with the turns typed for it, the words they brought, the voices
-//! they chose, the inventory they went through, the breaks they took, the
-//! texts they read and the words they took from them - as one JSON
-//! document. It
+//! they chose, the inventory they went through, the breaks they took, how
+//! long they like a lesson, the texts they read and the words they took
+//! from them - as one JSON document. It
 //! moves a learner to another stand, shows a fictional one in the docs, and
 //! tells the model as it stood on any day: a snapshot is the review log up
 //! to that day played through the scheduler again, never a stored copy.
@@ -39,11 +39,11 @@ use crate::words::{Held, Standing};
 
 /// The version of the file's shape. Read files of this one; a file of
 /// another is refused rather than guessed at.
-pub const FORMAT: u32 = 5;
+pub const FORMAT: u32 = 6;
 
 /// Where the JSON Schema of [`FORMAT`] is published, and what a file says
 /// it follows.
-pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-5.json";
+pub const SCHEMA: &str = "https://lacodda.github.io/hilvan/schema/learner-model-6.json";
 
 /// A fictional learner, three weeks into English from Russian on the shipped
 /// pack: what `hilvan load-demo` loads, what the docs are shown with. Made by
@@ -78,6 +78,9 @@ pub struct Model {
     pub own_words: Vec<OwnWord>,
     /// The voice chosen for a language, where one was.
     pub voices: Vec<VoiceChoice>,
+    /// How long the learner asks an audio lesson to be, when they have
+    /// chosen; `None` leaves the default.
+    pub lesson_minutes: Option<u32>,
     /// Every answer of the inventory, either way.
     pub inventory: Vec<Inventoried>,
     /// The breaks taken, the earliest first: the stretches the schedule's
@@ -144,6 +147,9 @@ pub struct ReviewRecord {
     pub at: DateTime<Utc>,
     pub rating: Rating,
     pub source: Source,
+    /// Said aloud in an audio lesson and graded afterwards, rather than
+    /// given on a card.
+    pub heard: bool,
     pub elapsed_days: f64,
     pub stability: f64,
     pub difficulty: f64,
@@ -302,6 +308,12 @@ impl Model {
     pub fn check(&self) -> Result<()> {
         ensure!(self.schema == SCHEMA, "the file follows {:?}, not {SCHEMA}", self.schema);
         ensure!(self.format == FORMAT, "the file is of format {}, not {FORMAT}", self.format);
+        if let Some(minutes) = self.lesson_minutes {
+            ensure!(
+                crate::lesson::LENGTHS.contains(&minutes),
+                "a lesson is 15, 25 or 40 minutes, and the file asks for {minutes}"
+            );
+        }
 
         let mut languages = BTreeSet::new();
         for language in &self.languages {
@@ -641,6 +653,7 @@ async fn read(pool: &SqlitePool, at: Option<DateTime<Utc>>, now: DateTime<Utc>) 
         anchors,
         own_words,
         voices,
+        lesson_minutes: crate::lesson::chosen_minutes(pool).await?,
         inventory,
         breaks,
         texts,
@@ -788,7 +801,7 @@ async fn read_answers(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Ha
 
     let mut reviews: HashMap<i64, Vec<ReviewRecord>> = HashMap::new();
     for row in sqlx::query(
-        "SELECT id, card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source
+        "SELECT id, card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source, heard
          FROM review ORDER BY card_id, reviewed_at, id",
     )
     .fetch_all(pool)
@@ -803,6 +816,7 @@ async fn read_answers(pool: &SqlitePool, at: Option<DateTime<Utc>>) -> Result<Ha
             at: moment,
             rating: Rating::from_i64(row.get("rating"))?,
             source: Source::parse(&row.get::<String, _>("source"))?,
+            heard: row.get::<i64, _>("heard") == 1,
             elapsed_days: row.get("elapsed_days"),
             stability: row.get("stability"),
             difficulty: row.get("difficulty"),
@@ -1102,8 +1116,8 @@ async fn write_cards(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, cards: &[Card
 
         for review in &card.reviews {
             let review_id: i64 = sqlx::query_scalar(
-                "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source, heard)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             )
             .bind(id)
             .bind(review.rating.as_i64())
@@ -1113,6 +1127,7 @@ async fn write_cards(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, cards: &[Card
             .bind(review.difficulty)
             .bind(review.duration_ms)
             .bind(review.source.as_str())
+            .bind(i64::from(review.heard))
             .fetch_one(&mut **tx)
             .await
             .with_context(|| format!("failed to write an answer of {} {}", card.kind, card.subject))?;
@@ -1217,6 +1232,7 @@ async fn write_belongings(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, model: &
             .await
             .with_context(|| format!("failed to write own word {:?}", word.target))?;
     }
+    crate::lesson::choose_minutes(&mut **tx, model.lesson_minutes).await?;
     for voice in &model.voices {
         sqlx::query("INSERT INTO voice_choice (language, engine, voice) VALUES (?, ?, ?)")
             .bind(&voice.language)

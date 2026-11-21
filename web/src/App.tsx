@@ -5,7 +5,7 @@ import {
   Unauthorized,
   type Drift,
   type Due,
-  type Heard,
+  type Lessons,
   type InventoryRun,
   type OwnWord,
   type Read,
@@ -22,7 +22,7 @@ import { DeviceScreen } from '@/DeviceScreen'
 import { Drill } from '@/Drill'
 import { DriftScreen } from '@/DriftScreen'
 import { InventoryScreen } from '@/InventoryScreen'
-import { ListenScreen } from '@/ListenScreen'
+import { LessonScreen, openLessons } from '@/LessonScreen'
 import { Mark } from '@/Mark'
 import { holdReads, holdShell, holdSounds, setBadge } from '@/offline'
 import { held, settle } from '@/outbox'
@@ -120,7 +120,7 @@ function minutesAsked(): number | null {
 type View =
   | { kind: 'today' }
   | { kind: 'drilling'; items: Due[]; index: number; plan?: Plan }
-  | { kind: 'listening'; sentences: Promise<Heard[]> }
+  | { kind: 'lesson'; opening: Promise<Lessons | null> }
   | { kind: 'voices'; screen: Promise<Voices> }
   | { kind: 'own-words'; words: Promise<OwnWord[]> }
   | { kind: 'inventory'; run: Promise<InventoryRun> }
@@ -290,10 +290,10 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
       .catch((error: unknown) => toasts.add({ title: 'Not counted', description: error instanceof Error ? error.message : String(error), type: 'error' }))
   }
 
-  if (view.kind === 'listening') {
+  if (view.kind === 'lesson') {
     return (
-      <Suspense fallback={<Shell>Gathering sentences…</Shell>}>
-        <ListenScreen sentences={view.sentences} onLeave={backToToday} />
+      <Suspense fallback={<Shell>Finding your lessons…</Shell>}>
+        <LessonScreen opening={view.opening} onLeave={backToToday} />
       </Suspense>
     )
   }
@@ -417,7 +417,7 @@ function Sitting({ day: dayPromise, minutes, reload }: { day: Promise<Day>; minu
           )
           .then((render) => setView({ kind: 'drilling', items, index: 0, plan: planOfTopic(items, topic, Math.random, render) }))
       }}
-      onListen={() => setView({ kind: 'listening', sentences: api.listen() })}
+      onListen={() => setView({ kind: 'lesson', opening: openLessons() })}
       onRead={toTexts}
       onVoices={() => setView({ kind: 'voices', screen: api.voices() })}
       onOwnWords={() => setView({ kind: 'own-words', words: api.ownWords() })}

@@ -13,6 +13,7 @@ pub mod db;
 pub mod drift;
 pub mod import;
 pub mod inventory;
+pub mod lesson;
 pub mod lexicon;
 pub mod model;
 pub mod own;

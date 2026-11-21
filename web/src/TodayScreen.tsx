@@ -142,12 +142,12 @@ export function TodayScreen({
         </section>
       )}
 
-      {/* Listening is practice on what has been met, so it waits for the
-          first formula; before that there is nothing to hear. */}
+      {/* The same day by ear: a lesson made of its cards, for a walk. It
+          waits for the first formula; before that there is nothing to say. */}
       {started && (
         <Button onClick={onListen} variant="ghost" size={null} className="flex-col items-start px-4 py-3 text-left whitespace-normal text-text">
-          <span className="block text-xl font-medium">Listen</span>
-          <span className="block text-base text-faint">Hear a sentence, recall what it means, then look. Nothing is graded.</span>
+          <span className="block text-xl font-medium">By ear</span>
+          <span className="block text-base text-faint">Today’s cards as an audio lesson to take on a walk: answer aloud in the pauses, say how it went at the end.</span>
         </Button>
       )}
 

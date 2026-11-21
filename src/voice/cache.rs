@@ -81,6 +81,21 @@ pub async fn get(pool: &SqlitePool, key: &Key<'_>, now: DateTime<Utc>) -> Result
     }))
 }
 
+/// How long a sound made before is, without counting it as used: what a
+/// lesson is planned with before anything is said. `None` when it has not
+/// been made.
+///
+/// # Errors
+///
+/// Fails when the database rejects the query.
+pub async fn length(pool: &SqlitePool, key: &Key<'_>) -> Result<Option<i64>> {
+    sqlx::query_scalar("SELECT duration_ms FROM audio WHERE key = ?")
+        .bind(key.hash())
+        .fetch_optional(pool)
+        .await
+        .context("failed to look a sound up in the audio cache")
+}
+
 /// Keeps a sound an engine has just made.
 ///
 /// Two requests for the same new sentence can both miss and both make it;

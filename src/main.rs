@@ -132,7 +132,17 @@ async fn serve(config: &config::Config) -> Result<()> {
     );
 
     let voices = voices(config)?;
-    let state = app::AppState::new(pool, config.password_hash.clone(), voices);
+    let mut state = app::AppState::new(pool, config.password_hash.clone(), voices);
+    state.lessons = hilvan::lesson::Lessons::new(config.ffmpeg.clone());
+    // A lesson being made when the server stopped is made by nothing now.
+    match hilvan::lesson::abandon(&state.pool).await {
+        Ok(0) => {}
+        Ok(abandoned) => tracing::info!(abandoned, "lessons left half made are marked failed"),
+        Err(error) => tracing::warn!(error = format!("{error:#}"), "lessons left half made could not be marked failed"),
+    }
+    if !hilvan::lesson::splice::available(&config.ffmpeg).await {
+        tracing::warn!(ffmpeg = %config.ffmpeg.display(), "ffmpeg does not answer: audio lessons cannot be made; set HILVAN_FFMPEG");
+    }
     // The texts are read once while the server already answers: a library
     // of books is seconds of work on a Pi, and the first list should not
     // wait for it.

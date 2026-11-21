@@ -396,6 +396,22 @@ impl Voices {
         if !material::speakable(pool, language, text).await? {
             return Err(SpeakError::NotInMaterial(text.to_string()));
         }
+        self.line(pool, language, text, tempo).await
+    }
+
+    /// Says a line the tutor chose itself - one of a lesson's - in the voice
+    /// of its language, from the cache when it has been said before.
+    ///
+    /// Not checked against the material, because nobody outside asked for
+    /// it: the server builds a lesson from its own sentences, and a lesson
+    /// says a word's gloss, which no client may ask for on its own.
+    ///
+    /// # Errors
+    ///
+    /// [`SpeakError::NoVoice`] when nothing speaks the language,
+    /// [`SpeakError::Engine`] when the engine fails.
+    pub async fn line(&self, pool: &SqlitePool, language: &str, text: &str, tempo: Tempo) -> Result<cache::Sound, SpeakError> {
+        let text = text.trim();
         let spoken = self.spoken(pool, language).await?.ok_or_else(|| SpeakError::NoVoice(language.to_string()))?;
         match spoken.voice.engine {
             Engine::Piper => {
@@ -408,6 +424,52 @@ impl Voices {
             }
         }
     }
+
+    /// What saying a line would take, asked before it is said: how long it
+    /// is when the cache has it, and what it would cost the paid voice.
+    /// What a lesson is planned and priced with before a credit is spent.
+    ///
+    /// # Errors
+    ///
+    /// [`SpeakError::NoVoice`] when nothing speaks the language.
+    pub async fn quote(&self, pool: &SqlitePool, language: &str, text: &str, tempo: Tempo) -> Result<Quote, SpeakError> {
+        let text = text.trim();
+        let spoken = self.spoken(pool, language).await?.ok_or_else(|| SpeakError::NoVoice(language.to_string()))?;
+        let no_voice = || SpeakError::NoVoice(language.to_string());
+        let cached_ms = match spoken.voice.engine {
+            Engine::Piper => cached_length(pool, self.piper.as_deref().ok_or_else(no_voice)?, &spoken.voice.id, language, text, tempo).await?,
+            Engine::ElevenLabs => cached_length(pool, self.elevenlabs.as_deref().ok_or_else(no_voice)?, &spoken.voice.id, language, text, tempo).await?,
+        };
+        let credits = match (spoken.voice.engine, cached_ms) {
+            (Engine::ElevenLabs, None) => elevenlabs::estimate(text),
+            _ => 0,
+        };
+        Ok(Quote { cached_ms, credits })
+    }
+}
+
+/// A line before it is said: see [`Voices::quote`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Quote {
+    /// How long it is, when the cache has it already.
+    pub cached_ms: Option<i64>,
+    /// What saying it would cost: nothing when it is cached, or when a
+    /// local engine speaks its language.
+    pub credits: i64,
+}
+
+/// How long a line is in the cache, without counting it as used.
+async fn cached_length<S: Speaker>(pool: &SqlitePool, speaker: &S, voice: &str, language: &str, text: &str, tempo: Tempo) -> Result<Option<i64>> {
+    let settings = speaker.settings(tempo);
+    let key = cache::Key {
+        engine: speaker.engine(),
+        voice,
+        model: speaker.model(),
+        settings: &settings,
+        language,
+        text,
+    };
+    cache::length(pool, &key).await
 }
 
 /// One engine behind the cache: served if it was made before, made and kept

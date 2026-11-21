@@ -501,15 +501,61 @@ export interface VoicesScreen {
   budget: Budget | null
 }
 
-/** A sentence of the listening mode. */
-export interface Heard {
-  formula: string
-  /** What is heard. */
-  target: string
-  /** What it means. */
+/** Which side of a phrase a lesson asks for: say it, or understand it. */
+export type Asks = 'produce' | 'recognise'
+
+/** The card a phrase heard in a lesson answers. */
+export type CardRef = { kind: 'formula'; id: string; direction: Direction } | { kind: 'word'; id: string }
+
+/** One phrase of an audio lesson, and the card it answers. */
+export interface Phrase {
+  card: CardRef
+  /** What it means, in the learner's own language. */
   native: string
-  /** The language `target` is in. */
-  language: string
+  /** The phrase, in the language being learnt. */
+  target: string
+  asks: Asks
+  /** Heard for the first time in this lesson. */
+  fresh: boolean
+}
+
+/** A stretch of a lesson's file: one phrase heard for the first time, or asked. */
+export interface Stretch {
+  /** The phrase, by its place in the lesson's list. */
+  phrase: number
+  turn: 'heard' | 'asked'
+  start_ms: number
+  end_ms: number
+}
+
+/** An audio lesson, as the tutor makes it. */
+export interface Lesson {
+  id: number
+  asked_at: string
+  minutes: number
+  state: 'building' | 'ready' | 'failed'
+  /** Why it failed, in words to act on. */
+  error: string | null
+  /** While it is being made: the lines said so far, of how many. */
+  done: number
+  total: number
+  built_at: string | null
+  length_ms: number | null
+  /** What its new lines cost the paid voice. */
+  credits: number
+  /** In the order first heard; empty until ready. */
+  phrases: Phrase[]
+  chapters: Stretch[]
+}
+
+/** What the lesson screen opens on. */
+export interface Lessons {
+  /** The length the learner likes, in minutes. */
+  minutes: number
+  /** The lengths there are. */
+  lengths: number[]
+  /** The lessons kept, the latest first. */
+  lessons: Lesson[]
 }
 
 /** A word the inventory asks about. */
@@ -750,6 +796,12 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await respond(path, init)).json()) as T
 }
 
+/** Where a lesson is read, without `/api`. */
+export const lessonPath = (id: number): string => `/lessons/${id}`
+
+/** Where a lesson's file is fetched from. */
+export const lessonAudioUrl = (id: number): string => `/api/lessons/${id}/audio`
+
 export const api = {
   session: () => call<Session>('/session'),
   logIn: (password: string) => call<Session>('/session', { method: 'POST', body: JSON.stringify({ password }) }),
@@ -769,7 +821,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ engine: voice.engine, voice: voice.id }),
     }),
-  listen: () => call<{ sentences: Heard[] }>('/listen').then((body) => body.sentences),
+  lessons: () => call<Lessons>('/lessons'),
+  /** Asks for a lesson of `minutes`; it is made on the stand, and followed by its id. */
+  askLesson: (minutes: number) => call<Lesson>('/lessons', { method: 'POST', body: JSON.stringify({ minutes }) }),
+  lesson: (id: number) => call<Lesson>(lessonPath(id)),
   ownWords: () => call<{ words: OwnWord[] }>('/own-words').then((body) => body.words),
   addOwnWord: (kind: OwnKind, native: string, target: string) =>
     call<OwnWord>('/own-words', { method: 'POST', body: JSON.stringify({ kind, native, target }) }),

@@ -26,12 +26,13 @@ use crate::breaks;
 use crate::drift;
 use crate::import::{self, web};
 use crate::inventory;
+use crate::lesson::{self, AskError, Lessons};
 use crate::lexicon;
 use crate::model;
 use crate::own::{self, NewWord, Refused};
 use crate::reading::{self, Addition, Arrival, Library, Place};
 use crate::shelf;
-use crate::study::{self, Answer, AnswerError, Graded, Sent};
+use crate::study::{self, Answer, AnswerError, Graded, Heard, Sent};
 use crate::voice::{self, Engine, SpeakError, Tempo, Voices};
 use crate::words;
 
@@ -46,6 +47,9 @@ pub struct AppState {
     pub library: Library,
     /// What a text by a link is fetched with.
     pub web: reqwest::Client,
+    /// What audio lessons are made with: `ffmpeg` on the path, unless the
+    /// server is told another.
+    pub lessons: Lessons,
 }
 
 impl AppState {
@@ -61,6 +65,7 @@ impl AppState {
                 tracing::error!(%error, "the client for links could not start; links will not be followed");
                 reqwest::Client::new()
             }),
+            lessons: Lessons::new(PathBuf::from("ffmpeg")),
         }
     }
 }
@@ -104,7 +109,10 @@ pub fn routes(state: AppState, web_dir: &Path) -> Router {
         .route("/shelf/{id}", post(take_from_shelf))
         .route("/picks/anki", get(anki_file))
         .route("/speech", get(speech))
-        .route("/listen", get(listen))
+        .route("/lessons", get(lessons).post(ask_for_lesson))
+        .route("/lessons/{id}", get(lesson_one))
+        .route("/lessons/{id}/audio", get(lesson_audio))
+        .route("/heard", post(review_heard))
         .route("/voices", get(voices_screen))
         .route("/voices/{language}", put(choose_voice))
         .route("/inventory", get(inventory_run).post(inventory_answer))
@@ -804,10 +812,85 @@ fn speak_failed(error: &SpeakError) -> Response {
     (status, Json(json!({ "error": error.to_string() }))).into_response()
 }
 
-async fn listen(State(state): State<AppState>) -> Response {
-    match voice::material::listening(&state.pool).await {
-        Ok(heard) => Json(json!({ "sentences": heard })).into_response(),
-        Err(error) => failed("the sentences to listen to could not be read", &error),
+/// What the lesson screen opens on: the length the learner likes, the
+/// lengths there are, and the lessons kept, the latest first.
+#[derive(Serialize)]
+struct LessonsScreen {
+    minutes: u32,
+    lengths: [u32; 3],
+    lessons: Vec<lesson::Lesson>,
+}
+
+async fn lessons(State(state): State<AppState>) -> Response {
+    let read = async {
+        let minutes = lesson::chosen_minutes(&state.pool).await?.unwrap_or(lesson::DEFAULT_MINUTES);
+        anyhow::Ok(LessonsScreen {
+            minutes,
+            lengths: lesson::LENGTHS,
+            lessons: lesson::list(&state.pool).await?,
+        })
+    };
+    match read.await {
+        Ok(screen) => Json(screen).into_response(),
+        Err(error) => failed("the lessons could not be read", &error),
+    }
+}
+
+#[derive(Deserialize)]
+struct LessonAsked {
+    minutes: u32,
+}
+
+/// Asks for a lesson. It is made in the background, so the answer is 202
+/// and the lesson as it starts; the app follows it by its id.
+async fn ask_for_lesson(State(state): State<AppState>, Json(asked): Json<LessonAsked>) -> Response {
+    let id = match state.lessons.ask(&state.pool, &state.voices, asked.minutes, Utc::now()).await {
+        Ok(id) => id,
+        Err(error @ AskError::Length(_)) => return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": error.to_string() }))).into_response(),
+        Err(AskError::Internal(error)) => return failed("the lesson could not be started", &error),
+    };
+    match lesson::get(&state.pool, id).await {
+        Ok(Some(lesson)) => (StatusCode::ACCEPTED, Json(lesson)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "the lesson is gone" }))).into_response(),
+        Err(error) => failed("the lesson could not be read", &error),
+    }
+}
+
+async fn lesson_one(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match lesson::get(&state.pool, id).await {
+        Ok(Some(lesson)) => Json(lesson).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": format!("there is no lesson {id}") }))).into_response(),
+        Err(error) => failed("the lesson could not be read", &error),
+    }
+}
+
+/// A lesson's file. It never changes once made, so the browser may keep it
+/// for good; the app downloads it whole and plays it from the device.
+async fn lesson_audio(State(state): State<AppState>, UrlPath(id): UrlPath<i64>) -> Response {
+    match lesson::audio(&state.pool, id).await {
+        Ok(Some(bytes)) => (
+            [
+                (header::CONTENT_TYPE, "audio/mpeg".to_string()),
+                (header::ETAG, format!("\"lesson-{id}\"")),
+                (header::CACHE_CONTROL, "private, max-age=31536000, immutable".to_string()),
+                (header::CONTENT_DISPOSITION, format!("inline; filename=\"hilvan-lesson-{id}.mp3\"")),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("lesson {id} has no sound: it is not ready, or it is gone") })),
+        )
+            .into_response(),
+        Err(error) => failed("the lesson's sound could not be read", &error),
+    }
+}
+
+async fn review_heard(State(state): State<AppState>, Json(sent): Json<Sent<Heard>>) -> Response {
+    match study::review_heard(&state.pool, sent, Utc::now()).await {
+        Ok(reviewed) => Json(reviewed).into_response(),
+        Err(error) => answer_failed(error),
     }
 }
 

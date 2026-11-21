@@ -1070,6 +1070,97 @@ pub async fn review_word(pool: &SqlitePool, word_id: &str, sent: Sent<Graded>, n
     Ok(reviewed)
 }
 
+/// The card an answer heard in a lesson is for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum CardRef {
+    /// A formula, one way round.
+    Formula {
+        id: String,
+        direction: Direction,
+    },
+    Word {
+        id: String,
+    },
+}
+
+impl CardRef {
+    fn kind(&self) -> (Kind, &str) {
+        match self {
+            Self::Formula { id, direction } => (Kind::Formula(*direction), id),
+            Self::Word { id } => (Kind::Word, id),
+        }
+    }
+}
+
+/// What the learner sends back after a lesson, one phrase at a time: the
+/// card it was, and how it went - held, or slipped.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Heard {
+    pub card: CardRef,
+    pub rating: Rating,
+}
+
+/// Records an answer heard in an audio lesson and reschedules its card.
+///
+/// The learner said it aloud in the pause and graded it afterwards: the
+/// answer moves the card the way a graded card does, marked heard, with no
+/// time and nothing typed. A word heard for the first time is anchored in
+/// the sentence the lesson said it in, as one answered on a card is.
+///
+/// # Errors
+///
+/// `NotFound` when there is no such card, `Unanswerable` for an answer
+/// without an identity, `Database` when the database rejects a statement.
+pub async fn review_heard(pool: &SqlitePool, sent: Sent<Heard>, now: DateTime<Utc>) -> Result<Reviewed, AnswerError> {
+    let arrival = Arrival::of(&sent, now)?;
+    if let Some(reply) = receipt(pool, arrival.id).await? {
+        return Ok(reply);
+    }
+    let (kind, subject) = sent.answer.card.kind();
+    let reviewed = take(pool, &arrival, kind, subject, Given::heard(sent.answer.rating), &[])
+        .await?
+        .ok_or_else(|| AnswerError::NotFound(format!("{} called {subject}", kind.as_str_for_people())))?;
+    if kind == Kind::Word {
+        words::anchor(pool, subject).await?;
+    }
+    Ok(reviewed)
+}
+
+/// What an audio lesson is made from: today's queue in its own order - what
+/// is due first, then what is new - and after it the cards coming back over
+/// the next [`COMING_DAYS`] days, the soonest first: what is about to be
+/// forgotten, for a lesson longer than the day's queue. Nothing on a break:
+/// the schedule waits, and so does the lesson.
+///
+/// # Errors
+///
+/// Fails when the database rejects a query.
+pub async fn by_ear(pool: &SqlitePool, now: DateTime<Utc>) -> Result<Vec<Due>> {
+    let today = today(pool, now).await?;
+    if today.on_break.is_some() {
+        return Ok(Vec::new());
+    }
+    let stops = breaks::of(&breaks::all(pool).await?);
+    let horizon = now + Duration::days(COMING_DAYS);
+    let mut coming: Vec<(DateTime<Utc>, Due)> = Vec::new();
+    // What is back by now is in the queue already.
+    for (id, direction, back) in formulas_coming(pool, horizon, &stops).await? {
+        if back > now {
+            coming.push((back, due(pool, &id, direction, false, now).await?));
+        }
+    }
+    for (id, back) in words::coming(pool, horizon, &stops).await? {
+        if back > now {
+            coming.push((back, word_due(pool, &id, false, now).await?));
+        }
+    }
+    coming.sort_by_key(|(back, _)| *back);
+    let mut queue = today.queue;
+    queue.extend(coming.into_iter().map(|(_, due)| due));
+    Ok(queue)
+}
+
 /// An answer as the device sends it: the identity the device minted for it,
 /// the moment it was given by the device's clock, and the answer itself.
 ///
@@ -1232,6 +1323,7 @@ pub(crate) async fn declare(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, word_i
     let given = Given {
         rating: Rating::Easy,
         source: Source::Declared,
+        heard: false,
         duration_ms: None,
         attempts: &[],
     };
@@ -1384,6 +1476,9 @@ pub(crate) async fn replay(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: K
 struct Given<'a> {
     rating: Rating,
     source: Source,
+    /// Heard in an audio lesson and graded afterwards, rather than asked on
+    /// a card.
+    heard: bool,
     /// How long it took, when the client measured it.
     duration_ms: Option<i64>,
     /// The turns typed for it; none for an answer that was not typed.
@@ -1395,8 +1490,20 @@ impl<'a> Given<'a> {
         Self {
             rating,
             source: Source::Asked,
+            heard: false,
             duration_ms,
             attempts,
+        }
+    }
+
+    /// An answer said aloud in a lesson: untimed, nothing typed.
+    const fn heard(rating: Rating) -> Self {
+        Self {
+            rating,
+            source: Source::Asked,
+            heard: true,
+            duration_ms: None,
+            attempts: &[],
         }
     }
 }
@@ -1420,6 +1527,7 @@ async fn record(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subjec
     let Given {
         rating,
         source,
+        heard,
         duration_ms,
         attempts,
     } = given;
@@ -1428,14 +1536,15 @@ async fn record(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: Kind, subjec
     // in full so the schedule can be recomputed when the memory model
     // changes (ADR 0003).
     let review: Option<i64> = sqlx::query_scalar(
-        "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source)
-         SELECT id, ?, ?, 0.0, 0.0, 0.0, ?, ? FROM card WHERE kind = ? AND subject_id = ?
+        "INSERT INTO review (card_id, rating, reviewed_at, elapsed_days, stability, difficulty, duration_ms, source, heard)
+         SELECT id, ?, ?, 0.0, 0.0, 0.0, ?, ?, ? FROM card WHERE kind = ? AND subject_id = ?
          RETURNING id",
     )
     .bind(rating.as_i64())
     .bind(at.to_rfc3339())
     .bind(duration_ms)
     .bind(source.as_str())
+    .bind(i64::from(heard))
     .bind(kind.as_str())
     .bind(subject)
     .fetch_optional(&mut **tx)

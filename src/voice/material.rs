@@ -11,8 +11,7 @@
 //! of ten thousand words, not free text.
 
 use anyhow::{Context, Result};
-use serde::Serialize;
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 
 use crate::lexicon;
 use crate::say::{Template, every_sentence};
@@ -102,61 +101,10 @@ pub async fn sample_in(pool: &SqlitePool, language: &str) -> Result<Option<Strin
     .context("failed to find a sample sentence")
 }
 
-/// A sentence for the listening mode: heard in the language being learnt,
-/// recalled, then read with its meaning.
-#[derive(Debug, Clone, Serialize)]
-pub struct Heard {
-    pub formula: String,
-    /// What is heard.
-    pub target: String,
-    /// What it means.
-    pub native: String,
-    /// The language `target` is said in.
-    pub language: String,
-}
-
-/// Every sample of every formula the learner has started, in either
-/// direction.
-///
-/// Samples only: a substitution's meaning in the learner's own language is a
-/// scaffold, and "what does it mean?" deserves a real sentence as its answer.
-/// Material not yet shown is left out - listening to a shape nobody has
-/// taught is noise.
-///
-/// # Errors
-///
-/// Fails when the database rejects the query.
-pub async fn listening(pool: &SqlitePool) -> Result<Vec<Heard>> {
-    let rows = sqlx::query(
-        "SELECT f.id, s.text AS target, COALESCE(t.text, '') AS native, p.target AS language FROM formula_sentence fs
-         JOIN sentence s ON s.id = fs.sentence_id
-         JOIN formula f ON f.id = fs.formula_id
-         JOIN pack p ON p.id = f.pack_id
-         LEFT JOIN sentence_translation t ON t.sentence_id = s.id AND t.language = p.native
-         WHERE EXISTS (SELECT 1 FROM card c WHERE c.kind IN ('formula', 'formula-recognise') AND c.subject_id = f.id AND c.state != 'new')
-         ORDER BY f.position, fs.position",
-    )
-    .fetch_all(pool)
-    .await
-    .context("failed to gather the sentences to listen to")?;
-    Ok(rows
-        .iter()
-        .map(|row| Heard {
-            formula: row.get("id"),
-            target: row.get("target"),
-            native: row.get("native"),
-            language: row.get("language"),
-        })
-        .collect())
-}
-
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-
     use super::*;
     use crate::pack;
-    use crate::study::{Answer, Asked, Turn};
 
     async fn taught() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -258,27 +206,5 @@ gloss = "дом"
                 "the voices screen offered {sample:?}, which is refused"
             );
         }
-    }
-
-    #[tokio::test]
-    async fn listening_draws_on_what_has_been_started() {
-        let pool = taught().await;
-        assert!(listening(&pool).await.unwrap().is_empty(), "nothing started, nothing to listen to");
-
-        let sentence = study::formula(&pool, "be").await.unwrap().samples[0].sentence;
-        let answer = Answer::Produce {
-            turns: vec![Turn {
-                asked: Asked::Sample(sentence),
-                typed: "I am at home.".to_string(),
-            }],
-            easy: false,
-            duration_ms: None,
-        };
-        study::review(&pool, "be", study::arriving(answer), Utc::now()).await.unwrap();
-        let heard = listening(&pool).await.unwrap();
-        assert_eq!(heard.len(), 1);
-        assert_eq!(heard[0].target, "I am at home.");
-        assert_eq!(heard[0].native, "Я дома.");
-        assert_eq!(heard[0].language, "en");
     }
 }

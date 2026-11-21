@@ -24,6 +24,7 @@ The name is the Spanish *hilván*, a basting stitch: phrases are first tacked in
 - **Typed, checked, mended by cause.** You type the sentence; the tutor checks it, tells a slipped shape from a missed word or the wrong order, grades the formula itself, and sends a missed word back to its own card. Nouns and verbs of your own life go into the drill beside the pack's.
 - **Words from the sentences you meet.** Each worked example marks the words it teaches; a word opens once you have met its sentence, is asked in that sentence by ear, and counts toward the commonest 1,000, 2,000 and 5,000 words of English.
 - **Every sentence heard.** The language you learn is spoken by a native ElevenLabs voice, your own by Piper running beside the tutor - slowly while a formula is new, at speaking speed once it holds. Each sound is made once and kept, and the paid budget shows how long it will last.
+- **Today by ear.** The day's cards become an audio lesson of 15, 25 or 40 minutes, Pimsleur's way: a question in your language, a pause to answer aloud, the answer in a native voice, room to say it again - each phrase back at growing intervals. It downloads to the phone, plays on a walk, and moves the schedule once you say how it went.
 - **Any text, measured.** A book, an article, a link or subtitles: the reader says how much of it and of each chapter is already yours, glosses any word you tap, and puts the ones you do not know into the deck with the sentence you met them in. A shelf of open books and articles, and the tutor picks the next one at your level.
 - **A start from what you know.** On the first evening the commonest words go by one at a time; the ones you know start sewn and are checked when a sentence brings them, so the levels begin where you are, not at zero.
 - **Your learner model, yours.** Every answer, own word, inventory answer and text downloads as one JSON file with a [published schema](https://lacodda.github.io/hilvan/reference/learner-model/), imports on another stand, and shows any past day beside today.
@@ -64,6 +65,7 @@ Everything comes from the environment; a `.env` file is read first, and `.env.ex
 | `HILVAN_PASSWORD_HASH` | no | unset | Argon2 hash of the learner's password, from `hilvan hash`. Unset leaves the stand open to anyone who can reach it, and the server says so at startup. |
 | `HILVAN_PIPER_URL` | no | unset | The Piper voice service for your own language; the compose files run it and set this. |
 | `HILVAN_ELEVENLABS_KEY` | no | unset | ElevenLabs key the language being learnt is spoken with. Unset means Piper speaks it too. |
+| `HILVAN_FFMPEG` | no | `ffmpeg` | The ffmpeg audio lessons are spliced with; the image has one on the path. Without it everything but the lessons works. |
 | `RUST_LOG` | no | `hilvan=info,tower_http=info` | Log filter, in `tracing-subscriber` `EnvFilter` syntax. |
 
 ## Status

@@ -6,7 +6,7 @@
  * underground does.
  */
 
-import type { Choice, Rating, Reviewed, Turn } from '@/api'
+import type { CardRef, Choice, Rating, Reviewed, Turn } from '@/api'
 import { countWaiting, delivered } from '@/delivery'
 import { enqueue, mintId } from '@/outbox'
 import { formulaCard, pairCard, wordCard } from '@/sitting'
@@ -29,9 +29,9 @@ export function tookSince(startedAt: number | null): number | null {
 /** What became of an answer: the tutor's reply, or kept here for later. */
 export type Outcome = { kind: 'taken'; reviewed: Reviewed } | { kind: 'kept' }
 
-async function give(path: string, card: string, answer: Record<string, unknown>): Promise<Outcome> {
+async function give(path: string, card: string, answer: Record<string, unknown>, at: number = Date.now()): Promise<Outcome> {
   const answerId = mintId()
-  const answeredAt = Date.now()
+  const answeredAt = at
   await enqueue({
     answerId,
     path,
@@ -71,4 +71,18 @@ export function answerPair(id: string, choices: Choice[], durationMs: number | n
 /** A word, recalled in its sentence and graded by the learner. */
 export function answerWord(id: string, rating: Rating, durationMs: number | null): Promise<Outcome> {
   return give(`/words/${encodeURIComponent(id)}/review`, wordCard(id), { rating, duration_ms: durationMs })
+}
+
+/** The key a card answered by ear is kept under on the device: the same as the card's own. */
+export function keyOf(card: CardRef): string {
+  return card.kind === 'formula' ? formulaCard(card.id, card.direction) : wordCard(card.id)
+}
+
+/**
+ * A phrase heard in a lesson, graded by the learner afterwards: held or
+ * slipped. Taken at `at`, the moment it was heard - on a walk an hour ago,
+ * not when the list was sent.
+ */
+export function answerByEar(card: CardRef, held: boolean, at: number): Promise<Outcome> {
+  return give('/heard', keyOf(card), { card, rating: held ? 'good' : 'again' }, at)
 }

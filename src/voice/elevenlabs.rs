@@ -25,6 +25,15 @@ pub const MODEL: &str = "eleven_flash_v2_5";
 /// say what the sentence cost.
 const CREDITS_PER_CHAR: f64 = 0.5;
 
+/// What saying a text is expected to cost, by the plan's rate: what a lesson
+/// is priced with before it is made.
+#[must_use]
+#[allow(clippy::cast_possible_truncation)]
+pub fn estimate(text: &str) -> i64 {
+    let chars = f64::from(u32::try_from(text.chars().count()).unwrap_or(u32::MAX));
+    (chars * CREDITS_PER_CHAR).ceil() as i64
+}
+
 /// MP3 at 44.1 kHz and 64 kbps: clear speech at half the size of the default.
 const OUTPUT_FORMAT: &str = "mp3_44100_64";
 
@@ -199,9 +208,7 @@ impl Speaker for ElevenLabs {
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<i64>().ok());
         let bytes = response.bytes().await.context("ElevenLabs' answer broke off")?.to_vec();
-        let chars = f64::from(u32::try_from(text.chars().count()).unwrap_or(u32::MAX));
-        #[allow(clippy::cast_possible_truncation)]
-        let estimated = (chars * CREDITS_PER_CHAR).ceil() as i64;
+        let estimated = estimate(text);
         Ok(Speech {
             duration_ms: i64::try_from(bytes.len()).unwrap_or(i64::MAX) / BYTES_PER_MS,
             bytes,

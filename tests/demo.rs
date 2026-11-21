@@ -54,7 +54,7 @@ async fn tutor() -> (SqlitePool, tempfile::TempDir) {
 }
 
 fn schema() -> jsonschema::Validator {
-    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-5.json")).expect("the schema should be in the docs");
+    let text = std::fs::read_to_string(root().join("docs/site/public/schema/learner-model-6.json")).expect("the schema should be in the docs");
     let schema: Json = serde_json::from_str(&text).expect("the schema should be JSON");
     jsonschema::options()
         .should_validate_formats(true)
@@ -518,6 +518,7 @@ fn lines(model: &Model) -> String {
         list("anchors", &model.anchors),
         list("own_words", &model.own_words),
         list("voices", &model.voices),
+        one("lesson_minutes", &model.lesson_minutes),
         list("inventory", &model.inventory),
         list("breaks", &model.breaks),
         list("texts", &model.texts),
