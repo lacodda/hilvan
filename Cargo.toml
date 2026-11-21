@@ -40,13 +40,13 @@ argon2 = "0.6.0"
 axum = "0.8.9"
 axum-extra = { version = "0.12.6", features = ["cookie"] }
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock", "std"] }
-clap = { version = "4.6.7", features = ["derive"] }
+clap = { version = "4.6.9", features = ["derive"] }
 dotenvy = "0.15.7"
 encoding_rs = "0.8.44"
 hilvan-core = { path = "crates/core" }
-html5gum = "0.9.1"
+html5gum = "0.9.2"
 pulldown-cmark = { version = "0.13.6", default-features = false }
-rand = "0.10.3"
+rand = "0.10.4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query"] }
 rpassword = "7.5.5"
 rs-fsrs = { version = "1.2.1", features = ["serde"] }
@@ -60,17 +60,17 @@ tempfile = "3.27.0"
 thiserror = "2.0.21"
 time = { version = "0.3.55", default-features = false }
 tokio = { version = "1.54.1", features = ["full"] }
-toml = "1.2.1"
+toml = "1.2.2"
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-zip = { version = "9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
 # Holds the exported learner model to its published JSON Schema. No HTTP or
 # file resolution: the schema is one self-contained file.
-jsonschema = { version = "0.61.2", default-features = false }
+jsonschema = { version = "0.62.0", default-features = false }
 tower = { version = "0.5.3", features = ["util"] }
 
 [lints]
